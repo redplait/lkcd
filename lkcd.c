@@ -379,6 +379,58 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
      }
      break; /* IOCTL_CNTANTFYCHAIN */
 
+    case IOCTL_ENUMSNTFYCHAIN:
+     {
+       // copy address of srcu_notifier_head and count from user-mode
+       struct srcu_notifier_head *nb;
+       unsigned long cnt;
+       if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 2) > 0 )
+ 	 return -EFAULT;
+       nb = (struct srcu_notifier_head *)ptrbuf[0];
+       cnt = ptrbuf[1];
+       // validation
+       if ( !cnt || !nb )
+         return EINVAL;
+       else
+       {
+         struct notifier_block *b;
+         unsigned long res = 0; // how many ntfy in reality
+         unsigned long *kbuf = (unsigned long *)kmalloc_array(cnt, sizeof(unsigned long), GFP_KERNEL);
+         if ( !kbuf )
+           return -ENOMEM;
+         // lock
+         mutex_lock(&nb->mutex);
+         // traverse
+         if ( nb->head != NULL )
+         {
+            for ( b = nb->head; (b != NULL) && (res < cnt); b = b->next )
+            {
+              kbuf[res] = (unsigned long)b->notifier_call;
+              res++;
+            }
+         }
+         // unlock
+         mutex_unlock(&nb->mutex);
+         // copy count to user-mode
+         if ( copy_to_user((void*)ioctl_param, (void*)&res, sizeof(res)) > 0 )
+         {
+           kfree(kbuf);
+           return -EFAULT;
+         }
+         if ( res )
+         {
+           if ( copy_to_user((void*)(ioctl_param + sizeof(res)), (void*)kbuf, sizeof(unsigned long) * res) > 0 )
+           {
+             kfree(kbuf);
+             return -EFAULT;
+           }
+         }
+         // cleanup
+         kfree(kbuf);
+       }
+     }
+     break; /* IOCTL_ENUMSNTFYCHAIN */
+
     case IOCTL_CNTSNTFYCHAIN:
      {
        // copy address of srcu_notifier_head from user-mode
