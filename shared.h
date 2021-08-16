@@ -15,4 +15,28 @@
 #define IOCTL_CNTSNTFYCHAIN            _IOR(IOCTL_NUM, 0x6, int*)
 #define IOCTL_ENUMSNTFYCHAIN           _IOR(IOCTL_NUM, 0x7, int*)
 
+// get registered trace_event count
+// in params:
+//  0 - rw_semaphore * (trace_event_sem)
+//  1 - event_hash address
+//  2 - index in event_hash
+#define IOCTL_TRACEV_CNT               _IOR(IOCTL_NUM, 0x8, int*)
+
+// output struct
+struct one_trace_event
+{
+  void *addr;
+  int type;
+  // callbacks from struct trace_event_functions *funcs;
+  void *trace;
+  void *raw;
+  void *hex;
+  void *binary;
+};
+// get registered trace_events
+// in params - the same as for IOCTL_TRACEV_CNT +
+//  3 - cnt
+// out params - long size + N * one_trace_event
+#define IOCTL_TRACEVENTS               _IOR(IOCTL_NUM, 0x9, int*)
+
 #endif /* LKCD_SHARED_H */

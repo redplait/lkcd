@@ -12,6 +12,7 @@
 #include <linux/mm.h>
 #include <linux/uaccess.h>
 #include <linux/vmalloc.h>
+#include <linux/trace_events.h>
 #include "shared.h"
 
 MODULE_LICENSE("GPL");
@@ -455,6 +456,97 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
  	 return -EFAULT;
      }
      break; /* IOCTL_CNTSNTFYCHAIN */
+
+    case IOCTL_TRACEV_CNT:
+     {
+       struct rw_semaphore *sem;
+       struct hlist_head *hash;
+       struct trace_event *event;
+       unsigned long res = 0;
+       if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 3) > 0 )
+ 	 return -EFAULT;
+       sem = (struct rw_semaphore *)ptrbuf[0];
+       hash = (struct hlist_head *)ptrbuf[1];
+       hash += ptrbuf[2];
+       // lock
+       down_write(sem);
+       // traverse
+       hlist_for_each_entry(event, hash, node) {
+         res++;
+       }
+       // unlock
+       up_write(sem);
+       // copy count to user-mode
+       if ( copy_to_user((void*)ioctl_param, (void*)&res, sizeof(res)) > 0 )
+ 	 return -EFAULT;
+     }
+     break; /* IOCTL_TRACEV_CNT */
+
+    case IOCTL_TRACEVENTS:
+     {
+       struct rw_semaphore *sem;
+       struct hlist_head *hash;
+       unsigned long cnt;
+       if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 4) > 0 )
+ 	 return -EFAULT;
+       sem = (struct rw_semaphore *)ptrbuf[0];
+       hash = (struct hlist_head *)ptrbuf[1];
+       hash += ptrbuf[2];
+       cnt = ptrbuf[3];
+       if ( !cnt )
+         return EINVAL;
+       else
+       {
+         struct trace_event *event;
+         unsigned long kbuf_size = cnt * sizeof(struct one_trace_event);
+         unsigned long res = 0; // how many events in reality
+         struct one_trace_event *curr;
+         char *kbuf = (char *)kmalloc(kbuf_size, GFP_KERNEL);
+         if ( !kbuf )
+           return -ENOMEM;
+         curr = (struct one_trace_event *)kbuf;
+         // lock
+         down_write(sem);
+         // traverse
+         hlist_for_each_entry(event, hash, node) {
+           if ( res >= cnt )
+             break;
+           curr->addr = event;
+           curr->type = event->type;
+           if ( event->funcs )
+           {
+             curr->trace  = event->funcs->trace;
+             curr->raw    = event->funcs->raw;
+             curr->hex    = event->funcs->hex;
+             curr->binary = event->funcs->binary;
+           } else
+            curr->trace = curr->raw = curr->hex = curr->binary = NULL;
+           // for next iteration
+           curr++;
+           res++;
+         }
+         // unlock
+         up_write(sem);
+         // write res
+         if ( copy_to_user((void*)ioctl_param, (void*)&res, sizeof(res)) > 0 )
+         {
+           kfree(kbuf);
+           return -EFAULT;
+         }
+         if ( res )
+         {
+           // write to usermode
+           if ( copy_to_user((void*)(ioctl_param + sizeof(res)), (void*)kbuf, sizeof(struct one_trace_event) * res) > 0 )
+           {
+              kfree(kbuf);
+              return -EFAULT;
+           }
+         }
+         // cleanup
+         kfree(kbuf);
+       }
+     }
+     break; /* IOCTL_TRACEVENTS */
 
     default:
      return -EINVAL;

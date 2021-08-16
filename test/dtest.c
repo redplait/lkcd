@@ -25,6 +25,48 @@ union ksym_params {
   char name[256];
 };
 
+const char hexes[] = "0123456789ABCDEF";
+
+void HexDump(unsigned char *From, int Len)
+{
+ int i;
+ int j,k;
+ char buffer[256];
+ char *ptr;
+
+ for(i=0;i<Len;)
+     {
+          ptr = buffer;
+          sprintf(ptr, "%08X ",i);
+          ptr += 9;
+          for(j=0;j<16 && i<Len;j++,i++)
+          {
+             *ptr++ = j && !(j%4)?(!(j%8)?'|':'-'):' ';
+             *ptr++ = hexes[From[i] >> 4];
+             *ptr++ = hexes[From[i] & 0xF];
+          }
+          for(k=16-j;k!=0;k--)
+          {
+            ptr[0] = ptr[1] = ptr[2] = ' ';
+            ptr += 3;
+
+          }
+          ptr[0] = ptr[1] = ' ';
+          ptr += 2;
+          for(;j!=0;j--)
+          {
+               if(From[i-j]>=0x20)
+                    *ptr = From[i-j];
+               else
+                    *ptr = '.';
+               ptr++;
+          }
+          *ptr = 0;
+          printf("%s\n", buffer);
+     }
+     printf("\n");
+}
+
 // kernel base and end
 unsigned long g_kstart = 0;
 unsigned long g_kend = 0;
@@ -166,11 +208,95 @@ void dump_chains(int fd, const struct chains *inchains, int count, int cnt_ioctl
     free(ntfy);
 }
 
+static size_t calc_trace_size(size_t n)
+{
+  return sizeof(unsigned long) + n * sizeof(struct one_trace_event);
+}
+
+void dump_trace_func(unsigned long addr, const char *fname)
+{
+   if ( is_inside_kernel(addr) )
+     printf("  %s %p - kernel\n", fname, (void *)addr);
+   else {
+    const char *mname = find_kmod(addr);
+    if ( mname )
+      printf("  %s %p - %s\n", fname, (void *)addr, mname);
+    else
+      printf("  %s %p UNKNOWN\n", fname, (void *)addr);
+   }
+}
+
+void dump_trace_events(int fd, unsigned long trace_sem, unsigned long event_hash)
+{
+  int err;
+  size_t i, j, curr_n = 3;
+  size_t size = calc_trace_size(curr_n);
+  unsigned long *traces = (unsigned long *)malloc(size);
+  struct one_trace_event *curr;
+  if ( traces == NULL )
+    return;
+  for ( i = 0; i < 128; i++ )
+  {
+    unsigned long cnt_param[3] = { trace_sem, event_hash, i };
+    err = ioctl(fd, IOCTL_TRACEV_CNT, (int *)cnt_param);
+    if ( err )
+    {
+      printf("cannot get count of trace_event for index %ld, error %d\n", i, err);
+      continue;
+    }
+    printf(" index[%ld]: %ld\n", i, cnt_param[0]);
+    if ( !cnt_param[0] )
+      continue;
+    if ( cnt_param[0] > curr_n )
+    {
+      unsigned long *tmp;
+      size = calc_trace_size(cnt_param[0]);
+      tmp = (unsigned long *)malloc(size);
+      if ( tmp == NULL )
+        break;
+      curr_n = cnt_param[0];
+      free(traces);
+      traces = tmp;
+    }
+    // ok, read bodies
+    traces[0] = trace_sem;
+    traces[1] = event_hash;
+    traces[2] = i;
+    traces[3] = cnt_param[0];
+    err = ioctl(fd, IOCTL_TRACEVENTS, (int *)traces);
+    if ( err )
+    {
+      printf("cannot get trace_events for index %ld, error %d\n", i, err);
+      continue;
+    }
+    // dump
+    size = traces[0];
+    curr = (struct one_trace_event *)(traces + 1);
+    for ( j = 0; j < size; j++, curr++ )
+    {
+      printf(" [%ld] at %p type %d\n", j, curr->addr, curr->type);
+      if ( curr->trace )
+         dump_trace_func((unsigned long)curr->trace, "trace");
+      if ( curr->raw )
+         dump_trace_func((unsigned long)curr->raw, "raw");
+      if ( curr->hex )
+         dump_trace_func((unsigned long)curr->hex, "hex");
+      if ( curr->binary )
+         dump_trace_func((unsigned long)curr->binary, "binary");
+    }
+  }
+  // cleanup
+  if ( traces != NULL )
+    free(traces);
+}
+
 int main(int argc, char **argv)
 {
   int fd;
   union ksym_params kparm;
   unsigned long addr;
+  unsigned long trace_sem = 0;
+  unsigned long event_hash = 0;
   int err = 0;
   size_t i;
   // open device
@@ -222,10 +348,34 @@ int main(int argc, char **argv)
   }
   g_kend = kparm.addr;
   // next test chained ntfy
+  printf("chained ntfy:\n");
   dump_chains(fd, srcu_chains, sizeof(srcu_chains) / sizeof(srcu_chains[0]), IOCTL_CNTSNTFYCHAIN, IOCTL_ENUMSNTFYCHAIN);
+  printf("\nsrcu chained ntfy:\n");
   dump_chains(fd, s_chains, sizeof(s_chains) / sizeof(s_chains[0]), IOCTL_CNTNTFYCHAIN, IOCTL_ENUMNTFYCHAIN);
-  // atomic chains
+  printf("\natomic chained ntfy:\n");
   dump_chains(fd, a_chains, sizeof(a_chains) / sizeof(a_chains[0]), IOCTL_CNTANTFYCHAIN, IOCTL_ENUMANTFYCHAIN);
+  // trace events
+  strcpy(kparm.name, "trace_event_sem");
+  err = ioctl(fd, IOCTL_RKSYM, (int *)&kparm);
+  if ( err )
+  {
+    printf("IOCTL_RKSYM trace_event_sem failed, error %d\n", err);
+    goto end;
+  }
+  trace_sem = kparm.addr;
+  strcpy(kparm.name, "event_hash");
+  err = ioctl(fd, IOCTL_RKSYM, (int *)&kparm);
+  if ( err )
+  {
+    printf("IOCTL_RKSYM event_hash failed, error %d\n", err);
+    goto end;
+  }
+  event_hash = kparm.addr;
+  if ( event_hash && kparm.addr )
+  {
+    printf("\ntrace events: trace_sem %p event_hash %p\n", (void *)trace_sem, (void *)event_hash);
+    dump_trace_events(fd, trace_sem, event_hash);
+  }
 end:
   // cleanup
   close(fd);
