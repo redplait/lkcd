@@ -11,6 +11,7 @@
 #include <errno.h>
 #include "shared.h"
 #include "kmods.h"
+#include "kopts.h"
 
 // some kernel typedefs
 typedef uint64_t u64;
@@ -311,6 +312,12 @@ int main(int argc, char **argv)
   if ( err )
   {
     printf("init_kmods failed, error %d\n", err);
+    goto end;
+  }
+  err = init_kopts();
+  if ( err )
+  {
+    printf("init_kopts failed, error %d\n", err);
     goto end;
   }
   // first try to extract some well known exported symbol
