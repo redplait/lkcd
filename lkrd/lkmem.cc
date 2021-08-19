@@ -1,6 +1,3 @@
-// lkmem.cpp : This file contains the 'main' function. Program execution begins and ends there.
-//
-
 #include <iostream>
 #include "ksyms.h"
 #include <elfio/elfio_dump.hpp>
@@ -22,10 +19,10 @@ int main(int argc, char **argv)
    }
    if ( argc == 3 )
    {
-     int err = read_ksyms(argv[1]);
+     int err = read_ksyms(argv[2]);
      if ( err )
      {
-       printf("cannot read %s, error %d\n", argv[1], err);
+       printf("cannot read %s, error %d\n", argv[2], err);
        return err;
      }
      // make some tests
