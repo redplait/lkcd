@@ -1,4 +1,4 @@
-INCLUDE=-I../test -I../../ELFIO
+INCLUDE=-I../test -I../../ELFIO -DHAS_ELFIO
 
 %.o: %.cc
 	$(COMPILE.cc) $(INCLUDE) $(OUTPUT_OPTION) $<
