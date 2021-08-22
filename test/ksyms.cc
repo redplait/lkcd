@@ -55,6 +55,7 @@ class ksym_holder
 #endif /* HAS_ELFIO */
     const char *name_by_addr(a64);
     const char *lower_name_by_addr(a64);
+    const char *lower_name_by_addr_with_off(a64, size_t *);
     a64 get_addr(const char *name)
     {
       auto c = m_names.find(name);
@@ -62,6 +63,7 @@ class ksym_holder
         return c->second->addr;
       return 0;
     }
+    struct addr_sym *get_in_range(a64 start, a64 end, size_t *count);
   protected:
     std::list<one_sym> m_syms;
     std::map<const char *, one_sym *, namesComparer> m_names;
@@ -78,7 +80,7 @@ const char *ksym_holder::name_by_addr(a64 addr)
   const one_addr *found = std::lower_bound(m_addresses, m_addresses + m_asize, addr, [](const one_addr &l, a64 off) -> 
       bool { return l.addr < off; }
   );
-  if ( found ==  m_addresses + m_asize)
+  if ( found == m_addresses + m_asize)
     return NULL;
   if ( found->addr != addr )
     return NULL;
@@ -92,9 +94,66 @@ const char *ksym_holder::lower_name_by_addr(a64 addr)
   const one_addr *found = std::lower_bound(m_addresses, m_addresses + m_asize, addr, [](const one_addr &l, a64 off) -> 
       bool { return l.addr < off; }
   );
-  if ( found ==  m_addresses + m_asize)
+  if ( found == m_addresses + m_asize)
     return NULL;
+  if ( found->addr == addr )
+    found->sym->name.c_str();
+  if ( found == m_addresses )
+    return NULL;
+  found--;
   return found->sym->name.c_str();
+}
+
+const char *ksym_holder::lower_name_by_addr_with_off(a64 addr, size_t *off)
+{
+  if ( NULL == m_addresses )
+    return NULL;
+  const one_addr *found = std::lower_bound(m_addresses, m_addresses + m_asize, addr, [](const one_addr &l, a64 off) -> 
+      bool { return l.addr < off; }
+  );
+  if ( found == m_addresses + m_asize)
+    return NULL;
+  if ( found->addr == addr )
+  {
+    *off = 0;
+    return found->sym->name.c_str();
+  }
+  if ( found == m_addresses )
+    return NULL;
+  found--;
+  *off = addr - found->addr;
+  return found->sym->name.c_str();
+}
+
+struct addr_sym *ksym_holder::get_in_range(a64 start, a64 end_a, size_t *count)
+{
+  *count = 0;
+  if ( NULL == m_addresses )
+    return NULL;
+  auto end = m_addresses + m_asize;
+  one_addr *found = std::lower_bound(m_addresses, end, start, [](const one_addr &l, a64 off) -> 
+      bool { return l.addr < off; }
+  );
+  if ( found == end )
+    return NULL;
+  if ( found->addr < start )
+    found++;
+  // calc count  
+  for ( one_addr *curr = found; curr < end; curr++ )
+   if ( curr->addr >= end_a )
+   {
+     end = curr;
+     break;
+   }
+  *count = end - found;
+  if ( !*count )
+    return NULL;
+  // alloc mem
+  auto res = (addr_sym *)malloc(sizeof(addr_sym) * *count);
+  if ( NULL == res )
+    return res;
+  std::transform(found, end, res, [](one_addr &c) -> addr_sym { return { c.sym->name.c_str(), c.addr}; });
+  return res;
 }
 
 void ksym_holder::make_addresses()
@@ -255,6 +314,16 @@ const char *name_by_addr(a64 addr)
 const char *lower_name_by_addr(a64 addr)
 {
   return s_ksyms.lower_name_by_addr(addr);
+}
+
+const char *lower_name_by_addr_with_off(a64 addr, size_t *off)
+{
+  return s_ksyms.lower_name_by_addr_with_off(addr, off);
+}
+
+struct addr_sym *get_in_range(a64 start, a64 end, size_t *count)
+{
+  return s_ksyms.get_in_range(start, end, count);
 }
 
 #ifdef HAS_ELFIO
