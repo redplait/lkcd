@@ -1,6 +1,7 @@
 #include <iostream>
 #include <elfio/elfio_dump.hpp>
 #include "ksyms.h"
+#include "getopt.h"
 
 // ripped from https://github.com/unicorn-engine/unicorn/blob/master/qemu/include/elf.h
 /* ARM Aarch64 relocation types */
@@ -155,7 +156,7 @@ const char *find_addr(const elfio& reader, a64 addr)
     return NULL;
   if ( s->get_type() & SHT_NOBITS )
     return NULL;
-  return s->get_data() + (s->get_address() - addr);
+  return s->get_data() + (addr - s->get_address());
 }
 
 size_t filter_arm64_relocs(const elfio& reader, a64 start, a64 end, a64 fstart, a64 fend)
@@ -192,18 +193,39 @@ size_t filter_arm64_relocs(const elfio& reader, a64 start, a64 end, a64 fstart, 
 
 int main(int argc, char **argv)
 {
-   if ( argc < 2 )
+   // read options
+   int opt_f = 0;
+   int opt_v = 0;
+   int c;
+   while (1)
+   {
+     c = getopt(argc, argv, "fv");
+     if (c == -1)
+	break;
+
+     switch (c)
+     {
+ 	case 'f':
+ 	  opt_f = 1;
+         break;
+        case 'v':
+          opt_v = 1;
+         break;
+     }
+   }
+   if (optind == argc)
    {
      printf("%s usage: image [symbols]\n", argv[0]);
      return 1;
    }
    elfio reader;
    int has_syms = 0;
-   if ( !reader.load( argv[1] ) ) 
+   if ( !reader.load( argv[optind] ) ) 
    {
-      printf( "File %s is not found or it is not an ELF file\n", argv[1] );
+      printf( "File %s is not found or it is not an ELF file\n", argv[optind] );
       return 1;
    }
+   optind++;
    Elf_Half n = reader.sections.size();
    for ( Elf_Half i = 0; i < n; ++i ) { // For all sections
      section* sec = reader.sections[i];
@@ -216,12 +238,12 @@ int main(int argc, char **argv)
      }
    }
    // try to find symbols
-   if ( argc == 3 )
+   if ( optind != argc )
    {
-     int err = read_ksyms(argv[2]);
+     int err = read_ksyms(argv[optind]);
      if ( err )
      {
-       printf("cannot read %s, error %d\n", argv[2], err);
+       printf("cannot read %s, error %d\n", argv[optind], err);
        return err;
      }
      has_syms = 1;
@@ -233,6 +255,23 @@ int main(int argc, char **argv)
      printf("__start_mcount_loc: %p\n", (void *)a1);
      auto a2 = get_addr("__stop_mcount_loc");
      printf("__stop_mcount_loc: %p\n", (void *)a2);
+     if ( opt_f && a1 && a2 )
+     {
+       const a64 *data = (const a64 *)find_addr(reader, a1);
+       if ( data != NULL )
+       {
+         for ( a64 i = a1; i < a2; i += sizeof(a64) )
+         {
+           a64 addr = *data;
+           const char *name = lower_name_by_addr(addr);
+           if ( name != NULL )
+             printf("%p # %s\n", (void *)addr, name);
+           else
+             printf("%p\n", (void *)addr);
+           data++;
+         }
+       }
+     }
    }
    // enum sections
    Elf64_Addr text_start = 0;
