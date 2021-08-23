@@ -7,4 +7,6 @@ etc etc
 
 Sure contains poorly written buggy driver
 
-Also you need install elfio (https://github.com/serge1/ELFIO)
+# dependencies
+* elfio (https://github.com/serge1/ELFIO)
+* libudis86 (https://github.com/vmt/udis86)
