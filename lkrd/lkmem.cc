@@ -1,9 +1,20 @@
+#ifndef _MSC_VER
+#include <sys/ioctl.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+#include <unistd.h>
+#include <errno.h>
+#endif
+
 #include <iostream>
 #include <elfio/elfio_dump.hpp>
 #include "ksyms.h"
 #include "getopt.h"
 #include "x64_disasm.h"
 #include "arm64relocs.h"
+#include "../shared.h"
+#include "lk.h"
 
 int g_opt_v = 0;
 
@@ -20,6 +31,7 @@ void usage(const char *prog)
   printf("%s usage: [options] image [symbols]\n", prog);
   printf("Options:\n");
   printf("-b - check .bss section\n");
+  printf("-c - check memory. Achtung - you must first load lkcd driver\n");
   printf("-d - use disasm\n");
   printf("-f - dump ftraces\n");
   printf("-v - verbose mode\n");
@@ -139,11 +151,13 @@ int main(int argc, char **argv)
    // read options
    int opt_f = 0,
        opt_d = 0,
+       opt_c = 0,
        opt_b = 0;
    int c;
+   int fd = 0;
    while (1)
    {
-     c = getopt(argc, argv, "bfvd");
+     c = getopt(argc, argv, "bcfvd");
      if (c == -1)
 	break;
 
@@ -160,6 +174,9 @@ int main(int argc, char **argv)
          break;
         case 'd':
           opt_d = 1;
+         break;
+        case 'c':
+          opt_c = 1;
          break;
         default:
          usage(argv[0]);
@@ -229,6 +246,53 @@ int main(int argc, char **argv)
        }
      }
    }
+#ifndef _MSC_VER
+   sa64 delta = 0;
+   // open driver
+   if ( opt_c ) 
+   {
+     fd = open("/dev/lkcd", 0);
+     if ( -1 == fd )
+     {
+       printf("cannot open device, error %d\n", errno);
+       opt_c = 0;
+       goto end;
+     }
+     // find delta between symbols from system.map and loaded kernel
+     auto symbol_a = get_addr("group_balance_cpu");
+     if ( !symbol_a )
+     {
+       close(fd);
+       fd = 0;
+       opt_c = 0;
+       goto end;
+     } else {
+       if ( read_kernel_area(fd) )
+       {
+         close(fd);
+         fd = 0;
+         opt_c = 0;
+         goto end;
+       }
+       printf("group_balance_cpu from symbols: %p\n", (void *)symbol_a);
+       union ksym_params kparm;
+       strcpy(kparm.name, "group_balance_cpu");
+       int err = ioctl(fd, IOCTL_RKSYM, (int *)&kparm);
+       if ( err )
+       {
+         printf("IOCTL_RKSYM test failed, error %d\n", err);
+         close(fd);
+         fd = 0;
+         opt_c = 0;
+       } else {
+         printf("group_balance_cpu: %p\n", (void *)kparm.addr);
+         delta = (char *)kparm.addr - (char *)symbol_a;
+         printf("delta: %lX\n", delta);
+       }
+     }
+   }
+end:
+#endif /* _MSC_VER */
    // enum sections
    Elf64_Addr text_start = 0;
    Elf_Xword text_size = 0;
@@ -262,7 +326,7 @@ int main(int argc, char **argv)
        {
          a64 dstart = (a64)sec->get_address();
          count = filter_arm64_relocs(reader, dstart, dstart + sec->get_size(), (a64)text_start, (a64)(text_start + text_size));
-         printf("found %d\n", count);
+         printf("found %ld\n", count);
        } else {
          a64 *curr = (a64 *)sec->get_data();
          a64 *end  = (a64 *)((char *)curr + sec->get_size());
@@ -298,6 +362,22 @@ int main(int argc, char **argv)
                  }
                }
                printf("%p\n", (void *)curr_addr);
+             }
+             if ( opt_c )
+             {
+               char *ptr = (char *)curr_addr + delta;
+               char *arg = ptr;
+               int err = ioctl(fd, IOCTL_READ_PTR, (int *)&arg);
+               if ( err )
+                 printf("read at %p failed, error %d (%s)\n", ptr, errno, strerror(errno));
+               else
+               {
+                 char *real = (char *)addr + delta;
+                 if ( real != arg )
+                 {
+                   printf("mem at %p: %p (must be %p)\n", ptr, arg, real);
+                 }
+               }
              }
            }
          }
@@ -372,4 +452,6 @@ int main(int argc, char **argv)
        break;
      }
    }
+   if ( fd )
+     close(fd);
 }
