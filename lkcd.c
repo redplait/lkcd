@@ -205,6 +205,15 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
 //  unsigned long *ptr = ptrbuf;
   switch(ioctl_num)
   {
+    case IOCTL_READ_PTR:
+     {
+       if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long)) > 0 )
+ 	 return -EFAULT;
+       if ( copy_to_user((void*)ioctl_param, (void*)ptrbuf[0], sizeof(void *)) > 0 )
+ 	 return -EFAULT;
+     }
+     break; /* IOCTL_READ_PTR */
+
     case IOCTL_RKSYM:
      {
        char name[BUFF_SIZE];
@@ -558,6 +567,10 @@ static loff_t memory_lseek(struct file *file, loff_t offset, int orig)
 {
 	loff_t ret;
 
+#ifdef _DEBUG
+ printk(KERN_INFO "[+] lkcd_seek: %llX\n", offset);
+#endif /* _DEBUG */
+
 	inode_lock(file_inode(file));
 	switch (orig) {
 	case SEEK_CUR:
@@ -566,6 +579,9 @@ static loff_t memory_lseek(struct file *file, loff_t offset, int orig)
 	case SEEK_SET:
 		/* to avoid userland mistaking f_pos=-9 as -EBADF=-9 */
 		if ((unsigned long long)offset >= -MAX_ERRNO) {
+#ifdef _DEBUG
+  printk(KERN_INFO "[+] lkcd_seek overflow: %llX\n", offset);
+#endif /* _DEBUG */
 			ret = -EOVERFLOW;
 			break;
 		}
@@ -577,6 +593,9 @@ static loff_t memory_lseek(struct file *file, loff_t offset, int orig)
 		ret = -EINVAL;
 	}
 	inode_unlock(file_inode(file));
+#ifdef _DEBUG
+  printk(KERN_INFO "[+] lkcd_seek: %llX ret %lld\n", offset, ret);
+#endif /* _DEBUG */
 	return ret;
 }
 
@@ -597,6 +616,12 @@ static inline bool should_stop_iteration(void)
 	return fatal_signal_pending(current);
 }
 
+static ssize_t invalid_write(struct file *file, const char __user *buf,
+			 size_t count, loff_t *ppos)
+{
+  return -EPERM;
+}
+
 static ssize_t read_kmem(struct file *file, char __user *buf,
 			 size_t count, loff_t *ppos)
 {
@@ -604,6 +629,8 @@ static ssize_t read_kmem(struct file *file, char __user *buf,
 	ssize_t low_count, read, sz;
 	char *kbuf; /* k-addr because vread() takes vmlist_lock rwlock */
 	int err = 0;
+
+ printk(KERN_INFO "[+] lkcd_read: %lX at %lX\n", count, p);
 
 	read = 0;
 	if (p < (unsigned long) high_memory) {
@@ -665,6 +692,7 @@ static ssize_t read_kmem(struct file *file, char __user *buf,
 static const struct file_operations kmem_fops = {
 	.llseek		= memory_lseek,
 	.read		= read_kmem,
+	.write          = invalid_write,
 	.open		= open_lkcd,
 	.release        = close_lkcd,
 	.unlocked_ioctl	= lkcd_ioctl,

@@ -39,4 +39,7 @@ struct one_trace_event
 // out params - long size + N * one_trace_event
 #define IOCTL_TRACEVENTS               _IOR(IOCTL_NUM, 0x9, int*)
 
+// read one ptr at kernel addr
+#define IOCTL_READ_PTR                 _IOR(IOCTL_NUM, 0xa, int*)
+
 #endif /* LKCD_SHARED_H */
