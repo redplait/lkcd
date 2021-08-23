@@ -12,18 +12,13 @@
 #include "shared.h"
 #include "kmods.h"
 #include "kopts.h"
+#include "lk.h"
 
 // some kernel typedefs
 typedef uint64_t u64;
 // from include/linux/types.h
 struct list_head {
 	struct list_head *next, *prev;
-};
-
-// ksym
-union ksym_params {
-  unsigned long addr;
-  char name[256];
 };
 
 const char hexes[] = "0123456789ABCDEF";
@@ -66,15 +61,6 @@ void HexDump(unsigned char *From, int Len)
           printf("%s\n", buffer);
      }
      printf("\n");
-}
-
-// kernel base and end
-unsigned long g_kstart = 0;
-unsigned long g_kend = 0;
-
-int is_inside_kernel(unsigned long a)
-{
-  return (a >= g_kstart) && (a < g_kend);
 }
 
 struct chains
@@ -338,22 +324,9 @@ int main(int argc, char **argv)
   }
   printf("mktime64: %p\n", (void *)kparm.addr);
   // kernel start and end
-  strcpy(kparm.name, "startup_64");
-  err = ioctl(fd, IOCTL_RKSYM, (int *)&kparm);
+  err = read_kernel_area(fd);
   if ( err )
-  {
-    printf("IOCTL_RKSYM startup_64 failed, error %d\n", err);
     goto end;
-  }
-  g_kstart = kparm.addr;
-  strcpy(kparm.name, "__end_of_kernel_reserve");
-  err = ioctl(fd, IOCTL_RKSYM, (int *)&kparm);
-  if ( err )
-  {
-    printf("IOCTL_RKSYM end_of_kernel failed, error %d\n", err);
-    goto end;
-  }
-  g_kend = kparm.addr;
   // next test chained ntfy
   printf("chained ntfy:\n");
   dump_chains(fd, srcu_chains, sizeof(srcu_chains) / sizeof(srcu_chains[0]), IOCTL_CNTSNTFYCHAIN, IOCTL_ENUMSNTFYCHAIN);
