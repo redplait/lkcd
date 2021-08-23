@@ -7,5 +7,5 @@ LIBPATH=../../udis86/libudis86
 %.o: %.c
 	$(COMPILE.c) -I .. $(OUTPUT_OPTION) $<
 
-lkmem: lkmem.o x64_disasm.o ../test/ksyms.o ../test/lk.o
+lkmem: lkmem.o x64_disasm.o ../test/ksyms.o ../test/lk.o ../test/kmods.o
 	g++ -lstdc++ -o lkmem -I $(INCLUDE) $^ $(LIBPATH)/libudis86.a

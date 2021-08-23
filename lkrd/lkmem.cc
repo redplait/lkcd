@@ -14,6 +14,7 @@
 #include "x64_disasm.h"
 #include "arm64relocs.h"
 #include "../shared.h"
+#include "kmods.h"
 #include "lk.h"
 
 int g_opt_v = 0;
@@ -274,10 +275,16 @@ int main(int argc, char **argv)
          opt_c = 0;
          goto end;
        }
+       int err = init_kmods();
+       if ( err )
+       {
+         printf("init_kmods failed, error %d\n", err);
+         goto end;
+       }
        printf("group_balance_cpu from symbols: %p\n", (void *)symbol_a);
        union ksym_params kparm;
        strcpy(kparm.name, "group_balance_cpu");
-       int err = ioctl(fd, IOCTL_RKSYM, (int *)&kparm);
+       err = ioctl(fd, IOCTL_RKSYM, (int *)&kparm);
        if ( err )
        {
          printf("IOCTL_RKSYM test failed, error %d\n", err);
@@ -375,7 +382,38 @@ end:
                  char *real = (char *)addr + delta;
                  if ( real != arg )
                  {
-                   printf("mem at %p: %p (must be %p)\n", ptr, arg, real);
+                   if ( is_inside_kernel((unsigned long)arg) )
+                   {
+                     if ( !has_syms )
+                       printf("mem at %p: %p (must be %p)\n", ptr, arg, real);
+                     else {
+                       size_t off = 0;
+                       const char *name = lower_name_by_addr_with_off(curr_addr, &off);
+                       if ( name != NULL )
+                       {
+                         const char *pto = name_by_addr((a64)(arg - delta));
+                         if ( pto != NULL )
+                         {
+                           if ( off )
+                             printf("mem at %p (%s+%lX) patched to %p (%s)\n", ptr, name, off, arg, pto);
+                           else
+                             printf("mem at %p (%s) patched to %p (%s)\n", ptr, name, arg, pto);
+                         } else {
+                           if ( off )
+                             printf("mem at %p (%s+%lX) patched to %p\n", ptr, name, off, arg);
+                           else
+                             printf("mem at %p (%s) patched to %p\n", ptr, name, arg);
+                         }
+                       } else
+                           printf("mem at %p: %p (must be %p)\n", ptr, arg, real);
+                     }
+                   } else {
+                     const char *mname = find_kmod((unsigned long)arg);
+                     if ( mname )
+                       printf("mem at %p: %p (must be %p) - patched by %s\n", ptr, arg, real, mname);
+                     else
+                       printf("mem at %p: %p (must be %p) - patched by UNKNOWN\n", ptr, arg, real);
+                   }
                  }
                }
              }
