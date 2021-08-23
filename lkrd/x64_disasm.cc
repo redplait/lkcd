@@ -211,8 +211,6 @@ int x64_disasm::process(a64 addr, std::map<a64, a64> &skip, std::set<a64> &out_r
               a64 tmp = 0;
               if ( iter->second.asgn(reg, tmp) && tmp )
               {
-                if (0xFFFFFFFF826B9A08 == tmp)
-                  printf("gotcha\n");
                 auto was = skip.find(tmp);
                 if ( was == skip.end() )
                 {
