@@ -147,6 +147,50 @@ size_t filter_arm64_relocs(const elfio& reader, a64 start, a64 end, a64 fstart, 
   return res;
 }
 
+void dump_patched(a64 curr_addr, char *ptr, char *arg, sa64 delta)
+{
+   size_t off = 0;
+   const char *name = lower_name_by_addr_with_off(curr_addr, &off);
+   if ( name != NULL )
+   {
+     const char *pto = name_by_addr((a64)(arg - delta));
+     if ( pto != NULL )
+     {
+        if ( off )
+          printf("mem at %p (%s+%lX) patched to %p (%s)\n", ptr, name, off, arg, pto);
+        else
+          printf("mem at %p (%s) patched to %p (%s)\n", ptr, name, arg, pto);
+      } else {
+        if ( off )
+          printf("mem at %p (%s+%lX) patched to %p\n", ptr, name, off, arg);
+        else
+          printf("mem at %p (%s) patched to %p\n", ptr, name, arg);
+      }
+  } else
+     printf("mem at %p patched to %p\n", ptr, arg);
+}
+
+int is_nop(unsigned char *body)
+{
+  // nop dword ptr [rax+rax+00h] - 0F 1F 44 00 00
+  if ( body[0] == 0xF  &&
+       body[1] == 0x1F &&
+       body[2] == 0x44 &&
+       body[3] == 0    &&
+       body[4] == 0
+     )
+   return 1;
+  // just 90
+  if ( body[0] == 0x90 &&
+       body[1] == 0x90 &&
+       body[2] == 0x90 &&
+       body[3] == 0x90 &&
+       body[4] == 0x90
+     )
+   return 1;
+  return 0;
+}
+
 int main(int argc, char **argv)
 {
    // read options
@@ -216,37 +260,6 @@ int main(int argc, char **argv)
      }
      has_syms = 1;
    }
-   if ( has_syms )
-   {
-     // make some tests
-
-     auto a1 = get_addr("__start_mcount_loc");
-     printf("__start_mcount_loc: %p\n", (void *)a1);
-     auto a2 = get_addr("__stop_mcount_loc");
-     printf("__stop_mcount_loc: %p\n", (void *)a2);
-     if ( opt_f && a1 && a2 )
-     {
-       // under arm64 we need process relocs
-       if ( reader.get_machine() == 183 )
-         dump_arm64_fraces(reader, a1, a2);
-       else {
-         const a64 *data = (const a64 *)find_addr(reader, a1);
-         if ( data != NULL )
-         {
-           for ( a64 i = a1; i < a2; i += sizeof(a64) )
-           {
-             a64 addr = *data;
-             const char *name = lower_name_by_addr(addr);
-             if ( name != NULL )
-               printf("%p # %s\n", (void *)addr, name);
-             else
-               printf("%p\n", (void *)addr);
-             data++;
-           }
-         }
-       }
-     }
-   }
 #ifndef _MSC_VER
    sa64 delta = 0;
    // open driver
@@ -300,7 +313,7 @@ int main(int argc, char **argv)
    }
 end:
 #endif /* _MSC_VER */
-   // enum sections
+   // find .text section
    Elf64_Addr text_start = 0;
    Elf_Xword text_size = 0;
    section *text_section = NULL;
@@ -314,6 +327,53 @@ end:
        break;
      }
    }
+   if ( has_syms )
+   {
+     // make some tests
+     auto a1 = get_addr("__start_mcount_loc");
+     printf("__start_mcount_loc: %p\n", (void *)a1);
+     auto a2 = get_addr("__stop_mcount_loc");
+     printf("__stop_mcount_loc: %p\n", (void *)a2);
+     // if we had -f option
+     if ( opt_f && a1 && a2 )
+     {
+       // under arm64 we need process relocs
+       if ( reader.get_machine() == 183 )
+         dump_arm64_fraces(reader, a1, a2);
+       else {
+         const a64 *data = (const a64 *)find_addr(reader, a1);
+         if ( data != NULL )
+         {
+           for ( a64 i = a1; i < a2; i += sizeof(a64) )
+           {
+             a64 addr = *data;
+             const char *name = lower_name_by_addr(addr);
+             if ( name != NULL )
+               printf("%p # %s\n", (void *)addr, name);
+             else
+               printf("%p\n", (void *)addr);
+             data++;
+             if ( opt_c )
+             {
+               // filter out maybe discarded sections like .init.text
+               if ( text_section != NULL &&
+                    ( (addr < text_start) || (addr > (text_start + text_size)) )
+                  )
+                 continue;
+               char *ptr = (char *)addr + delta;
+               char *arg = ptr;
+               int err = ioctl(fd, IOCTL_READ_PTR, (int *)&arg);
+               if ( err )
+                 printf("read ftrace at %p failed, error %d (%s)\n", ptr, errno, strerror(errno));
+               else if ( !is_nop((unsigned char *)&arg) )
+                 HexDump((unsigned char *)&arg, sizeof(arg));
+             }
+           }
+         }
+       }
+     }
+   }
+
    if ( !text_start )
    {
      printf("cannot find .text\n");
@@ -485,7 +545,34 @@ end:
                printf("%p\n", (void *)c);
              }
            }
-         }
+           if ( opt_c )
+           {
+             for ( auto c: out_res )
+             {
+               char *ptr = (char *)c + delta;
+               char *arg = ptr;
+               int err = ioctl(fd, IOCTL_READ_PTR, (int *)&arg);
+               if ( err )
+                 printf("read at %p failed, error %d (%s)\n", ptr, errno, strerror(errno));
+               else if ( arg != NULL )
+               {
+                  if ( is_inside_kernel((unsigned long)arg) )
+                  {
+                     if ( !has_syms )
+                       printf("mem at %p: %p\n", ptr, arg);
+                     else
+                       dump_patched(c, ptr, arg, delta);
+                  } else {
+                     const char *mname = find_kmod((unsigned long)arg);
+                     if ( mname )
+                       printf("mem at %p: %p - patched by %s\n", ptr, arg, mname);
+                     else
+                       printf("mem at %p: %p - patched by UNKNOWN\n", ptr, arg);
+                  }
+               }
+             }
+           } // opt_c
+         } // opt_d
        }
        break;
      }
