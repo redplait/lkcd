@@ -12,6 +12,7 @@ union ksym_params {
 
 int is_inside_kernel(unsigned long a);
 int read_kernel_area(int fd);
+void HexDump(unsigned char *From, int Len);
 
 #ifdef __cplusplus
 };
