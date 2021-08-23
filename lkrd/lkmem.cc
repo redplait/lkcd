@@ -262,6 +262,7 @@ int main(int argc, char **argv)
        {
          a64 dstart = (a64)sec->get_address();
          count = filter_arm64_relocs(reader, dstart, dstart + sec->get_size(), (a64)text_start, (a64)(text_start + text_size));
+         printf("found %d\n", count);
        } else {
          a64 *curr = (a64 *)sec->get_data();
          a64 *end  = (a64 *)((char *)curr + sec->get_size());
@@ -350,8 +351,22 @@ int main(int argc, char **argv)
              }
            }
            printf("found with disasm: %ld\n", out_res.size());
-           for ( auto c: out_res )
-             printf("%p\n", (void *)c);
+           if ( g_opt_v )
+           {
+             for ( auto c: out_res )
+             {
+               size_t off = 0;
+               const char *name = lower_name_by_addr_with_off(c, &off);
+               if ( name != NULL )
+               {
+                 if ( off )
+                   printf("# %s+%lX\n", name, off);
+                 else
+                   printf("# %s\n", name);
+               }
+               printf("%p\n", (void *)c);
+             }
+           }
          }
        }
        break;
