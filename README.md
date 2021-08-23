@@ -4,7 +4,9 @@ Small pet project to find and dump some linux kernel guts like
 * function pointers in .data section
 * check them with -c option (you need load driver lkcd first)
 * function pointers in .bss section - with some disasm magic
-* ftrace addresses
+* ftrace addresses (-f option)
+* check ftrace prologs (-c -f)
+
 etc etc
 
 Sure contains poorly written buggy driver
