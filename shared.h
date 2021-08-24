@@ -42,4 +42,20 @@ struct one_trace_event
 // read one ptr at kernel addr
 #define IOCTL_READ_PTR                 _IOR(IOCTL_NUM, 0xa, int*)
 
+// read tracepoint info
+// in params:
+//  0 - address of tracepoint
+// out params
+//  0 - key.enabled
+//  1 - regfunc
+//  2 - unregfunc
+//  3 - funcs count
+#define IOCTL_TRACEPOINT_INFO          _IOR(IOCTL_NUM, 0xb, int*)
+
+// read tracepoint funcs
+// in params:
+//  0 - address of tracepoint
+//  1 - size
+#define IOCTL_TRACEPOINT_FUNCS         _IOR(IOCTL_NUM, 0xc, int*)
+
 #endif /* LKCD_SHARED_H */

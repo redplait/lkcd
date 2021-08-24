@@ -13,6 +13,7 @@
 #include <linux/uaccess.h>
 #include <linux/vmalloc.h>
 #include <linux/trace_events.h>
+#include <linux/tracepoint-defs.h>
 #include "shared.h"
 
 MODULE_LICENSE("GPL");
@@ -269,7 +270,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
        cnt = ptrbuf[1];
        // validation
        if ( !cnt || !nb )
-         return EINVAL;
+         return -EINVAL;
        else
        {
          struct notifier_block *b;
@@ -322,7 +323,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
        cnt = ptrbuf[1];
        // validation
        if ( !cnt || !nb )
-         return EINVAL;
+         return -EINVAL;
        else
        {
          struct notifier_block *b;
@@ -400,7 +401,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
        cnt = ptrbuf[1];
        // validation
        if ( !cnt || !nb )
-         return EINVAL;
+         return -EINVAL;
        else
        {
          struct notifier_block *b;
@@ -503,7 +504,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
        hash += ptrbuf[2];
        cnt = ptrbuf[3];
        if ( !cnt )
-         return EINVAL;
+         return -EINVAL;
        else
        {
          struct trace_event *event;
@@ -556,6 +557,81 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
        }
      }
      break; /* IOCTL_TRACEVENTS */
+
+    case IOCTL_TRACEPOINT_INFO:
+     {
+       struct tracepoint *tp;
+       struct tracepoint_func *func;
+       if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long)) > 0 )
+ 	 return -EFAULT;
+       tp = (struct tracepoint *)ptrbuf[0];
+       ptrbuf[0] = atomic_read(&tp->key.enabled);
+       ptrbuf[1] = (unsigned long)tp->regfunc;
+       ptrbuf[2] = (unsigned long)tp->unregfunc;
+       ptrbuf[3] = 0;
+       // lock
+       rcu_read_lock();
+       func = tp->funcs;
+       if ( func )
+        do {
+          ptrbuf[3]++;
+        } while((++func)->func);
+       // unlock
+       rcu_read_unlock();
+       // copy to usermode
+       if (copy_to_user((void*)ioctl_param, (void*)ptrbuf, sizeof(ptrbuf[0]) * 4) > 0)
+ 	 return -EFAULT;
+     }
+     break; /* IOCTL_TRACEPOINT_INFO */
+
+    case IOCTL_TRACEPOINT_FUNCS:
+     {
+       struct tracepoint *tp;
+       struct tracepoint_func *func;
+       unsigned long cnt, res = 0;
+       unsigned long *kbuf = NULL;
+
+       if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 2) > 0 )
+ 	 return -EFAULT;
+       tp = (struct tracepoint *)ptrbuf[0];
+       cnt = ptrbuf[1];
+       if ( !tp || !cnt )
+         return -EINVAL;
+
+       kbuf = (unsigned long *)kmalloc_array(cnt, sizeof(unsigned long), GFP_KERNEL);
+       if ( !kbuf )
+         return -ENOMEM;
+
+       // lock
+       rcu_read_lock();
+       func = tp->funcs;
+       if ( func )
+        do {
+          kbuf[res++] = (unsigned long)func->func;
+          if ( res >= cnt )
+            break;
+        } while((++func)->func);
+       // unlock
+       rcu_read_unlock();
+
+       // copy to usermode
+       if ( copy_to_user((void*)ioctl_param, (void*)&res, sizeof(res)) > 0 )
+       {
+          kfree(kbuf);
+          return -EFAULT;
+       }
+       if ( res )
+       {
+          if ( copy_to_user((void*)(ioctl_param + sizeof(res)), (void*)kbuf, sizeof(unsigned long) * res) > 0 )
+          {
+            kfree(kbuf);
+            return -EFAULT;
+          }
+       }
+       // cleanup
+       kfree(kbuf);
+     }
+     break; /* IOCTL_TRACEPOINT_FUNCS */
 
     default:
      return -EINVAL;
