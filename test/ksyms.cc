@@ -64,6 +64,7 @@ class ksym_holder
       return 0;
     }
     struct addr_sym *get_in_range(a64 start, a64 end, size_t *count);
+    struct addr_sym *start_with(const char *prefix, a64 start, a64 end, size_t *count);
   protected:
     std::list<one_sym> m_syms;
     std::map<const char *, one_sym *, namesComparer> m_names;
@@ -153,6 +154,43 @@ struct addr_sym *ksym_holder::get_in_range(a64 start, a64 end_a, size_t *count)
   if ( NULL == res )
     return res;
   std::transform(found, end, res, [](one_addr &c) -> addr_sym { return { c.sym->name.c_str(), c.addr}; });
+  return res;
+}
+
+struct addr_sym *ksym_holder::start_with(const char *prefix, a64 start_addr, a64 end_addr, size_t *count)
+{
+  *count = 0;
+  if ( NULL == m_addresses )
+    return NULL;
+  auto plen = strlen(prefix);
+  auto from = m_addresses;
+  auto end = m_addresses + m_asize;
+  if ( start_addr )
+  {
+    from = std::lower_bound(m_addresses, end, start_addr, [](const one_addr &l, a64 off) -> 
+      bool { return l.addr < off; }
+    );
+    if ( from == end )
+      return NULL;
+    if ( from->addr < start_addr )
+      from++;
+  }
+  std::vector<const one_addr *> tmp;
+  for ( ; from < end; from++ )
+  {
+    if ( end_addr && from->addr > end_addr )
+      break;
+    if ( strncmp(from->sym->name.c_str(), prefix, plen) )
+      continue;
+    tmp.push_back(from);
+  }
+  if ( tmp.empty() )
+    return NULL;
+  *count = tmp.size();
+  auto res = (addr_sym *)malloc(sizeof(addr_sym) * *count);
+  if ( NULL == res )
+    return res;
+  std::transform(tmp.begin(), tmp.end(), res, [](const one_addr *c) -> addr_sym { return { c->sym->name.c_str(), c->addr}; });
   return res;
 }
 
@@ -324,6 +362,11 @@ const char *lower_name_by_addr_with_off(a64 addr, size_t *off)
 struct addr_sym *get_in_range(a64 start, a64 end, size_t *count)
 {
   return s_ksyms.get_in_range(start, end, count);
+}
+
+struct addr_sym *start_with(const char *prefix, a64 start, a64 end, size_t *count)
+{
+  return s_ksyms.start_with(prefix, start, end, count);
 }
 
 #ifdef HAS_ELFIO

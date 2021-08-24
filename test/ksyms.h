@@ -1,10 +1,5 @@
 #pragma once
-
-#ifdef _MSC_VER
-typedef unsigned __int64 a64;
-#else
-typedef unsigned long a64;
-#endif
+#include "types.h"
 
 struct addr_sym
 {
@@ -26,6 +21,7 @@ const char *lower_name_by_addr(a64);
 const char *lower_name_by_addr_with_off(a64, size_t *);
 a64 get_addr(const char *);
 struct addr_sym *get_in_range(a64 start, a64 end, size_t *count);
+struct addr_sym *start_with(const char *prefix, a64 start, a64 end, size_t *count);
 
 #ifdef __cplusplus
 };
