@@ -13,9 +13,11 @@
 #include "getopt.h"
 #include "x64_disasm.h"
 #include "arm64relocs.h"
+#ifndef _MSC_VER
 #include "../shared.h"
 #include "kmods.h"
 #include "lk.h"
+#endif
 
 int g_opt_v = 0;
 
@@ -115,7 +117,7 @@ void dump_arm64_fraces(const elfio& reader, a64 start, a64 end)
   }
 }
 
-size_t filter_arm64_relocs(const elfio& reader, a64 start, a64 end, a64 fstart, a64 fend)
+size_t filter_arm64_relocs(const elfio& reader, a64 start, a64 end, a64 fstart, a64 fend, std::map<a64, a64> &filled)
 {
   size_t res = 0;
   Elf_Half n = reader.sections.size();
@@ -140,7 +142,10 @@ size_t filter_arm64_relocs(const elfio& reader, a64 start, a64 end, a64 fstart, 
          if ( type != R_AARCH64_RELATIVE )
            continue;
          if ( addend >= fstart && addend < fend )
+         {
+           filled[offset] = addend;
            res++;
+         }
       }
     }
   }
@@ -353,6 +358,7 @@ end:
              else
                printf("%p\n", (void *)addr);
              data++;
+#ifndef _MSC_VER
              if ( opt_c )
              {
                // filter out maybe discarded sections like .init.text
@@ -368,6 +374,7 @@ end:
                else if ( !is_nop((unsigned char *)&arg) )
                  HexDump((unsigned char *)&arg, sizeof(arg));
              }
+#endif /* !_MSC_VER */
            }
          }
        }
@@ -388,16 +395,16 @@ end:
        auto off = sec->get_offset();
        printf(".data section offset %lX\n", off);
        size_t count = 0;
+       a64 curr_addr;
        // under arm64 we need count relocs in .data section       
        if ( reader.get_machine() == 183 )
        {
          a64 dstart = (a64)sec->get_address();
-         count = filter_arm64_relocs(reader, dstart, dstart + sec->get_size(), (a64)text_start, (a64)(text_start + text_size));
-         printf("found %ld\n", count);
+         count = filter_arm64_relocs(reader, dstart, dstart + sec->get_size(), (a64)text_start, (a64)(text_start + text_size), filled);
        } else {
          a64 *curr = (a64 *)sec->get_data();
          a64 *end  = (a64 *)((char *)curr + sec->get_size());
-         a64 curr_addr = sec->get_address();
+         curr_addr = sec->get_address();
          const endianess_convertor &conv = reader.get_convertor();
          for ( ; curr < end; curr++, curr_addr += sizeof(a64) )
          {
@@ -408,8 +415,18 @@ end:
            {
              count++;
              filled[curr_addr] = addr;
-             if ( g_opt_v )
-             {
+           }
+         }
+       }
+       printf("found %ld\n", count);
+       // dump or check collected addresses
+       if ( g_opt_v || opt_c )
+         for ( auto &c: filled )
+         {
+            curr_addr = c.first;
+            auto addr = c.second;
+            if ( g_opt_v )
+            {
                size_t off = 0;
                const char *name = lower_name_by_addr_with_off(curr_addr, &off);
                if ( name != NULL )
@@ -429,9 +446,10 @@ end:
                  }
                }
                printf("%p\n", (void *)curr_addr);
-             }
-             if ( opt_c )
-             {
+            }
+#ifndef _MSC_VER
+            if ( opt_c )
+            {
                char *ptr = (char *)curr_addr + delta;
                char *arg = ptr;
                int err = ioctl(fd, IOCTL_READ_PTR, (int *)&arg);
@@ -476,10 +494,9 @@ end:
                    }
                  }
                }
-             }
-           }
+             } /* opt_c */
+#endif /* !_MSC_VER */
          }
-         printf("found %ld\n", count);
          if ( opt_d )
          {
            x64_disasm dis(text_start, text_size, text_section->get_data(), sec->get_address(), sec->get_size());
@@ -545,6 +562,7 @@ end:
                printf("%p\n", (void *)c);
              }
            }
+#ifndef _MSC_VER
            if ( opt_c )
            {
              for ( auto c: out_res )
@@ -572,11 +590,13 @@ end:
                }
              }
            } // opt_c
+#endif /* !_MSC_VER */
          } // opt_d
-       }
        break;
      }
    }
+#ifndef _MSC_VER
    if ( fd )
      close(fd);
+#endif /* _MSC_VER */
 }
