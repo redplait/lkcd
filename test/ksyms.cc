@@ -4,7 +4,9 @@
 #include <list>
 #include <map>
 #include <set>
+#include <vector>
 #include <algorithm>
+#include <cstring>
 #ifdef HAS_ELFIO
 #include "elfio/elfio_dump.hpp"
 #endif /* HAS_ELFIO */
