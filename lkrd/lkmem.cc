@@ -258,6 +258,108 @@ void dump_and_check(int fd, int opt_c, sa64 delta, int has_syms, std::map<a64, a
   }
 }
 
+#ifndef _MSC_VER
+static size_t calc_tp_size(size_t n)
+{
+  return (n + 1) * sizeof(unsigned long);
+}
+
+void check_tracepoints(int fd, sa64 delta, addr_sym *tsyms, size_t tcount)
+{
+  // alloc enough memory for tracepoint info
+  size_t i, j, curr_n = 3;
+  size_t size = calc_tp_size(curr_n);
+  unsigned long *ntfy = (unsigned long *)malloc(size);
+  if ( ntfy == NULL )
+    return;
+  for ( i = 0; i < tcount; i++ )
+  {
+    a64 addr = (a64)((char *)tsyms[i].addr + delta);
+    ntfy[0] = addr;
+    int err = ioctl(fd, IOCTL_TRACEPOINT_INFO, (int *)ntfy);
+    if ( err )
+    {
+      printf("error %d while read tracepoint info for %s at %p\n", err, tsyms[i].name, (void *)addr);
+      continue;
+    }
+    printf(" %s at %p: enabled %d cnt %d\n", tsyms[i].name, (void *)addr, (int)ntfy[0], (int)ntfy[3]);
+    // 1 - regfunc
+    if ( ntfy[1] )
+    {
+      if ( is_inside_kernel(ntfy[1]) )
+      {
+        const char *fname = name_by_addr(ntfy[1] - delta);
+        if ( fname != NULL )
+          printf("  regfunc %p - kernel!%s\n", (void *)ntfy[1], fname);
+        else
+          printf("  regfunc %p - kernel\n", (void *)ntfy[1]);
+      } else {
+        const char *mname = find_kmod(ntfy[1]);
+        if ( mname )
+          printf("  regfunc %p - %s\n", (void *)ntfy[1], mname);
+        else
+          printf("  regfunc %p UNKNOWN\n", (void *)ntfy[1]);
+      }
+    }
+    // 2 - unregfunc
+    if ( ntfy[2] )
+    {
+      if ( is_inside_kernel(ntfy[2]) )
+      {
+        const char *fname = name_by_addr(ntfy[2] - delta);
+        if ( fname != NULL )
+          printf("  unregfunc %p - kernel!%s\n", (void *)ntfy[2], fname);
+        else
+          printf("  unregfunc %p - kernel\n", (void *)ntfy[2]);
+      } else {
+        const char *mname = find_kmod(ntfy[2]);
+        if ( mname )
+          printf("  unregfunc %p - %s\n", (void *)ntfy[2], mname);
+        else
+          printf("  unregfunc %p UNKNOWN\n", (void *)ntfy[2]);
+      }
+    }
+    if ( !ntfy[3] )
+      continue;
+    auto curr_cnt = ntfy[3];
+    if ( curr_cnt > curr_n )
+    {
+      unsigned long *tmp;
+      size = calc_tp_size(addr);
+      tmp = (unsigned long *)malloc(size);
+      if ( tmp == NULL )
+        break;
+      curr_n = curr_cnt;
+      free(ntfy);
+      ntfy = tmp;
+    }
+    // dump funcs
+    ntfy[0] = addr;
+    ntfy[1] = curr_cnt;
+    err = ioctl(fd, IOCTL_TRACEPOINT_FUNCS, (int *)ntfy);
+    if ( err )
+    {
+      printf("error %d while read tracepoint funcs for %s at %p\n", err, tsyms[i].name, (void *)addr);
+      continue;
+    }
+    size = ntfy[0];
+    for ( j = 0; j < size; j++ )
+    {
+      if ( is_inside_kernel(ntfy[1 + j]) )
+        printf("  [%ld] %p - kernel\n", j, (void *)ntfy[1 + j]);
+      else {
+        const char *mname = find_kmod(ntfy[1 + j]);
+        if ( mname )
+          printf("  [%ld] %p - %s\n", j, (void *)ntfy[1 + j], mname);
+        else
+          printf("  [%ld] %p UNKNOWN\n", j, (void *)ntfy[1 + j]);
+      }
+    }
+  }
+  free(ntfy);
+}
+#endif /* !_MSC_VER */
+
 int is_nop(unsigned char *body)
 {
   // nop dword ptr [rax+rax+00h] - 0F 1F 44 00 00
@@ -286,12 +388,13 @@ int main(int argc, char **argv)
        opt_d = 0,
        opt_c = 0,
        opt_r = 0,
+       opt_t = 0,
        opt_b = 0;
    int c;
    int fd = 0;
    while (1)
    {
-     c = getopt(argc, argv, "bcdfrv");
+     c = getopt(argc, argv, "bcdfrtv");
      if (c == -1)
 	break;
 
@@ -314,6 +417,9 @@ int main(int argc, char **argv)
          break;
         case 'r':
           opt_r = 1;
+         break;
+        case 't':
+          opt_t = 1;
          break;
         default:
          usage(argv[0]);
@@ -518,6 +624,27 @@ end:
        printf(".data section offset %lX\n", off);
        size_t count = 0;
        a64 curr_addr;
+       if ( opt_t && has_syms )
+       {
+         size_t tcount = 0;
+         a64 dstart = (a64)sec->get_address();
+         struct addr_sym *tsyms = start_with("__tracepoint_", dstart, dstart + sec->get_size(), &tcount);
+         if ( tsyms != NULL )
+         {
+           printf("found %ld tracepoints\n", tcount);
+#ifdef _MSC_VER
+           if ( g_opt_v )
+           {
+             for ( size_t i = 0; i < tcount; i++ )
+               printf(" %p: %s\n", (void *)(tsyms[i].addr), tsyms[i].name);
+           }
+#else
+           if ( opt_c )
+             check_tracepoints(fd, delta, tsyms, tcount);
+#endif /* _MSC_VER */
+           free(tsyms);
+         }
+       }
        // under arm64 we need count relocs in .data section       
        if ( reader.get_machine() == 183 )
        {
