@@ -6,6 +6,7 @@ Small pet project to find and dump some linux kernel guts like
 * function pointers in .bss section - with some disasm magic
 * ftrace addresses (-f option)
 * check ftrace prologs (-c -f)
+* kernel tracepoints (-c -t)
 
 etc etc
 
