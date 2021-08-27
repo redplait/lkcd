@@ -39,5 +39,6 @@ mem at 0xffffffff8b81f1e8 (pcibios_enable_irq) patched to 0xffffffff8a6434d0 (ac
 
 # dependencies
 * elfio (https://github.com/serge1/ELFIO)
-* libudis86 (https://github.com/vmt/udis86)
+* libudis86 (https://github.com/vmt/udis86) for x64 disasm
+* armpatched (https://github.com/redplait/armpatched/tree/master/source) for arm64 disasm
 
