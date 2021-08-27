@@ -12,6 +12,7 @@
 #include "ksyms.h"
 #include "getopt.h"
 #include "x64_disasm.h"
+#include "arm64_disasm.h"
 #include "arm64relocs.h"
 #ifndef _MSC_VER
 #include "../shared.h"
@@ -673,7 +674,31 @@ end:
          dump_and_check(fd, opt_c, delta, has_syms, filled);
        if ( opt_d )
        {
-          x64_disasm dis(text_start, text_size, text_section->get_data(), sec->get_address(), sec->get_size());
+          dis_base *bd = NULL;
+          if ( reader.get_machine() == 183 )
+          {
+            arm64_disasm *ad = new arm64_disasm(text_start, text_size, text_section->get_data(), sec->get_address(), sec->get_size());
+            a64 addr = get_addr("__stack_chk_fail");
+            if ( addr )
+              ad->add_noreturn(addr);
+            bd = ad;
+          } else if ( reader.get_machine() == EM_X86_64 )
+          {
+            x64_disasm *x64 = new x64_disasm(text_start, text_size, text_section->get_data(), sec->get_address(), sec->get_size());
+            // fill indirect thunks
+            for ( auto &c: s_x64_thunks )
+            {
+              a64 thunk_addr = get_addr(c.name);
+              if ( !thunk_addr )
+                printf("cannot find %s\n", c.name);
+              else
+                x64->set_indirect_thunk(thunk_addr, c.reg);
+             }
+             bd = x64;
+          } else {
+            printf("no disasm for machine %d\n", reader.get_machine());
+            break;
+          }
           // find bss if we need
           if ( opt_b )
           {
@@ -687,27 +712,28 @@ end:
                 a64 bss_addr = s->get_address();
                 if ( g_opt_v )
                   printf(".bss address %p size %lX\n", (void *)bss_addr, s->get_size());
-                dis.set_bss(bss_addr, s->get_size());
+                bd->set_bss(bss_addr, s->get_size());
                 break;
               }
             }
-          }
-          // fill indirect thunks
-          for ( auto &c: s_x64_thunks )
-          {
-            a64 thunk_addr = get_addr(c.name);
-            if ( !thunk_addr )
-              printf("cannot find %s\n", c.name);
-            else
-              dis.set_indirect_thunk(thunk_addr, c.reg);
           }
           std::set<a64> out_res;
           size_t tcount = 0;
           struct addr_sym *tsyms = get_in_range(text_start, text_start + text_size, &tcount);
           if (tsyms != NULL)
           {
+#ifdef _DEBUG
+            a64 taddr = get_addr("netdev_store.isra.14");
+            if ( taddr )
+              bd->process(taddr, filled, out_res);
+#endif /* _DEBUG */
             for (size_t i = 0; i < tcount; i++)
-              dis.process(tsyms[i].addr, filled, out_res);
+            {
+#ifdef _DEBUG
+              printf("%s:\n", tsyms[i].name);
+#endif /* _DEBUG */
+              bd->process(tsyms[i].addr, filled, out_res);
+            }
             free(tsyms);
           }
           else
@@ -716,9 +742,10 @@ end:
             a64 faddr = get_addr("rcu_sched_clock_irq");
             if (faddr)
             {
-              dis.process(faddr, filled, out_res);
+              bd->process(faddr, filled, out_res);
             }
           }
+          delete bd;
           printf("found with disasm: %ld\n", out_res.size());
           if ( g_opt_v )
           {

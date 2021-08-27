@@ -1,11 +1,9 @@
 #pragma once
-#include <map>
+#include "dis_base.h"
 #define __UD_STANDALONE__
 #include "libudis86/types.h"
 #include "libudis86/extern.h"
 #include "libudis86/itab.h"
-#include "types.h"
-#include "cf_graph.h"
 
 template <typename V>
 class used_regs
@@ -103,18 +101,12 @@ class used_regs
     std::map<ud_type, V> m_regs;
 };
 
-class x64_disasm
+class x64_disasm: public dis_base
 {
   public:
     x64_disasm(a64 text_base, size_t text_size, const char *text, a64 data_base, size_t data_size)
-     : m_text_base(text_base),
-       m_text_size(text_size),
-       m_data_base(data_base),
-       m_data_size(data_size),
-       m_text(text)
+     : dis_base(text_base, text_size, text, data_base, data_size)
     {
-      m_bss_base = 0;
-      m_bss_size = 0;
       ud_init(&ud_obj);
       ud_set_mode(&ud_obj, 64);
 #ifdef _DEBUG
@@ -125,11 +117,6 @@ class x64_disasm
     {
       m_indirect_thunks[addr] = reg;
     }
-    void set_bss(a64 addr, size_t size)
-    {
-      m_bss_base = addr;
-      m_bss_size = size;
-    }
     ud_type check_thunk(a64 addr) const
     {
       auto c = m_indirect_thunks.find(addr);
@@ -137,7 +124,8 @@ class x64_disasm
         return UD_NONE;
       return c->second;
     }
-    int process(a64 addr, std::map<a64, a64> &, std::set<a64> &out_res);
+    virtual ~x64_disasm() = default;
+    virtual int process(a64 addr, std::map<a64, a64> &, std::set<a64> &out_res);
   protected:
     int set(a64 addr)
     {
@@ -149,12 +137,6 @@ class x64_disasm
       ud_set_pc(&ud_obj, (uint64_t)addr);
       return 1;
     }
-    inline int in_data(a64 addr)
-    {
-      if ( addr >= m_bss_base && addr < (m_bss_base + m_bss_size) )
-        return 1;
-      return ( addr >= m_data_base && addr < (m_data_base + m_data_size) );
-    }
     int is_jmp() const;
     int is_jxx_jimm() const;
     int reg32to64(ud_type from, ud_type &res) const;
@@ -163,11 +145,4 @@ class x64_disasm
     std::map<a64, ud_type> m_indirect_thunks;
 
     ud_t ud_obj;
-    a64 m_text_base;
-    size_t m_text_size;
-    a64 m_data_base;
-    size_t m_data_size;
-    const char *m_text;
-    a64 m_bss_base;
-    size_t m_bss_size;
 };

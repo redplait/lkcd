@@ -1,4 +1,5 @@
 #include "x64_disasm.h"
+#include "cf_graph.h"
 
 int x64_disasm::reg32to64(ud_type from, ud_type &res) const
 {
@@ -211,6 +212,10 @@ int x64_disasm::process(a64 addr, std::map<a64, a64> &skip, std::set<a64> &out_r
               a64 tmp = 0;
               if ( iter->second.asgn(reg, tmp) && tmp )
               {
+#ifdef _DEBUG
+                if (0xFFFFFFFF826B9A08 == tmp)
+                  printf("gotcha\n");
+#endif /* _DEBUG */
                 auto was = skip.find(tmp);
                 if ( was == skip.end() )
                 {
