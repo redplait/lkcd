@@ -202,7 +202,7 @@ static int close_lkcd(struct inode *inode, struct file *file)
   return 0;
 } 
 
-// ripeed from https://stackoverflow.com/questions/1184274/read-write-files-within-a-linux-kernel-module
+// ripped from https://stackoverflow.com/questions/1184274/read-write-files-within-a-linux-kernel-module
 struct file *file_open(const char *path, int flags, int rights, int *err) 
 {
     struct file *filp = NULL;
@@ -224,7 +224,6 @@ void file_close(struct file *file)
 // kernfs_node_from_dentry is not exported
 typedef struct kernfs_node *(*krnf_node_type)(struct dentry *dentry);
 static krnf_node_type krnf_node_ptr = 0;
-static int krnf_node_ptr_try = 1;
 
 static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long ioctl_param)
 {
@@ -667,12 +666,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
        struct kernfs_node *k;
        int i, err;
        char ch;
-       char *temp = (char *) ioctl_param;
-       if ( krnf_node_ptr_try )
-       {
-         krnf_node_ptr = (krnf_node_type)lkcd_lookup_name("kernfs_node_from_dentry");
-         krnf_node_ptr_try = 0;
-       }
+       char *temp = (char *)ioctl_param;
        if ( krnf_node_ptr == NULL )
          return -EFAULT;
        get_user(ch, temp++);
@@ -690,10 +684,9 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
          return -err;
        }
        k = krnf_node_ptr(file->f_path.dentry);
-       file_close(file);
        ptrbuf[0] = (unsigned long)k;
        ptrbuf[1] = ptrbuf[2] = ptrbuf[3] = ptrbuf[4] = ptrbuf[5] = ptrbuf[6] = ptrbuf[7] = ptrbuf[8] = 0;
-       if ( k )
+       if ( k && (k->flags & KERNFS_FILE) )
        {
          struct kobject *kobj = k->parent->priv;
          ptrbuf[1] = (unsigned long)kobj;
@@ -712,8 +705,15 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
              }
            }
          }
-       } else   
-        ptrbuf[6] = (unsigned long)file->f_path.dentry->d_sb->s_op;
+       } else if ( !k ) 
+       {
+         struct inode *node = file->f_path.dentry->d_inode;
+         ptrbuf[6] = (unsigned long)file->f_path.dentry->d_sb->s_op;
+         if ( node )
+           ptrbuf[7] = (unsigned long)node->i_fop;
+       }
+
+       file_close(file);
        if (copy_to_user((void*)ioctl_param, (void*)ptrbuf, sizeof(ptrbuf[0]) * 9) > 0)
          return -EFAULT;
       }
@@ -875,6 +875,7 @@ init_module (void)
     printk("Unable to register the lkcd device\n");
     return ret;
   }
+  krnf_node_ptr = (krnf_node_type)lkcd_lookup_name("kernfs_node_from_dentry");
   return 0;
 }
 
