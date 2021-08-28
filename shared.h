@@ -58,4 +58,17 @@ struct one_trace_event
 //  1 - size
 #define IOCTL_TRACEPOINT_FUNCS         _IOR(IOCTL_NUM, 0xc, int*)
 
+// get kernfs_node for some file in /sys
+// out params
+// 0 - kernfs_node
+// 1 - kobject (kernfs_node->priv)
+// 2 - ktype
+// 3 - ktype->sysfs_ops
+// 4 - ktype->sysfs_ops->show
+// 5 - ktype->sysfs_ops->store
+// 6 - dentry->d_sb->s_op if kernfs_node is null
+// 7 - kernfs_node->flags
+// 8 - kernfs_node->priv
+#define IOCTL_KERNFS_NODE              _IOR(IOCTL_NUM, 0xd, int*)
+
 #endif /* LKCD_SHARED_H */

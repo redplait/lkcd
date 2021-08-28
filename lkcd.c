@@ -6,6 +6,10 @@
 #include <linux/version.h>
 #include <linux/slab.h>
 #include <asm/io.h>
+#include <linux/fs.h>
+#include <asm/segment.h>
+#include <asm/uaccess.h>
+#include <linux/kernfs.h>
 #include <linux/smp.h>
 #include <linux/miscdevice.h>
 #include <linux/notifier.h>
@@ -184,7 +188,6 @@ unsigned long lkcd_lookup_name(const char *name)
 {
  return kallsyms_lookup_name(name);
 }
-
 #endif
 
 static int open_lkcd(struct inode *inode, struct file *file)
@@ -198,6 +201,30 @@ static int close_lkcd(struct inode *inode, struct file *file)
   module_put(THIS_MODULE);  
   return 0;
 } 
+
+// ripeed from https://stackoverflow.com/questions/1184274/read-write-files-within-a-linux-kernel-module
+struct file *file_open(const char *path, int flags, int rights, int *err) 
+{
+    struct file *filp = NULL;
+    *err = 0;
+
+    filp = filp_open(path, flags, rights);
+    if (IS_ERR(filp)) {
+        *err = PTR_ERR(filp);
+        return NULL;
+    }
+    return filp;
+}
+
+void file_close(struct file *file) 
+{
+    filp_close(file, NULL);
+}
+
+// kernfs_node_from_dentry is not exported
+typedef struct kernfs_node *(*krnf_node_type)(struct dentry *dentry);
+static krnf_node_type krnf_node_ptr = 0;
+static int krnf_node_ptr_try = 1;
 
 static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long ioctl_param)
 {
@@ -632,6 +659,65 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
        kfree(kbuf);
      }
      break; /* IOCTL_TRACEPOINT_FUNCS */
+
+    case IOCTL_KERNFS_NODE:
+     {
+       char name[BUFF_SIZE];
+       struct file *file;
+       struct kernfs_node *k;
+       int i, err;
+       char ch;
+       char *temp = (char *) ioctl_param;
+       if ( krnf_node_ptr_try )
+       {
+         krnf_node_ptr = (krnf_node_type)lkcd_lookup_name("kernfs_node_from_dentry");
+         krnf_node_ptr_try = 0;
+       }
+       if ( krnf_node_ptr == NULL )
+         return -EFAULT;
+       get_user(ch, temp++);
+       name[0] = ch;
+       for (i = 1; ch && i < BUFF_SIZE - 1; i++, temp++) 
+       {
+          get_user(ch, temp);
+          name[i] = ch;
+       }
+       // open file
+       file = file_open(name, 0, 0, &err);
+       if ( NULL == file )
+       {
+         printk(KERN_INFO "[lkcd] cannot open file %s, error %d\n", name, err);
+         return -err;
+       }
+       k = krnf_node_ptr(file->f_path.dentry);
+       file_close(file);
+       ptrbuf[0] = (unsigned long)k;
+       ptrbuf[1] = ptrbuf[2] = ptrbuf[3] = ptrbuf[4] = ptrbuf[5] = ptrbuf[6] = ptrbuf[7] = ptrbuf[8] = 0;
+       if ( k )
+       {
+         struct kobject *kobj = k->parent->priv;
+         ptrbuf[1] = (unsigned long)kobj;
+         ptrbuf[7] = k->flags;
+         ptrbuf[8] = (unsigned long)k->priv;
+         if ( kobj )
+         {
+           ptrbuf[2] = (unsigned long)kobj->ktype;
+           if ( kobj->ktype )
+           {
+             ptrbuf[3] = (unsigned long)kobj->ktype->sysfs_ops;
+             if ( kobj->ktype->sysfs_ops )
+             {
+               ptrbuf[4] = (unsigned long)kobj->ktype->sysfs_ops->show;
+               ptrbuf[5] = (unsigned long)kobj->ktype->sysfs_ops->store;
+             }
+           }
+         }
+       } else   
+        ptrbuf[6] = (unsigned long)file->f_path.dentry->d_sb->s_op;
+       if (copy_to_user((void*)ioctl_param, (void*)ptrbuf, sizeof(ptrbuf[0]) * 9) > 0)
+         return -EFAULT;
+      }
+     break; /* IOCTL_KERNFS_NODE */
 
     default:
      return -EINVAL;
