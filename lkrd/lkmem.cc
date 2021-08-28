@@ -39,6 +39,7 @@ void usage(const char *prog)
   printf("-d - use disasm\n");
   printf("-f - dump ftraces\n");
   printf("-r - check .rodata section\n");
+  printf("-s - check fs_ops for sysfs files\n");
   printf("-v - verbose mode\n");
   exit(6);
 }
@@ -382,6 +383,24 @@ int is_nop(unsigned char *body)
   return 0;
 }
 
+void dump_kptr(unsigned long l, const char *name, sa64 delta)
+{
+  if ( is_inside_kernel(l) )
+  {
+    const char *sname = name_by_addr(l - delta);
+    if ( sname != NULL )
+      printf(" %s: %p - kernel!%s\n", name, (void *)l, sname);
+    else
+      printf(" %s: %p - kernel\n", name, (void *)l);
+  } else {
+    const char *mname = find_kmod(l);
+    if ( mname )
+      printf(" %s: %p - %s\n", name, (void *)l, mname);
+    else
+      printf(" %s: %p - UNKNOWN\n", name, (void *)l);
+  }
+}
+
 int main(int argc, char **argv)
 {
    // read options
@@ -389,13 +408,14 @@ int main(int argc, char **argv)
        opt_d = 0,
        opt_c = 0,
        opt_r = 0,
+       opt_s = 0,
        opt_t = 0,
        opt_b = 0;
    int c;
    int fd = 0;
    while (1)
    {
-     c = getopt(argc, argv, "bcdfrtv");
+     c = getopt(argc, argv, "bcdfrstv");
      if (c == -1)
 	break;
 
@@ -418,6 +438,10 @@ int main(int argc, char **argv)
          break;
         case 'r':
           opt_r = 1;
+         break;
+        case 's':
+          opt_s = 1;
+          opt_c = 1;
          break;
         case 't':
           opt_t = 1;
@@ -449,7 +473,7 @@ int main(int argc, char **argv)
      }
    }
    // try to find symbols
-   if ( optind != argc )
+   if ( !has_syms && optind != argc )
    {
      int err = read_ksyms(argv[optind]);
      if ( err )
@@ -458,6 +482,7 @@ int main(int argc, char **argv)
        return err;
      }
      has_syms = 1;
+     optind++;
    }
    sa64 delta = 0;
 #ifndef _MSC_VER
@@ -507,6 +532,58 @@ int main(int argc, char **argv)
          printf("group_balance_cpu: %p\n", (void *)kparm.addr);
          delta = (char *)kparm.addr - (char *)symbol_a;
          printf("delta: %lX\n", delta);
+       }
+     }
+     // check sysfs f_ops
+     if ( opt_c && opt_s )
+     {
+       if ( optind == argc )
+       {
+         printf("where is files?\n");
+         exit(6);
+       }
+       union kernfs_params kparm;
+       for ( int idx = optind; idx < argc; idx++ )
+       {
+         strncpy(kparm.name, argv[idx], sizeof(kparm.name) - 1);
+         kparm.name[sizeof(kparm.name) - 1] = 0;
+         int err = ioctl(fd, IOCTL_KERNFS_NODE, (int *)&kparm);
+         if ( err )
+         {
+           printf("IOCTL_KERNFS_NODE(%s) failed, error %d\n", argv[idx], err);
+           continue;
+         }
+         printf("res %s: %p\n", argv[idx], (void *)kparm.res.addr);
+         if ( kparm.res.addr )
+         {
+           // dump flags
+           printf(" flags: %lX", kparm.res.flags);
+           if ( kparm.res.flags & 1 )
+             printf(" DIR");
+           if ( kparm.res.flags & 2 )
+             printf(" FILE");
+           if ( kparm.res.flags & 4 )
+             printf(" LINK");
+           printf("\n");
+
+           printf(" priv: %p\n", (void *)kparm.res.priv);
+           if ( kparm.res.kobject )
+             printf("kobject: %p\n", (void *)kparm.res.kobject);
+           if ( kparm.res.ktype )
+             dump_kptr(kparm.res.ktype, "ktype", delta);
+           if ( kparm.res.sysfs_ops )
+             dump_kptr(kparm.res.sysfs_ops, "sysfs_ops", delta);
+           if ( kparm.res.show )
+             dump_kptr(kparm.res.sysfs_ops, "sysfs_ops.show", delta);
+           if ( kparm.res.store )
+             dump_kptr(kparm.res.sysfs_ops, "sysfs_ops.store", delta);
+         } else {
+           printf(" inode: %p\n", (void *)kparm.res.flags);
+           if ( kparm.res.s_op )
+             dump_kptr(kparm.res.s_op, "s_op", delta);
+           if ( kparm.res.priv )
+             dump_kptr(kparm.res.priv, "inode->i_fop", delta);
+         }
        }
      }
    }
