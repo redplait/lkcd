@@ -10,6 +10,26 @@ union ksym_params {
   char name[256];
 };
 
+// for IOCTL_KERNFS_NODE
+struct kernfs_res
+{
+  unsigned long addr;
+  unsigned long kobject;
+  unsigned long ktype;
+  unsigned long sysfs_ops;
+  unsigned long show;
+  unsigned long store;
+  unsigned long s_op;      // 6
+  unsigned long flags;     // 7 inode
+  unsigned long priv;      // 8 inode->i_fop
+};
+
+union kernfs_params
+{
+  char name[256];
+  struct kernfs_res res;
+};
+
 int is_inside_kernel(unsigned long a);
 int read_kernel_area(int fd);
 void HexDump(unsigned char *From, int Len);
