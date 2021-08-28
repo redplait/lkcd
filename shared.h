@@ -66,9 +66,9 @@ struct one_trace_event
 // 3 - ktype->sysfs_ops
 // 4 - ktype->sysfs_ops->show
 // 5 - ktype->sysfs_ops->store
-// 6 - dentry->d_sb->s_op if kernfs_node is null
-// 7 - kernfs_node->flags or dentry->inode->i_fop if kernfs_node is null
-// 8 - kernfs_node->priv
+// 6 - dentry->d_sb->s_op    if kernfs_node is null
+// 7 - kernfs_node->flags    dentry->inode if kernfs_node is null
+// 8 - kernfs_node->priv     dentry->inode->i_fop if kernfs_node is null
 #define IOCTL_KERNFS_NODE              _IOR(IOCTL_NUM, 0xd, int*)
 
 #endif /* LKCD_SHARED_H */

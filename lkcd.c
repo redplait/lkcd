@@ -709,8 +709,9 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
        {
          struct inode *node = file->f_path.dentry->d_inode;
          ptrbuf[6] = (unsigned long)file->f_path.dentry->d_sb->s_op;
+         ptrbuf[7] = (unsigned long)node;
          if ( node )
-           ptrbuf[7] = (unsigned long)node->i_fop;
+           ptrbuf[8] = (unsigned long)node->i_fop;
        }
 
        file_close(file);
