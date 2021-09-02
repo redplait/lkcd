@@ -40,6 +40,7 @@ void usage(const char *prog)
   printf("-f - dump ftraces\n");
   printf("-r - check .rodata section\n");
   printf("-s - check fs_ops for sysfs files\n");
+  printf("-u - dump usb_monitor\n");
   printf("-v - verbose mode\n");
   exit(6);
 }
@@ -261,6 +262,77 @@ void dump_and_check(int fd, int opt_c, sa64 delta, int has_syms, std::map<a64, a
 }
 
 #ifndef _MSC_VER
+void dump_kptr(unsigned long l, const char *name, sa64 delta)
+{
+  if (is_inside_kernel(l))
+  {
+    const char *sname = name_by_addr(l - delta);
+    if (sname != NULL)
+      printf(" %s: %p - kernel!%s\n", name, (void *)l, sname);
+    else
+      printf(" %s: %p - kernel\n", name, (void *)l);
+  }
+  else {
+    const char *mname = find_kmod(l);
+    if (mname)
+      printf(" %s: %p - %s\n", name, (void *)l, mname);
+    else
+      printf(" %s: %p - UNKNOWN\n", name, (void *)l);
+  }
+}
+
+void dump_usb_mon(int fd, a64 saddr, sa64 delta)
+{
+   char *ptr = (char *)saddr + delta;
+   char *arg = ptr;
+   int err = ioctl(fd, IOCTL_READ_PTR, (int *)&arg);
+   if ( err )
+   {
+      printf("read at %p failed, error %d (%s)\n", ptr, errno, strerror(errno));
+      return;
+   }
+   if ( arg )
+   {
+     if ( is_inside_kernel((unsigned long)arg) )
+       printf("mon_ops at %p: %p - kernel\n", (char *)saddr + delta, arg);
+     else {
+       const char *mname = find_kmod((unsigned long)arg);
+       if ( mname )
+         printf("mon_ops at %p: %p - %s\n", (char *)saddr + delta, arg, mname);
+       else
+         printf("mon_ops at %p: %p UNKNOWN\n", (char *)saddr + delta, arg);
+     }
+   } else 
+     printf("mon_ops at %p: %p\n", (char *)saddr + delta, arg);
+   if ( !arg )
+     return;
+   // see https://elixir.bootlin.com/linux/v5.14-rc7/source/include/linux/usb/hcd.h#L702
+   // we need read 3 pointers at ptr
+   char *stored_ptr = arg;
+   arg = ptr;
+   err = ioctl(fd, IOCTL_READ_PTR, (int *)&arg);
+   if ( err )
+    printf("cannot read urb_submit at %p, err %d\n", stored_ptr, err);
+   else if ( arg )
+     dump_kptr((unsigned long)arg, "urb_submit", delta);
+
+   ptr = stored_ptr + sizeof(void *);
+   arg = ptr;
+   err = ioctl(fd, IOCTL_READ_PTR, (int *)&arg);
+   if ( err )
+     printf("cannot read urb_submit_error at %p, err %d\n", stored_ptr + sizeof(void *), err);
+   else if ( arg )
+     dump_kptr((unsigned long)arg, "urb_submit_error", delta);
+ 
+   ptr = stored_ptr + 2 * sizeof(void *);
+   arg = ptr;
+   err = ioctl(fd, IOCTL_READ_PTR, (int *)&arg);
+   if ( err )
+     printf("cannot read urb_submit_error at %p, err %d\n", stored_ptr + 2 * sizeof(void *), err);
+   else if ( arg )
+     dump_kptr((unsigned long)arg, "urb_complete", delta);
+}
+
 static size_t calc_tp_size(size_t n)
 {
   return (n + 1) * sizeof(unsigned long);
@@ -383,24 +455,6 @@ int is_nop(unsigned char *body)
   return 0;
 }
 
-void dump_kptr(unsigned long l, const char *name, sa64 delta)
-{
-  if ( is_inside_kernel(l) )
-  {
-    const char *sname = name_by_addr(l - delta);
-    if ( sname != NULL )
-      printf(" %s: %p - kernel!%s\n", name, (void *)l, sname);
-    else
-      printf(" %s: %p - kernel\n", name, (void *)l);
-  } else {
-    const char *mname = find_kmod(l);
-    if ( mname )
-      printf(" %s: %p - %s\n", name, (void *)l, mname);
-    else
-      printf(" %s: %p - UNKNOWN\n", name, (void *)l);
-  }
-}
-
 int main(int argc, char **argv)
 {
    // read options
@@ -410,12 +464,13 @@ int main(int argc, char **argv)
        opt_r = 0,
        opt_s = 0,
        opt_t = 0,
-       opt_b = 0;
+       opt_b = 0,
+       opt_u = 0;
    int c;
    int fd = 0;
    while (1)
    {
-     c = getopt(argc, argv, "bcdfrstv");
+     c = getopt(argc, argv, "bcdfrstuv");
      if (c == -1)
 	break;
 
@@ -441,6 +496,10 @@ int main(int argc, char **argv)
          break;
         case 's':
           opt_s = 1;
+          opt_c = 1;
+         break;
+        case 'u':
+          opt_u = 1;
           opt_c = 1;
          break;
         case 't':
@@ -702,6 +761,16 @@ end:
        printf(".data section offset %lX\n", off);
        size_t count = 0;
        a64 curr_addr;
+       if ( opt_u && has_syms )
+       {
+         a64 addr = get_addr("mon_ops");
+         if ( !addr )
+           printf("cannot find mon_ops\n");
+#ifndef _MSC_VER
+         else
+           dump_usb_mon(fd, addr, delta);
+#endif /* !_MSC_VER */
+       }
        if ( opt_t && has_syms )
        {
          size_t tcount = 0;
