@@ -281,6 +281,70 @@ void dump_kptr(unsigned long l, const char *name, sa64 delta)
   }
 }
 
+// generic_efivars is struct efivars - 2nd ptr is efivar_operations which has 5 function pointers
+// see https://elixir.bootlin.com/linux/v5.14-rc7/source/include/linux/efi.h#L948
+void dump_efivars(int fd, a64 saddr, sa64 delta)
+{
+   char *ptr = (char *)saddr + delta + 2 * sizeof(void *);
+   char *arg = ptr;
+   int err = ioctl(fd, IOCTL_READ_PTR, (int *)&arg);
+   if ( err )
+   {
+      printf("dump_efivars: read at %p failed, error %d (%s)\n", ptr, errno, strerror(errno));
+      return;
+   }
+   if ( !arg )
+     return;
+   if ( is_inside_kernel((unsigned long)arg) )
+      printf("efivar_operations at %p: %p - kernel\n", ptr, arg);
+   else {
+     const char *mname = find_kmod((unsigned long)arg);
+     if ( mname )
+       printf("efivar_operations at %p: %p - %s\n", ptr, arg, mname);
+     else
+       printf("efivar_operations at %p: %p UNKNOWN\n", ptr, arg);
+   }
+   // dump all five fields
+   ptr = arg;
+   err = ioctl(fd, IOCTL_READ_PTR, (int *)&arg);
+   if ( err )
+    printf("cannot read get_variable at %p, err %d\n", ptr, err);
+   else if ( arg )
+     dump_kptr((unsigned long)arg, "get_variable", delta);
+
+   ptr += sizeof(void *);
+   arg = ptr;
+   err = ioctl(fd, IOCTL_READ_PTR, (int *)&arg);
+   if ( err )
+    printf("cannot read get_variable_next at %p, err %d\n", ptr, err);
+   else if ( arg )
+     dump_kptr((unsigned long)arg, "get_variable_next", delta);
+
+   ptr += sizeof(void *);
+   arg = ptr;
+   err = ioctl(fd, IOCTL_READ_PTR, (int *)&arg);
+   if ( err )
+    printf("cannot read set_variable at %p, err %d\n", ptr, err);
+   else if ( arg )
+     dump_kptr((unsigned long)arg, "set_variable", delta);
+
+   ptr += sizeof(void *);
+   arg = ptr;
+   err = ioctl(fd, IOCTL_READ_PTR, (int *)&arg);
+   if ( err )
+    printf("cannot read set_variable_nonblocking at %p, err %d\n", ptr, err);
+   else if ( arg )
+     dump_kptr((unsigned long)arg, "set_variable_nonblocking", delta);
+
+   ptr += sizeof(void *);
+   arg = ptr;
+   err = ioctl(fd, IOCTL_READ_PTR, (int *)&arg);
+   if ( err )
+    printf("cannot read query_variable_store at %p, err %d\n", ptr, err);
+   else if ( arg )
+     dump_kptr((unsigned long)arg, "query_variable_store", delta);
+}
+
 void dump_usb_mon(int fd, a64 saddr, sa64 delta)
 {
    char *ptr = (char *)saddr + delta;
@@ -288,7 +352,7 @@ void dump_usb_mon(int fd, a64 saddr, sa64 delta)
    int err = ioctl(fd, IOCTL_READ_PTR, (int *)&arg);
    if ( err )
    {
-      printf("read at %p failed, error %d (%s)\n", ptr, errno, strerror(errno));
+      printf("dump_usb_mon: read at %p failed, error %d (%s)\n", ptr, errno, strerror(errno));
       return;
    }
    if ( arg )
@@ -769,6 +833,13 @@ end:
 #ifndef _MSC_VER
          else
            dump_usb_mon(fd, addr, delta);
+#endif /* !_MSC_VER */
+         addr = get_addr("generic_efivars");
+         if ( !addr )
+           printf("cannot find generic_efivars\n");
+#ifndef _MSC_VER
+         else
+           dump_efivars(fd, addr, delta);
 #endif /* !_MSC_VER */
        }
        if ( opt_t && has_syms )
