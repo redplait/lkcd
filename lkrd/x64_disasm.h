@@ -125,6 +125,7 @@ class x64_disasm: public dis_base
       return c->second;
     }
     virtual ~x64_disasm() = default;
+    virtual int find_return_notifier_list(a64 addr);
     virtual int process(a64 addr, std::map<a64, a64> &, std::set<a64> &out_res);
   protected:
     int set(a64 addr)

@@ -15,6 +15,8 @@ class dis_base
     {
       m_bss_base = 0;
       m_bss_size = 0;
+      m_this_cpu_off = 0;
+      m_return_notifier_list = 0;
     }
     void set_bss(a64 addr, size_t size)
     {
@@ -22,6 +24,18 @@ class dis_base
       m_bss_size = size;
     }
     virtual ~dis_base() = default;
+    // getters
+    inline int get_return_notifier_list(unsigned long &this_cpu_off, unsigned long &return_notifier_list)
+    {
+      this_cpu_off = m_this_cpu_off;
+      return_notifier_list = m_return_notifier_list;
+      return (m_return_notifier_list != 0) && (m_this_cpu_off != 0);
+    }
+    // interface of disasm
+    virtual int find_return_notifier_list(a64 addr)
+    {
+      return 0;
+    }
     virtual int process(a64 addr, std::map<a64, a64> &, std::set<a64> &out_res) = 0;
   protected:
     inline int in_text(const char *psp)
@@ -42,4 +56,7 @@ class dis_base
     const char *m_text;
     a64 m_bss_base;
     size_t m_bss_size;
+    // some per_cpu var offsets
+    unsigned long m_this_cpu_off;
+    unsigned long m_return_notifier_list; // from fire_user_return_notifiers
 };

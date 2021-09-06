@@ -72,6 +72,54 @@ int x64_disasm::is_jxx_jimm() const
   return (ud_obj.operand[0].type == UD_OP_JIMM);
 }
 
+int x64_disasm::find_return_notifier_list(a64 addr)
+{
+  used_regs<a64> regs;
+  if ( !set(addr) )
+    return 0;
+  for ( int i = 0; i < 20; i++ )
+  {
+    if ( !ud_disassemble(&ud_obj) )
+      return 0;
+#ifdef _DEBUG
+    printf("%p %s (I: %d size %d, II: %d size %d)\n", (void *)ud_insn_off(&ud_obj), ud_insn_asm(&ud_obj),
+      ud_obj.operand[0].type, ud_obj.operand[0].size,
+      ud_obj.operand[1].type, ud_obj.operand[1].size
+    );
+#endif /* _DEBUG */
+    if ( (ud_obj.mnemonic == UD_Iint3) ||
+         (ud_obj.mnemonic == UD_Iret)  ||
+         (ud_obj.mnemonic == UD_Iretf) ||
+         (ud_obj.mnemonic == UD_Iud2)  ||
+         (ud_obj.mnemonic == UD_Ijmp)
+       )
+      break;
+    // mov reg, imm
+    if ( (ud_obj.mnemonic == UD_Imov) &&
+         (ud_obj.operand[0].type == UD_OP_REG) &&
+         (ud_obj.operand[1].type == UD_OP_IMM)
+       )
+    {
+      regs.add(ud_obj.operand[0].base, ud_obj.operand[1].lval.udword);
+      continue;
+    }
+    // add reg, [gs:xxx]
+    if ( (ud_obj.mnemonic == UD_Iadd) &&
+         (ud_obj.operand[0].type == UD_OP_REG) &&
+         (ud_obj.operand[1].type == UD_OP_MEM) &&
+         (ud_obj.pfx_seg == UD_R_GS)
+       )
+    {
+      m_this_cpu_off = ud_obj.pc + (sa64)ud_obj.operand[1].lval.sdword;
+      a64 v = 0;
+      int tmp = regs.asgn(ud_obj.operand[0].base, v);
+      m_return_notifier_list = v;
+      return tmp;
+    }
+  }
+  return 0;
+}
+
 int x64_disasm::process(a64 addr, std::map<a64, a64> &skip, std::set<a64> &out_res)
 {
   using Regs = used_regs<a64>;

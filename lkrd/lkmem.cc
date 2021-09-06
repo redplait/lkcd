@@ -911,6 +911,19 @@ end:
               else
                 x64->set_indirect_thunk(thunk_addr, c.reg);
              }
+             a64 ntfy_addr = get_addr("fire_user_return_notifiers");
+             if ( !ntfy_addr )
+               printf("cannot find fire_user_return_notifiers\n");
+             else {
+               if ( x64->find_return_notifier_list(ntfy_addr) )
+               {
+                 unsigned long this_cpu_off = 0,
+                               return_notifier_list = 0;
+                 if ( x64->get_return_notifier_list(this_cpu_off, return_notifier_list) )
+                   printf("this_cpu_off: %lX, return_notifier_list: %lX\n", this_cpu_off, return_notifier_list);
+               } else
+                 printf("cannot extract return_notifier_list\n");
+             }
              bd = x64;
           } else {
             printf("no disasm for machine %d\n", reader.get_machine());
