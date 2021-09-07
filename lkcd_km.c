@@ -238,8 +238,7 @@ static krnf_node_type krnf_node_ptr = 0;
 static void count_lrn(void *info)
 {
   unsigned long *buf = (unsigned long *)info;
-  unsigned long off = buf[1];
-  struct hlist_head *head = (struct hlist_head *)get_gs(off);
+  struct hlist_head *head = *(struct hlist_head **)get_this_gs(buf[1], buf[2]);
   buf[0] = (unsigned long)head;
   buf[1] = 0;
   if ( !head )
@@ -751,12 +750,22 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
 
 #ifdef __x86_64__
      case IOCTL_CNT_RNL_PER_CPU:
-       if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 2) > 0 )
- 	 return -EFAULT;
-       smp_call_function_single(ptrbuf[0], count_lrn, (void*)ptrbuf, 1);
-       // copy result back to user-space
-       if (copy_to_user((void*)ioctl_param, (void*)ptrbuf, sizeof(ptrbuf[0]) * 2) > 0)
-         return -EFAULT;
+      {
+        int err;
+        unsigned long cpu_n;
+        if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 3) > 0 )
+  	  return -EFAULT;
+        cpu_n = ptrbuf[0];
+        err = smp_call_function_single(cpu_n, count_lrn, (void*)ptrbuf, 1);
+        if ( err )
+        {
+          printk(KERN_INFO "[+] IOCTL_CNT_RNL_PER_CPU on cpu %ld failed, error %d\n", cpu_n, err);
+          return err;
+        }
+        // copy result back to user-space
+        if (copy_to_user((void*)ioctl_param, (void*)ptrbuf, sizeof(ptrbuf[0]) * 2) > 0)
+          return -EFAULT;
+       }
       break; /* IOCTL_CNT_RNL_PER_CPU */
 #endif /* __x86_64__ */
 

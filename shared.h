@@ -74,7 +74,8 @@ struct one_trace_event
 // get per-cpu return_notifier_list count for some cpu
 // in params:
 //  0 - cpu index
-//  1 - offset
+//  1 - this_cpu_off
+//  2 - offset
 // out params:
 //  0 - address of list head
 //  1 - count
