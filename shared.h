@@ -71,4 +71,14 @@ struct one_trace_event
 // 8 - kernfs_node->priv     dentry->inode->i_fop if kernfs_node is null
 #define IOCTL_KERNFS_NODE              _IOR(IOCTL_NUM, 0xd, int*)
 
+// get per-cpu return_notifier_list count for some cpu
+// in params:
+//  0 - cpu index
+//  1 - offset
+// out params:
+//  0 - address of list head
+//  1 - count
+#define IOCTL_CNT_RNL_PER_CPU          _IOR(IOCTL_NUM, 0xe, int*)
+
+
 #endif /* LKCD_SHARED_H */

@@ -13,6 +13,7 @@
 #include "kmods.h"
 #include "kopts.h"
 #include "lk.h"
+#include "getopt.h"
 
 // some kernel typedefs
 typedef uint64_t u64;
@@ -235,8 +236,23 @@ void dump_trace_events(int fd, unsigned long trace_sem, unsigned long event_hash
     free(traces);
 }
 
+void dump_kptr(unsigned long l, const char *name)
+{
+  if ( is_inside_kernel(l) )
+    printf(" %s: %p - kernel\n", name, (void *)l);
+  else {
+    const char *mname = find_kmod(l);
+    if ( mname )
+      printf(" %s: %p - %s\n", name, (void *)l, mname);
+    else
+      printf(" %s: %p - UNKNOWN\n", name, (void *)l);
+  }
+}
+
 int main(int argc, char **argv)
 {
+  int opt_s = 0,
+      opt_t = 0; 
   int fd;
   union ksym_params kparm;
   unsigned long addr;
@@ -244,6 +260,24 @@ int main(int argc, char **argv)
   unsigned long event_hash = 0;
   int err = 0;
   size_t i;
+  // read options
+   while (1)
+   {
+     int c = getopt(argc, argv, "st");
+     if (c == -1)
+	break;
+
+     switch (c)
+     {
+        case 's':
+          opt_s = 1;
+         break;
+        case 't':
+          opt_t = 1;
+         break;
+     }
+   }
+  
   // open device
   fd = open("/dev/lkcd", 0);
   if ( -1 == fd )
@@ -285,34 +319,92 @@ int main(int argc, char **argv)
   err = read_kernel_area(fd);
   if ( err )
     goto end;
-  // next test chained ntfy
-  printf("chained ntfy:\n");
-  dump_chains(fd, srcu_chains, sizeof(srcu_chains) / sizeof(srcu_chains[0]), IOCTL_CNTSNTFYCHAIN, IOCTL_ENUMSNTFYCHAIN);
-  printf("\nsrcu chained ntfy:\n");
-  dump_chains(fd, s_chains, sizeof(s_chains) / sizeof(s_chains[0]), IOCTL_CNTNTFYCHAIN, IOCTL_ENUMNTFYCHAIN);
-  printf("\natomic chained ntfy:\n");
-  dump_chains(fd, a_chains, sizeof(a_chains) / sizeof(a_chains[0]), IOCTL_CNTANTFYCHAIN, IOCTL_ENUMANTFYCHAIN);
-  // trace events
-  strcpy(kparm.name, "trace_event_sem");
-  err = ioctl(fd, IOCTL_RKSYM, (int *)&kparm);
-  if ( err )
+  // test chained ntfy (default)
+  if ( !opt_s && !opt_t )
   {
-    printf("IOCTL_RKSYM trace_event_sem failed, error %d\n", err);
-    goto end;
+    printf("chained ntfy:\n");
+    dump_chains(fd, srcu_chains, sizeof(srcu_chains) / sizeof(srcu_chains[0]), IOCTL_CNTSNTFYCHAIN, IOCTL_ENUMSNTFYCHAIN);
+    printf("\nsrcu chained ntfy:\n");
+    dump_chains(fd, s_chains, sizeof(s_chains) / sizeof(s_chains[0]), IOCTL_CNTNTFYCHAIN, IOCTL_ENUMNTFYCHAIN);
+    printf("\natomic chained ntfy:\n");
+    dump_chains(fd, a_chains, sizeof(a_chains) / sizeof(a_chains[0]), IOCTL_CNTANTFYCHAIN, IOCTL_ENUMANTFYCHAIN);
   }
-  trace_sem = kparm.addr;
-  strcpy(kparm.name, "event_hash");
-  err = ioctl(fd, IOCTL_RKSYM, (int *)&kparm);
-  if ( err )
+  if ( opt_s )
   {
-    printf("IOCTL_RKSYM event_hash failed, error %d\n", err);
-    goto end;
+    int idx;
+    union kernfs_params kparm;
+    if ( optind == argc )
+    {
+      printf("where is files?\n");
+      exit(6);
+    }
+    for ( idx = optind; idx < argc; idx++ )
+    {
+      strncpy(kparm.name, argv[idx], sizeof(kparm.name) - 1);
+      kparm.name[sizeof(kparm.name) - 1] = 0;
+      err = ioctl(fd, IOCTL_KERNFS_NODE, (int *)&kparm);
+      if ( err )
+      {
+        printf("IOCTL_KERNFS_NODE(%s) failed, error %d\n", argv[idx], err);
+        goto end;
+      }
+      printf("res %s: %p\n", argv[idx], (void *)kparm.res.addr);
+      if ( kparm.res.addr )
+      {
+        // dump flags
+        printf(" flags: %lX", kparm.res.flags);
+        if ( kparm.res.flags & 1 )
+          printf(" DIR");
+        if ( kparm.res.flags & 2 )
+          printf(" FILE");
+        if ( kparm.res.flags & 4 )
+          printf(" LINK");
+        printf("\n");
+
+        printf(" priv: %p\n", (void *)kparm.res.priv);
+        if ( kparm.res.kobject )
+          printf("kobject: %p\n", (void *)kparm.res.kobject);
+        if ( kparm.res.ktype )
+          dump_kptr(kparm.res.ktype, "ktype");
+        if ( kparm.res.sysfs_ops )
+          dump_kptr(kparm.res.sysfs_ops, "sysfs_ops");
+        if ( kparm.res.show )
+          dump_kptr(kparm.res.sysfs_ops, "sysfs_ops.show");
+        if ( kparm.res.store )
+          dump_kptr(kparm.res.sysfs_ops, "sysfs_ops.store");
+      } else {
+        printf(" inode: %p\n", (void *)kparm.res.flags);
+        if ( kparm.res.s_op )
+          dump_kptr(kparm.res.s_op, "s_op");
+        if ( kparm.res.priv )
+          dump_kptr(kparm.res.priv, "inode->i_fop");
+      }
+    }
   }
-  event_hash = kparm.addr;
-  if ( event_hash && kparm.addr )
+  if ( opt_t )
   {
-    printf("\ntrace events: trace_sem %p event_hash %p\n", (void *)trace_sem, (void *)event_hash);
-    dump_trace_events(fd, trace_sem, event_hash);
+    // trace events
+    strcpy(kparm.name, "trace_event_sem");
+    err = ioctl(fd, IOCTL_RKSYM, (int *)&kparm);
+    if ( err )
+    {
+      printf("IOCTL_RKSYM trace_event_sem failed, error %d\n", err);
+      goto end;
+    }
+    trace_sem = kparm.addr;
+    strcpy(kparm.name, "event_hash");
+    err = ioctl(fd, IOCTL_RKSYM, (int *)&kparm);
+    if ( err )
+    {
+      printf("IOCTL_RKSYM event_hash failed, error %d\n", err);
+      goto end;
+    }
+    event_hash = kparm.addr;
+    if ( event_hash && kparm.addr )
+    {
+      printf("\ntrace events: trace_sem %p event_hash %p\n", (void *)trace_sem, (void *)event_hash);
+      dump_trace_events(fd, trace_sem, event_hash);
+    }
   }
 end:
   // cleanup

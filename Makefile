@@ -1,12 +1,13 @@
 obj-m += lkcd.o 
-lkcd-objs := $(obj-m)
+lkcd-objs += lkcd_km.o
 
 MACHINE ?= $(shell uname -m)
 ifeq ($(MACHINE),x86_64)
-lkcd-objs += getgs.o
+lkcd-objs += getgs.o 
+add-target := getgs.o
 endif
 
-all: getgs.o
+all: $(add-target)
 	make -C /lib/modules/$(shell uname -r)/build M=$(PWD) modules 
 
 getgs.o: getgs.asm

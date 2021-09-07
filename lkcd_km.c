@@ -13,6 +13,8 @@
 #include <linux/smp.h>
 #include <linux/miscdevice.h>
 #include <linux/notifier.h>
+#include <linux/user-return-notifier.h>
+#include <linux/percpu.h>
 #include <linux/mm.h>
 #include <linux/uaccess.h>
 #include <linux/vmalloc.h>
@@ -23,6 +25,12 @@
 MODULE_LICENSE("GPL");
 // Char we show before each debug print
 const char program_name[] = "lkcd";
+
+#ifdef __x86_64__
+// asm functions in getgs.asm
+extern void *get_gs(long offset);
+extern void *get_this_gs(long this_cpu, long offset);
+#endif /* __x86_64__ */
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(5,10,0)
 #include <linux/static_call.h>
@@ -224,6 +232,27 @@ void file_close(struct file *file)
 // kernfs_node_from_dentry is not exported
 typedef struct kernfs_node *(*krnf_node_type)(struct dentry *dentry);
 static krnf_node_type krnf_node_ptr = 0;
+
+
+#ifdef __x86_64__
+static void count_lrn(void *info)
+{
+  unsigned long *buf = (unsigned long *)info;
+  unsigned long off = buf[1];
+  struct hlist_head *head = (struct hlist_head *)get_gs(off);
+  buf[0] = (unsigned long)head;
+  buf[1] = 0;
+  if ( !head )
+    return;
+  else {
+    struct user_return_notifier *urn;
+    struct hlist_node *tmp2;
+    // traverse
+    hlist_for_each_entry_safe(urn, tmp2, head, link)
+     buf[1]++;
+  }
+}
+#endif /* __x86_64__ */
 
 static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long ioctl_param)
 {
@@ -719,6 +748,17 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
          return -EFAULT;
       }
      break; /* IOCTL_KERNFS_NODE */
+
+#ifdef __x86_64__
+     case IOCTL_CNT_RNL_PER_CPU:
+       if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 2) > 0 )
+ 	 return -EFAULT;
+       smp_call_function_single(ptrbuf[0], count_lrn, (void*)ptrbuf, 1);
+       // copy result back to user-space
+       if (copy_to_user((void*)ioctl_param, (void*)ptrbuf, sizeof(ptrbuf[0]) * 2) > 0)
+         return -EFAULT;
+      break; /* IOCTL_CNT_RNL_PER_CPU */
+#endif /* __x86_64__ */
 
     default:
      return -EINVAL;
