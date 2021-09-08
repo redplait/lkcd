@@ -12,6 +12,7 @@ global get_gs_dword
 global get_gs_word
 global get_gs_byte
 global get_this_gs
+; all put_gs_xxx functions return old value
 global put_gs
 global put_gs_dword
 global put_gs_word
@@ -61,8 +62,8 @@ put_gs_word:
 	retn
 
 put_gs_byte:
-        mov ax, si
+	mov ax, si
 	shl ax, 8 ; now byte in ah
 	mov al, [gs:rdi] ; store old value in al
-	mov [gs:rdi], ah
+	mov [gs:rdi], ah ; set new value
 	retn

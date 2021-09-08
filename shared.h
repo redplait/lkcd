@@ -85,4 +85,13 @@ struct one_trace_event
 // in param 0 - 1 to install, 0 to remove
 #define IOCTL_TEST_URN                 _IOR(IOCTL_NUM, 0xf, int*)
 
+// get per-cpu return_notifier_list for some cpu
+// in params:
+//  0 - cpu index
+//  1 - this_cpu_off
+//  2 - offset
+//  3 - count (gathered with IOCTL_CNT_RNL_PER_CPU)
+// out params - long size + N * pvoid
+#define IOCTL_RNL_PER_CPU              _IOR(IOCTL_NUM, 0x10, int*)
+
 #endif /* LKCD_SHARED_H */

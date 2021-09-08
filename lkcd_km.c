@@ -30,6 +30,9 @@ const char program_name[] = "lkcd";
 // asm functions in getgs.asm
 extern void *get_gs(long offset);
 extern void *get_this_gs(long this_cpu, long offset);
+extern unsigned int get_gs_dword(long offset);
+extern unsigned short get_gs_word(long offset);
+extern unsigned char get_gs_byte(long offset);
 #endif /* __x86_64__ */
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(5,10,0)
@@ -237,6 +240,37 @@ void test_dummy_urn(struct user_return_notifier *urn)
 }
 
 static struct user_return_notifier s_urn = { test_dummy_urn, NULL };
+
+struct urn_params
+{
+  unsigned long this_cpu_off;
+  unsigned long offset;
+  unsigned long count;
+  unsigned long *out_data;
+};
+
+static void copy_lrn(void *info)
+{
+  struct urn_params *params = (struct urn_params *)info;
+  unsigned long *buf = params->out_data + 1;
+  struct hlist_head *head = (struct hlist_head *)get_this_gs(params->this_cpu_off, params->offset);
+  unsigned long curr_cnt = 0;
+  *(params->out_data) = 0;
+  if ( !head )
+    return;
+  else {
+    struct user_return_notifier *urn;
+    struct hlist_node *tmp2;
+    // traverse
+    hlist_for_each_entry_safe(urn, tmp2, head, link)
+    {
+       if ( curr_cnt >= params->count )
+         break;
+       buf[curr_cnt++] = (unsigned long)urn->on_user_return;
+    }
+    *(params->out_data) = curr_cnt;
+  }
+}
 
 static void count_lrn(void *info)
 {
@@ -785,6 +819,47 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
           return -EFAULT;
        }
       break; /* IOCTL_CNT_RNL_PER_CPU */
+
+     case IOCTL_RNL_PER_CPU:
+      {
+        struct urn_params params;
+        if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 4) > 0 )
+  	  return -EFAULT;
+        params.out_data = NULL;
+        // check size
+        if ( !ptrbuf[3] )
+          break;
+        else {
+          int err;
+          unsigned long cpu_n = ptrbuf[0];
+          params.out_data = (unsigned long *)kmalloc_array(ptrbuf[3] + 1, sizeof(unsigned long), GFP_KERNEL);
+          if ( !params.out_data )
+          {
+            printk(KERN_INFO "[+] IOCTL_RNL_PER_CPU on cpu %ld cannot alloc %ld elements\n", cpu_n, ptrbuf[3] + 1);
+            return -ENOMEM;
+          }
+          // copy params
+          params.this_cpu_off = ptrbuf[1];
+          params.offset       = ptrbuf[2];
+          params.count        = ptrbuf[3];
+          err = smp_call_function_single(cpu_n, copy_lrn, (void*)&params, 1);
+          if ( err )
+          {
+            printk(KERN_INFO "[+] IOCTL_RNL_PER_CPU on cpu %ld failed, error %d\n", cpu_n, err);
+            kfree(params.out_data);
+            return err;
+          }
+          // copy to user
+          if (copy_to_user((void*)ioctl_param, (void*)params.out_data, sizeof(params.out_data[0]) * (1 + params.out_data[0])) > 0)
+          {
+            kfree(params.out_data);
+            return -EFAULT;
+          }
+        }
+        if ( params.out_data )
+          kfree(params.out_data);
+      }
+      break; /* IOCTL_RNL_PER_CPU */
 #endif /* __x86_64__ */
 
     default:
