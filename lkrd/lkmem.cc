@@ -2,6 +2,7 @@
 #include <sys/ioctl.h>
 #include <sys/types.h>
 #include <sys/stat.h>
+#include <sys/sysinfo.h>
 #include <fcntl.h>
 #include <unistd.h>
 #include <errno.h>
@@ -279,6 +280,76 @@ void dump_kptr(unsigned long l, const char *name, sa64 delta)
     else
       printf(" %s: %p - UNKNOWN\n", name, (void *)l);
   }
+}
+
+void install_urn(int fd, int action)
+{
+  unsigned long param = action;
+  int err = ioctl(fd, IOCTL_TEST_URN, (int *)&param);
+  if ( err )
+    printf("install_urn(%d) failed, error %d (%s)\n", action, errno, strerror(errno));
+}
+
+static size_t calc_urntfy_size(size_t n)
+{
+  return (n + 1) * sizeof(unsigned long);
+}
+
+void dump_return_notifier_list(int fd, unsigned long this_off, unsigned long off, sa64 delta)
+{
+  int cpu_num = get_nprocs();
+  size_t curr_n = 3;
+  size_t size = calc_urntfy_size(curr_n);
+  unsigned long *ntfy = (unsigned long *)malloc(size);
+  if ( ntfy == NULL )
+    return;
+  for ( int i = 0; i < cpu_num; i++ )
+  {
+    unsigned long buf[3] = { (unsigned long)i, this_off, off };
+    int err = ioctl(fd, IOCTL_CNT_RNL_PER_CPU, (int *)buf);
+    if ( err )
+    {
+      printf("dump_return_notifier_list count for cpu_id %d failed, error %d (%s)\n", i, errno, strerror(errno));
+      break;
+    }
+    if ( buf[0] )
+      printf("cpu[%d]: head %p %ld\n", i, (void *)buf[0], buf[1]);
+    else
+      printf("cpu[%d]: %ld\n", i, buf[1]);
+    if ( !buf[1] )
+      continue; // no ntfy on this cpu
+    // read ntfy
+    if ( buf[1] > curr_n )
+    {
+      unsigned long *tmp;
+      size = calc_urntfy_size(buf[1]);
+      tmp = (unsigned long *)malloc(size);
+      if ( tmp == NULL )
+        break;
+      curr_n = buf[1];
+      free(ntfy);
+      ntfy = tmp;
+    }
+    // fill params
+    ntfy[0] = (unsigned long)i;
+    ntfy[1] = this_off;
+    ntfy[2] = off;
+    ntfy[3] = buf[1];
+    err = ioctl(fd, IOCTL_RNL_PER_CPU, (int *)ntfy);
+    if ( err )
+    {
+      printf("dump_return_notifier_list for cpu_id %d cnt %ld failed, error %d (%s)\n", i, buf[1], errno, strerror(errno));
+      break;
+    }
+    // dump
+    size = ntfy[0];
+    for ( size_t j = 0; j < size; j++ )
+    {
+      dump_kptr(ntfy[1 + j], "ntfy", delta);
+    }
+  }
+  if ( ntfy != NULL )
+    free(ntfy);
 }
 
 // generic_efivars is struct efivars - 2nd ptr is efivar_operations which has 5 function pointers
@@ -920,7 +991,17 @@ end:
                  unsigned long this_cpu_off = 0,
                                return_notifier_list = 0;
                  if ( x64->get_return_notifier_list(this_cpu_off, return_notifier_list) )
+                 {
                    printf("this_cpu_off: %lX, return_notifier_list: %lX\n", this_cpu_off, return_notifier_list);
+#ifndef _MSC_VER
+                   if ( opt_c )
+                   {
+                     install_urn(fd, 1);
+                     dump_return_notifier_list(fd, this_cpu_off, return_notifier_list, delta);
+                     install_urn(fd, 0);
+                   }
+#endif
+                 }
                } else
                  printf("cannot extract return_notifier_list\n");
              }
