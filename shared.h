@@ -81,5 +81,8 @@ struct one_trace_event
 //  1 - count
 #define IOCTL_CNT_RNL_PER_CPU          _IOR(IOCTL_NUM, 0xe, int*)
 
+// install/remove test user_return_notifier
+// in param 0 - 1 to install, 0 to remove
+#define IOCTL_TEST_URN                 _IOR(IOCTL_NUM, 0xf, int*)
 
 #endif /* LKCD_SHARED_H */

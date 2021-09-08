@@ -36,11 +36,6 @@ extern void *get_this_gs(long this_cpu, long offset);
 #include <linux/static_call.h>
 #include <linux/kprobes.h>
 
-static struct kprobe kp = {
-    .symbol_name = "kallsyms_lookup_name",
-    .flags = KPROBE_FLAG_DISABLED
-};
-
 static unsigned long lkcd_lookup_name_scinit(const char *name);
 unsigned long kallsyms_lookup_name_c(const char *name)
 {
@@ -141,7 +136,7 @@ static unsigned long lkcd_lookup_name_scinit(const char *name)
 	// try kprobes first, but have a fallback as they might be disabled
 	kp_ret = register_kprobe(&kp);
 	if (kp_ret < 0) {
-		dbgprint("register_kprobe failed, returned %d", kp_ret);
+		printk(KERN_DEBUG "register_kprobe failed, returned %d", kp_ret);
 	} else {
 		lkcd_lookup_name_fp = (unsigned long (*) (const char *name))kp.addr;
 		unregister_kprobe(&kp);
@@ -175,7 +170,7 @@ static unsigned long lkcd_lookup_name_scinit(const char *name)
 		}
 
 		if (!lkcd_lookup_name_fp)
-			dbgprint("lookup via sprint_symbol() failed, too");
+			printk(KERN_DEBUG "lookup via sprint_symbol() failed, too");
 	}
 
 	if (lkcd_lookup_name_fp) {
@@ -235,10 +230,18 @@ static krnf_node_type krnf_node_ptr = 0;
 
 
 #ifdef __x86_64__
+static int urn_installed = 0;
+
+void test_dummy_urn(struct user_return_notifier *urn)
+{
+}
+
+static struct user_return_notifier s_urn = { test_dummy_urn, NULL };
+
 static void count_lrn(void *info)
 {
   unsigned long *buf = (unsigned long *)info;
-  struct hlist_head *head = *(struct hlist_head **)get_this_gs(buf[1], buf[2]);
+  struct hlist_head *head = (struct hlist_head *)get_this_gs(buf[1], buf[2]);
   buf[0] = (unsigned long)head;
   buf[1] = 0;
   if ( !head )
@@ -749,6 +752,21 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
      break; /* IOCTL_KERNFS_NODE */
 
 #ifdef __x86_64__
+     case IOCTL_TEST_URN:
+       if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long)) > 0 )
+         return -EFAULT;
+       if ( ptrbuf[0] && !urn_installed )
+       {
+         user_return_notifier_register(&s_urn);
+         urn_installed++;
+       }
+       if ( !ptrbuf[0] && urn_installed )
+       {
+         user_return_notifier_unregister(&s_urn);
+         urn_installed = 0;
+       }
+       break; /* IOCTL_TEST_URN */
+
      case IOCTL_CNT_RNL_PER_CPU:
       {
         int err;
@@ -931,5 +949,12 @@ init_module (void)
 
 void cleanup_module (void)
 {
+#ifdef __x86_64__
+  if ( urn_installed )
+  {
+     user_return_notifier_unregister(&s_urn);
+     urn_installed = 0;
+  }
+#endif /* __x86_64__ */
   misc_deregister(&lkcd_dev);
 }
