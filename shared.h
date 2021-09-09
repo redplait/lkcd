@@ -98,5 +98,31 @@ struct one_trace_event
 // in param 0 - 1 to install, 0 to remove
 #define IOCTL_TEST_KPROBE              _IOR(IOCTL_NUM, 0x11, int*)
 
+// get cnt of kprobes for kprobe_table[index]
+// in params:
+//  0 - kprobe_table address
+//  1 - kprobe_mutex address
+//  2 - index (must be between 0 and nonincluded KPROBE_TABLE_SIZE)
+// out params:
+//  0 - cnt
+#define IOCTL_CNT_KPROBE_BUCKET        _IOR(IOCTL_NUM, 0x12, int*)
+
+struct one_kprobe
+{
+  void *kaddr; // address of this kprobe
+  void *addr;  // kprobe.addr
+  void *pre_handler;
+  void *post_handler;
+  unsigned int flags;
+};
+
+// get kprobes for kprobe_table[index]
+// in params:
+//  0 - kprobe_table address
+//  1 - kprobe_mutex address
+//  2 - index (must be between 0 and nonincluded KPROBE_TABLE_SIZE)
+//  3 - cnt (gathered with IOCTL_CNT_KPROBE_BUCKET)
+// out params - long size + N * one_kprobe
+#define IOCTL_GET_KPROBE_BUCKET        _IOR(IOCTL_NUM, 0x13, int*)
 
 #endif /* LKCD_SHARED_H */

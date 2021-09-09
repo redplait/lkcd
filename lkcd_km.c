@@ -28,6 +28,9 @@ MODULE_LICENSE("GPL");
 const char program_name[] = "lkcd";
 
 #ifdef __x86_64__
+#define KPROBE_HASH_BITS 6
+#define KPROBE_TABLE_SIZE (1 << KPROBE_HASH_BITS)
+
 // asm functions in getgs.asm
 extern void *get_gs(long offset);
 extern void *get_this_gs(long this_cpu, long offset);
@@ -848,6 +851,79 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
          test_kprobe_installed = 0;
        }
       break; /* IOCTL_TEST_KPROBE */
+
+     case IOCTL_CNT_KPROBE_BUCKET:
+       if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 3) > 0 )
+         return -EFAULT;
+       else {
+         struct hlist_head *head;
+         struct mutex *m = (struct mutex *)ptrbuf[1];
+         struct kprobe *p;
+         if ( ptrbuf[2] >= KPROBE_TABLE_SIZE )
+           return -EFBIG;
+         // lock
+	 mutex_lock(m);
+	 head = (struct hlist_head *)ptrbuf[0] + ptrbuf[2];
+         ptrbuf[0] = 0;
+         // traverse
+         hlist_for_each_entry(p, head, hlist)
+           ptrbuf[0]++;
+	 // unlock
+         mutex_unlock(m);
+         // copy to user
+         if (copy_to_user((void*)ioctl_param, (void*)ptrbuf, sizeof(ptrbuf[0])) > 0)
+           return -EFAULT;
+       }
+      break; /* IOCTL_CNT_KPROBE_BUCKET */
+
+     case IOCTL_GET_KPROBE_BUCKET:
+       if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 4) > 0 )
+         return -EFAULT;
+       else {
+         unsigned long *buf = NULL;
+         size_t kbuf_size;
+         if ( ptrbuf[2] >= KPROBE_TABLE_SIZE )
+           return -EFBIG;
+         if ( !ptrbuf[3] )
+           break;
+         // alloc enough memory
+         kbuf_size = sizeof(unsigned long) + ptrbuf[3] * sizeof(struct one_kprobe);
+         buf = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL);
+         if ( !buf )
+           return -ENOMEM;
+         else {
+           struct hlist_head *head;
+           struct kprobe *p;
+           unsigned long curr = 0;
+           struct mutex *m = (struct mutex *)ptrbuf[1];
+           struct one_kprobe *out_buf = (struct one_kprobe *)(buf + 1);
+           // lock
+	   mutex_lock(m);
+	   head = (struct hlist_head *)ptrbuf[0] + ptrbuf[2];
+           // traverse
+           hlist_for_each_entry(p, head, hlist)
+           {
+             if ( curr >= ptrbuf[3] )
+               break;
+             out_buf[curr].kaddr = (void *)p;
+             out_buf[curr].addr = (void *)p->addr;
+             out_buf[curr].pre_handler = (void *)p->pre_handler;
+             out_buf[curr].post_handler = (void *)p->post_handler;
+             out_buf[curr].flags = (unsigned int)p->flags;
+             curr++;
+           }
+           // unlock
+           mutex_unlock(m);
+           // store count of processed
+           buf[0] = curr;
+           // copy to user
+           if (copy_to_user((void*)ioctl_param, (void*)buf, kbuf_size) > 0)
+             return -EFAULT;
+         }
+         if ( buf )
+           kfree(buf);
+       }
+      break; /* IOCTL_GET_KPROBE_BUCKET */
 
      case IOCTL_TEST_URN:
        if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long)) > 0 )
