@@ -10,6 +10,7 @@
 #include <asm/segment.h>
 #include <asm/uaccess.h>
 #include <linux/kernfs.h>
+#include <linux/kprobes.h>
 #include <linux/smp.h>
 #include <linux/miscdevice.h>
 #include <linux/notifier.h>
@@ -37,7 +38,6 @@ extern unsigned char get_gs_byte(long offset);
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(5,10,0)
 #include <linux/static_call.h>
-#include <linux/kprobes.h>
 
 static unsigned long lkcd_lookup_name_scinit(const char *name);
 unsigned long kallsyms_lookup_name_c(const char *name)
@@ -234,6 +234,48 @@ static krnf_node_type krnf_node_ptr = 0;
 
 #ifdef __x86_64__
 static int urn_installed = 0;
+static int test_kprobe_installed = 0;
+
+static int handler_pre(struct kprobe *p, struct pt_regs *regs)
+{
+#ifdef CONFIG_X86
+	printk(KERN_INFO "pre_handler: p->addr = 0x%p, ip = %lx,"
+			" flags = 0x%lx\n",
+		p->addr, regs->ip, regs->flags);
+#endif
+	/* A dump_stack() here will give a stack backtrace */
+	return 0;
+}
+
+/* kprobe post_handler: called after the probed instruction is executed */
+static void handler_post(struct kprobe *p, struct pt_regs *regs,
+				unsigned long flags)
+{
+#ifdef CONFIG_X86
+	printk(KERN_INFO "post_handler: p->addr = 0x%p, flags = 0x%lx\n",
+		p->addr, regs->flags);
+#endif
+}
+
+/*
+ * fault_handler: this is called if an exception is generated for any
+ * instruction within the pre- or post-handler, or when Kprobes
+ * single-steps the probed instruction.
+ */
+static int handler_fault(struct kprobe *p, struct pt_regs *regs, int trapnr)
+{
+	printk(KERN_INFO "fault_handler: p->addr = 0x%p, trap #%dn",
+		p->addr, trapnr);
+	/* Return 0 because we don't handle the fault. */
+	return 0;
+}
+
+static struct kprobe test_kp = {
+	.pre_handler = handler_pre,
+	.post_handler = handler_post,
+	.fault_handler = handler_fault,
+	.symbol_name	= "__x64_sys_fork", // try better do_int3, he-he
+};
 
 void test_dummy_urn(struct user_return_notifier *urn)
 {
@@ -786,6 +828,27 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
      break; /* IOCTL_KERNFS_NODE */
 
 #ifdef __x86_64__
+     case IOCTL_TEST_KPROBE:
+       if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long)) > 0 )
+         return -EFAULT;
+       if ( ptrbuf[0] && !test_kprobe_installed )
+       {
+          int ret = register_kprobe(&test_kp);
+          if ( ret )
+          {
+            printk(KERN_INFO "[lkcd] register_kprobe failed, returned %d\n", ret);
+            return ret;
+          }
+          test_kprobe_installed = 1;
+          printk(KERN_INFO "[lkcd] test kprobe installed at %p\n", kp.addr);
+       }
+       if ( !ptrbuf[0] && test_kprobe_installed )
+       {
+         unregister_kprobe(&test_kp);
+         test_kprobe_installed = 0;
+       }
+      break; /* IOCTL_TEST_KPROBE */
+
      case IOCTL_TEST_URN:
        if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long)) > 0 )
          return -EFAULT;
@@ -1029,6 +1092,11 @@ void cleanup_module (void)
   {
      user_return_notifier_unregister(&s_urn);
      urn_installed = 0;
+  }
+  if ( test_kprobe_installed )
+  {
+    unregister_kprobe(&test_kp);
+    test_kprobe_installed = 0;
   }
 #endif /* __x86_64__ */
   misc_deregister(&lkcd_dev);

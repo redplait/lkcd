@@ -23,7 +23,7 @@ int main(int argc, char **argv)
   // read options
    while (1)
    {
-     int c = getopt(argc, argv, "st");
+     int c = getopt(argc, argv, "iu");
      if (c == -1)
 	break;
 
@@ -49,7 +49,7 @@ int main(int argc, char **argv)
   err = ioctl(fd, IOCTL_TEST_KPROBE, (int *)&what);
   if ( err )
   {
-    printf("IOCTL_TEST_KPROBE failed, error %d\n", err);
+    printf("IOCTL_TEST_KPROBE failed, error %d (%s)\n", err, strerror(errno));
   } 
   close(fd);
 }
