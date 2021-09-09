@@ -39,6 +39,7 @@ void usage(const char *prog)
   printf("-c - check memory. Achtung - you must first load lkcd driver\n");
   printf("-d - use disasm\n");
   printf("-f - dump ftraces\n");
+  printf("-k - dump kprobes\n");
   printf("-r - check .rodata section\n");
   printf("-s - check fs_ops for sysfs files\n");
   printf("-u - dump usb_monitor\n");
@@ -280,6 +281,70 @@ void dump_kptr(unsigned long l, const char *name, sa64 delta)
     else
       printf(" %s: %p - UNKNOWN\n", name, (void *)l);
   }
+}
+
+static size_t calc_kprobes_size(size_t n)
+{
+  return n * sizeof(one_kprobe) + sizeof(unsigned long);
+}
+
+void dump_kprobes(int fd, unsigned long a1, unsigned long a2, sa64 delta)
+{
+  size_t curr_n = 3;
+  size_t ksize = calc_kprobes_size(curr_n);
+  unsigned long *buf = (unsigned long *)malloc(ksize);
+  if ( !buf )
+    return;
+  for ( int i = 0; i < 64; i++ )
+  {
+    unsigned long params[3] = { a1 + delta, a2 + delta, (unsigned long)i };
+    int err = ioctl(fd, IOCTL_CNT_KPROBE_BUCKET, (int *)&params);
+    if ( err )
+    {
+      printf("IOCTL_CNT_KPROBE_BUCKET(%d) failed, error %d (%s)\n", i, errno, strerror(errno));
+      continue;
+    }
+    if ( !params[0] )
+      continue;
+    printf("kprobes[%d]: %ld\n", i, params[0]);
+    // ok, we have some kprobes, read them all
+    if ( params[0] > curr_n )
+    {
+      unsigned long *tmp;
+      ksize = calc_kprobes_size(params[0]);
+      tmp = (unsigned long *)malloc(ksize);
+      if ( tmp == NULL )
+        break;
+      curr_n = params[0];
+      free(buf);
+      buf = tmp;
+    }
+    // fill params
+    buf[0] = a1 + delta;
+    buf[1] = a2 + delta;
+    buf[2] = (unsigned long)i;
+    buf[3] = params[0];
+    err = ioctl(fd, IOCTL_GET_KPROBE_BUCKET, (int *)buf);
+    if ( err )
+    {
+      printf("IOCTL_GET_KPROBE_BUCKET(%d) failed, error %d (%s)\n", i, errno, strerror(errno));
+      continue;
+    }
+    // dump
+    ksize = buf[0];
+    struct one_kprobe *kp = (struct one_kprobe *)(buf + 1);
+    for ( size_t idx = 0; idx < ksize; idx++ )
+    {
+      printf(" kprobe at %p flags %X\n", kp[idx].kaddr, kp[idx].flags);
+      dump_kptr((unsigned long)kp[idx].addr, " addr", delta);
+      if ( kp[idx].pre_handler )
+        dump_kptr((unsigned long)kp[idx].pre_handler, " pre_handler", delta);
+      if ( kp[idx].post_handler )
+        dump_kptr((unsigned long)kp[idx].post_handler, " post_handler", delta);
+    }
+  }
+  if ( buf != NULL )
+    free(buf);
 }
 
 void install_urn(int fd, int action)
@@ -596,6 +661,7 @@ int main(int argc, char **argv)
    int opt_f = 0,
        opt_d = 0,
        opt_c = 0,
+       opt_k = 0,
        opt_r = 0,
        opt_s = 0,
        opt_t = 0,
@@ -605,7 +671,7 @@ int main(int argc, char **argv)
    int fd = 0;
    while (1)
    {
-     c = getopt(argc, argv, "bcdfrstuv");
+     c = getopt(argc, argv, "bcdfkrstuv");
      if (c == -1)
 	break;
 
@@ -624,6 +690,10 @@ int main(int argc, char **argv)
           opt_d = 1;
          break;
         case 'c':
+          opt_c = 1;
+         break;
+        case 'k':
+          opt_k = 1;
           opt_c = 1;
          break;
         case 'r':
@@ -727,6 +797,18 @@ int main(int argc, char **argv)
          delta = (char *)kparm.addr - (char *)symbol_a;
          printf("delta: %lX\n", delta);
        }
+     }
+     // dump kprobes
+     if ( opt_k && opt_c )
+     {
+       auto a1 = get_addr("kprobe_table");
+       auto a2 = get_addr("kprobe_mutex");
+       if ( !a1 )
+         printf("cannot find kprobe_table\n");
+       if ( !a2 )
+         printf("cannot find kprobe_mutex\n");
+       if ( a1 && a2 )
+         dump_kprobes(fd, a1, a2, delta);
      }
      // check sysfs f_ops
      if ( opt_c && opt_s )
