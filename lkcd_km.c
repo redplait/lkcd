@@ -918,7 +918,10 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
            buf[0] = curr;
            // copy to user
            if (copy_to_user((void*)ioctl_param, (void*)buf, kbuf_size) > 0)
+           {
+             kfree(buf);
              return -EFAULT;
+           }
          }
          if ( buf )
            kfree(buf);
