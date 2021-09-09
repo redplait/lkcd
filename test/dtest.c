@@ -14,6 +14,7 @@
 #include "kopts.h"
 #include "lk.h"
 #include "getopt.h"
+#include "drvname.h"
 
 // some kernel typedefs
 typedef uint64_t u64;
@@ -279,7 +280,7 @@ int main(int argc, char **argv)
    }
   
   // open device
-  fd = open("/dev/lkcd", 0);
+  fd = open(DRV_FILENAME, 0);
   if ( -1 == fd )
   {
     printf("cannot open device, error %d\n", errno);

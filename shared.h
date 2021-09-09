@@ -94,4 +94,9 @@ struct one_trace_event
 // out params - long size + N * pvoid
 #define IOCTL_RNL_PER_CPU              _IOR(IOCTL_NUM, 0x10, int*)
 
+// insterr/remove test kprobe
+// in param 0 - 1 to install, 0 to remove
+#define IOCTL_TEST_KPROBE              _IOR(IOCTL_NUM, 0x11, int*)
+
+
 #endif /* LKCD_SHARED_H */
