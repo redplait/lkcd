@@ -7,10 +7,14 @@
 #include <linux/slab.h>
 #include <asm/io.h>
 #include <linux/fs.h>
+#include <linux/namei.h>
+#include <linux/kernfs.h>
+#ifdef __x86_64__
 #include <asm/segment.h>
 #include <asm/uaccess.h>
-#include <linux/kernfs.h>
+#include <linux/uprobes.h>
 #include <linux/kprobes.h>
+#endif
 #include <linux/smp.h>
 #include <linux/miscdevice.h>
 #include <linux/notifier.h>
@@ -236,8 +240,32 @@ static krnf_node_type krnf_node_ptr = 0;
 
 
 #ifdef __x86_64__
+#define DEBUGGEE_FILE_OFFSET	0x4710 /* getenv@plt */
+ 
+static struct inode *debuggee_inode = NULL;
 static int urn_installed = 0;
 static int test_kprobe_installed = 0;
+
+// ripped from https://github.com/kentaost/uprobes_sample/blob/master/uprobes_sample.c
+static int uprobe_sample_handler(struct uprobe_consumer *con,
+		struct pt_regs *regs)
+{
+  printk("uprobe handler in PID %d executed, ip = %lx\n", task_pid_nr(current), regs->ip);
+  return 0;
+}
+
+static int uprobe_sample_ret_handler(struct uprobe_consumer *con,
+					unsigned long func,
+					struct pt_regs *regs)
+{
+  printk("uprobe ret_handler is executed, ip = %lX\n", regs->ip);
+  return 0;
+}
+
+static struct uprobe_consumer s_uc = {
+	.handler = uprobe_sample_handler,
+	.ret_handler = uprobe_sample_ret_handler
+};
 
 static int handler_pre(struct kprobe *p, struct pt_regs *regs)
 {
@@ -831,6 +859,29 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
      break; /* IOCTL_KERNFS_NODE */
 
 #ifdef __x86_64__
+     case IOCTL_TEST_UPROBE:
+       if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long)) > 0 )
+         return -EFAULT;
+       if ( ptrbuf[0] && !debuggee_inode )
+       {
+         int ret;
+	 struct path path;
+	 ret = kern_path("/usr/bin/ls", LOOKUP_FOLLOW, &path);
+	 if (ret)
+	   return ret;
+         debuggee_inode = igrab(path.dentry->d_inode);
+	 path_put(&path);
+         ret = uprobe_register(debuggee_inode, DEBUGGEE_FILE_OFFSET, &s_uc);
+	 if (ret < 0)
+	   return ret;
+       }
+       if ( !ptrbuf[0] && debuggee_inode )
+       {
+         uprobe_unregister(debuggee_inode, DEBUGGEE_FILE_OFFSET, &s_uc);
+         debuggee_inode = 0;
+       }
+      break; /* IOCTL_TEST_UPROBE */
+
      case IOCTL_TEST_KPROBE:
        if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long)) > 0 )
          return -EFAULT;

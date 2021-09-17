@@ -94,7 +94,7 @@ struct one_trace_event
 // out params - long size + N * pvoid
 #define IOCTL_RNL_PER_CPU              _IOR(IOCTL_NUM, 0x10, int*)
 
-// insterr/remove test kprobe
+// install/remove test kprobe
 // in param 0 - 1 to install, 0 to remove
 #define IOCTL_TEST_KPROBE              _IOR(IOCTL_NUM, 0x11, int*)
 
@@ -124,5 +124,10 @@ struct one_kprobe
 //  3 - cnt (gathered with IOCTL_CNT_KPROBE_BUCKET)
 // out params - long size + N * one_kprobe
 #define IOCTL_GET_KPROBE_BUCKET        _IOR(IOCTL_NUM, 0x13, int*)
+
+// install/remove test uprobe for /usr/bin/ls
+// in param 0 - 1 to install, 0 to remove
+#define IOCTL_TEST_UPROBE              _IOR(IOCTL_NUM, 0x14, int*)
+
 
 #endif /* LKCD_SHARED_H */
