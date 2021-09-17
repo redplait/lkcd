@@ -137,4 +137,21 @@ struct one_kprobe
 //  0 - cnt
 #define IOCTL_CNT_UPROBES              _IOR(IOCTL_NUM, 0x15, int*)
 
+struct one_uprobe
+{
+  void *inode;
+  unsigned long offset;
+  unsigned long flags;
+  char name[256];
+};
+
+// get uprobes (from uprobes_tree)
+// in params:
+// in params:
+//  0 - uprobes_tree address
+//  1 - uprobes_treelock address
+//  2 - cnt (gathered with IOCTL_CNT_UPROBES)
+// out params - long size + N * one_uprobe
+#define IOCTL_UPROBES                  _IOR(IOCTL_NUM, 0x16, int*)
+
 #endif /* LKCD_SHARED_H */

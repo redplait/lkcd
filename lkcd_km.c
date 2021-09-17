@@ -896,6 +896,54 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
        }
        break; /* IOCTL_CNT_UPROBES */
 
+     case IOCTL_UPROBES:
+       if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 3) > 0 )
+         return -EFAULT;
+       if ( !ptrbuf[2] )
+         return -EINVAL;
+       else {
+         struct rb_root *root = (struct rb_root *)ptrbuf[0];
+         spinlock_t *lock = (spinlock_t *)ptrbuf[1];
+         struct rb_node *iter;
+         unsigned long cnt = 0;
+         struct one_uprobe *curr;
+         size_t size = sizeof(unsigned long) + ptrbuf[2] * sizeof(struct one_uprobe);
+         char *kbuf = (char *)kmalloc(size, GFP_KERNEL);
+         if ( !kbuf )
+           return -ENOMEM;
+         curr = (struct one_uprobe *)(kbuf + sizeof(unsigned long));
+         // lock
+         spin_lock(lock);
+         // traverse tree
+         for ( iter = rb_first(root); iter != NULL && cnt < ptrbuf[2]; iter = rb_next(iter), cnt++ )
+         {
+           struct und_uprobe *up = rb_entry(iter, struct und_uprobe, rb_node);
+           curr[cnt].inode = up->inode;
+           curr[cnt].offset = up->offset;
+           curr[cnt].flags = up->flags;
+           // try get filename from inode
+           curr[cnt].name[0] = 0;
+           if ( up->inode )
+           {
+             struct dentry *de = d_find_any_alias(up->inode);
+             if ( de )
+               dentry_path_raw(de, curr[cnt].name, sizeof(curr[cnt].name));
+           }
+         }
+         // unlock
+         spin_unlock(lock);
+         // copy to user
+         *(unsigned long *)kbuf = cnt;
+         size = sizeof(unsigned long) + cnt * sizeof(struct one_uprobe);
+         if (copy_to_user((void*)ioctl_param, (void*)kbuf, size) > 0)
+         {
+           kfree(kbuf);
+           return -EFAULT;
+         }
+         kfree(kbuf);
+      }
+      break; /* IOCTL_UPROBES */
+
      case IOCTL_TEST_UPROBE:
        if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long)) > 0 )
          return -EFAULT;
