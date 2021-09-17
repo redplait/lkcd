@@ -49,7 +49,12 @@ int main(int argc, char **argv)
   err = ioctl(fd, IOCTL_TEST_KPROBE, (int *)&what);
   if ( err )
   {
-    printf("IOCTL_TEST_KPROBE failed, error %d (%s)\n", err, strerror(errno));
+    printf("IOCTL_TEST_KPROBE(%ld) failed, error %d (%s)\n", what, err, strerror(errno));
+  } 
+  err = ioctl(fd, IOCTL_TEST_UPROBE, (int *)&what);
+  if ( err )
+  {
+    printf("IOCTL_TEST_UPROBE(%ld) failed, error %d (%s)\n", what, err, strerror(errno));
   } 
   close(fd);
 }
