@@ -129,5 +129,12 @@ struct one_kprobe
 // in param 0 - 1 to install, 0 to remove
 #define IOCTL_TEST_UPROBE              _IOR(IOCTL_NUM, 0x14, int*)
 
+// get cnt of uprobes (from uprobes_tree)
+// in params:
+//  0 - uprobes_tree address
+//  1 - uprobes_treelock address
+// out params:
+//  0 - cnt
+#define IOCTL_CNT_UPROBES              _IOR(IOCTL_NUM, 0x15, int*)
 
 #endif /* LKCD_SHARED_H */

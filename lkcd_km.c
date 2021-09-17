@@ -12,8 +12,10 @@
 #ifdef __x86_64__
 #include <asm/segment.h>
 #include <asm/uaccess.h>
+#include <linux/rbtree.h>
 #include <linux/uprobes.h>
 #include <linux/kprobes.h>
+#include "uprobes.h"
 #endif
 #include <linux/smp.h>
 #include <linux/miscdevice.h>
@@ -240,6 +242,20 @@ static krnf_node_type krnf_node_ptr = 0;
 
 
 #ifdef __x86_64__
+// some uprobe functions
+typedef struct und_uprobe *(*find_uprobe)(struct inode *inode, loff_t offset);
+typedef struct und_uprobe *(*get_uprobe)(struct und_uprobe *uprobe);
+typedef void (*put_uprobe)(struct und_uprobe *uprobe);
+find_uprobe find_uprobe_ptr = 0;
+get_uprobe  get_uprobe_ptr =  0;
+put_uprobe  put_uprobe_ptr =  0;
+
+struct und_uprobe *my_get_uprobe(struct und_uprobe *uprobe)
+{
+	refcount_inc(&uprobe->ref);
+	return uprobe;
+}
+
 #define DEBUGGEE_FILE_OFFSET	0x4710 /* getenv@plt */
  
 static struct inode *debuggee_inode = NULL;
@@ -859,6 +875,27 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
      break; /* IOCTL_KERNFS_NODE */
 
 #ifdef __x86_64__
+     case IOCTL_CNT_UPROBES:
+       if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 2) > 0 )
+         return -EFAULT;
+       else {
+         struct rb_root *root = (struct rb_root *)ptrbuf[0];
+         spinlock_t *lock = (spinlock_t *)ptrbuf[1];
+         struct rb_node *iter;
+         // lock
+         spin_lock(lock);
+         // traverse tree
+         ptrbuf[0] = 0;
+         for ( iter = rb_first(root); iter != NULL; iter = rb_next(iter) )
+           ptrbuf[0]++;
+         // unlock
+         spin_unlock(lock);
+         // copy result to user-mode
+         if (copy_to_user((void*)ioctl_param, (void*)ptrbuf, sizeof(ptrbuf[0])) > 0)
+           return -EFAULT;
+       }
+       break; /* IOCTL_CNT_UPROBES */
+
      case IOCTL_TEST_UPROBE:
        if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long)) > 0 )
          return -EFAULT;
@@ -1212,6 +1249,13 @@ init_module (void)
     return ret;
   }
   krnf_node_ptr = (krnf_node_type)lkcd_lookup_name("kernfs_node_from_dentry");
+#ifdef __x86_64__
+  find_uprobe_ptr = (find_uprobe)lkcd_lookup_name("find_uprobe");
+  get_uprobe_ptr = (get_uprobe)lkcd_lookup_name("get_uprobe");
+  if ( !get_uprobe_ptr )
+    get_uprobe_ptr = my_get_uprobe;
+  put_uprobe_ptr = (put_uprobe)lkcd_lookup_name("put_uprobe");
+#endif
   return 0;
 }
 
