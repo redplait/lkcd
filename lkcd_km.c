@@ -1225,8 +1225,13 @@ void cleanup_module (void)
   }
   if ( test_kprobe_installed )
   {
-    unregister_kprobe(&test_kp);
-    test_kprobe_installed = 0;
+     unregister_kprobe(&test_kp);
+     test_kprobe_installed = 0;
+  }
+  if ( debuggee_inode )
+  {
+     uprobe_unregister(debuggee_inode, DEBUGGEE_FILE_OFFSET, &s_uc);
+     debuggee_inode = 0;
   }
 #endif /* __x86_64__ */
   misc_deregister(&lkcd_dev);
