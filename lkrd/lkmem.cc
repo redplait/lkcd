@@ -344,7 +344,7 @@ void dump_uprobes(int fd, sa64 delta)
       char *cbuf = (char *)malloc(client_size);
       if ( !cbuf )
       {
-        printf("cannot alloc buffer for uprobes consumers, len %lX\n", size);
+        printf("cannot alloc buffer for uprobe %p consumers, len %lX\n", up[cnt].addr, client_size);
         continue;
       }
       // form params for IOCTL_CNT_UPROBES
