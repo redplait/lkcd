@@ -7,6 +7,7 @@ Small pet project to find and dump some linux kernel guts like
 * ftrace addresses (-f option)
 * check ftrace prologs (-c -f)
 * kernel tracepoints (-c -t)
+* per-cpu user_return_notifiers (-c -d)
 * kprobes - with pre_handler & post_handler (-c -k)
 * uprobes (including uprobe_consumer) (-c -k options)
  
