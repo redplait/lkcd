@@ -916,7 +916,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
          curr = (struct one_uprobe_consumer *)(kbuf + sizeof(unsigned long));
          // lock
          spin_lock(lock);
-         // traverse  tree
+         // traverse tree
          for ( iter = rb_first(root); iter != NULL; iter = rb_next(iter) )
          {
            struct uprobe_consumer *con;
@@ -933,6 +933,8 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
              curr[cnt].filter      = con->filter;
            }
            up_write(&up->consumer_rwsem);
+           // bcs we processing only one uprobe and it is found - no sense to continue tree traversal
+           break;
          }
          // unlock
          spin_unlock(lock);
