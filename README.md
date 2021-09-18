@@ -8,7 +8,8 @@ Small pet project to find and dump some linux kernel guts like
 * check ftrace prologs (-c -f)
 * kernel tracepoints (-c -t)
 * kprobes - with pre_handler & post_handler (-c -k)
-
+* uprobes (including uprobe_consumer) (-c -k options)
+ 
 etc etc
 
 Sure contains poorly written buggy driver
@@ -16,6 +17,12 @@ Sure contains poorly written buggy driver
 Sample of checking on x64 5.8.0-63
 
 ```
+uprobes: 1
+[0] addr 0xffffa008c309bc00 inode 0xffffa008c12d61a0 ino 1043126 clnts 1 offset 4710 flags 0 
+ consumer[0] at 0xffffffffc0605100
+   handler: 0xffffffffc0603b13 - lkcd
+   ret_handler: 0xffffffffc0603af3 - lkcd
+...
 mem at 0xffffffff8b633058 (x86_cpuinit+8) patched to 0xffffffff8a075d50 (kvm_setup_secondary_clock)
 mem at 0xffffffff8b6331c0 (i8259A_chip+40) patched to 0xffffffff8a0373a0 (disable_8259A_irq)
 mem at 0xffffffff8b6365c8 (machine_check_vector) patched to 0xffffffff8ab74bf0 (do_machine_check)
@@ -36,6 +43,7 @@ mem at 0xffffffff8b7d3490 (cap_perms+270) patched to 0xffffffff8a82f0f0 (vfio_de
 mem at 0xffffffff8b81f1e0 (pcibios_disable_irq) patched to 0xffffffff8a643760 (acpi_pci_irq_disable)
 mem at 0xffffffff8b81f1e8 (pcibios_enable_irq) patched to 0xffffffff8a6434d0 (acpi_pci_irq_enable)
 ```
+As you can see for uprobes you have only inode number so you should use "find -inum 1043126" to find on which file uprobe was installed
 
 
 # dependencies
