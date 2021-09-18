@@ -139,7 +139,10 @@ struct one_kprobe
 
 struct one_uprobe
 {
+  void *addr; // address of this uprobe - can be used to get consumers
   void *inode;
+  unsigned long cons_cnt;
+  unsigned long i_no; // from inode
   unsigned long offset;
   unsigned long flags;
   char name[256];
@@ -147,11 +150,27 @@ struct one_uprobe
 
 // get uprobes (from uprobes_tree)
 // in params:
-// in params:
 //  0 - uprobes_tree address
 //  1 - uprobes_treelock address
 //  2 - cnt (gathered with IOCTL_CNT_UPROBES)
 // out params - long size + N * one_uprobe
 #define IOCTL_UPROBES                  _IOR(IOCTL_NUM, 0x16, int*)
+
+struct one_uprobe_consumer
+{
+  void *addr;
+  void *handler;
+  void *ret_handler;
+  void *filter;
+};
+
+// get consumers of some uprobe
+// in params:
+//  0 - uprobes_tree address
+//  1 - uprobes_treelock address
+//  2 - address of uprobe. it can be removed so return error EBADF
+//  3 - cnt (gathered with IOCTL_CNT_UPROBES)
+// out params - long size + N * one_uprobe_consumer
+#define IOCTL_UPROBES_CONS             _IOR(IOCTL_NUM, 0x17, int*)
 
 #endif /* LKCD_SHARED_H */

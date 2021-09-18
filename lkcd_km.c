@@ -896,6 +896,63 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
        }
        break; /* IOCTL_CNT_UPROBES */
 
+     case IOCTL_UPROBES_CONS:
+       if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 4) > 0 )
+         return -EFAULT;
+       // 2 - uprobe, 3 - size
+       if ( !ptrbuf[3] )
+         return -EINVAL;
+       else {
+         struct rb_root *root = (struct rb_root *)ptrbuf[0];
+         spinlock_t *lock = (spinlock_t *)ptrbuf[1];
+         struct rb_node *iter;
+         unsigned long cnt = 0;
+         int found = 0;
+         struct one_uprobe_consumer *curr;
+         size_t size = sizeof(unsigned long) + ptrbuf[3] * sizeof(struct one_uprobe_consumer);
+         char *kbuf = (char *)kmalloc(size, GFP_KERNEL);
+         if ( !kbuf )
+           return -ENOMEM;
+         curr = (struct one_uprobe_consumer *)(kbuf + sizeof(unsigned long));
+         // lock
+         spin_lock(lock);
+         // traverse  tree
+         for ( iter = rb_first(root); iter != NULL; iter = rb_next(iter) )
+         {
+           struct uprobe_consumer *con;
+           struct und_uprobe *up = rb_entry(iter, struct und_uprobe, rb_node);
+           if ( (unsigned long)up != ptrbuf[2] )
+             continue;
+           found++;
+           down_write(&up->consumer_rwsem);
+           for (con = up->consumers; con && cnt < ptrbuf[3]; con = con->next, cnt++)
+           {
+             curr[cnt].addr        = (void *)con;
+             curr[cnt].handler     = con->handler;
+             curr[cnt].ret_handler = con->ret_handler;
+             curr[cnt].filter      = con->filter;
+           }
+           up_write(&up->consumer_rwsem);
+         }
+         // unlock
+         spin_unlock(lock);
+         if ( !found )
+         {
+           kfree(kbuf);
+           return -EBADF;
+         }
+         // copy to user
+         *(unsigned long *)kbuf = cnt;
+         size = sizeof(unsigned long) + cnt * sizeof(struct one_uprobe_consumer);
+         if (copy_to_user((void*)ioctl_param, (void*)kbuf, size) > 0)
+         {
+           kfree(kbuf);
+           return -EFAULT;
+         }
+         kfree(kbuf);
+       }
+       break; /* IOCTL_UPROBES_CONS */
+
      case IOCTL_UPROBES:
        if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 3) > 0 )
          return -EFAULT;
@@ -917,18 +974,28 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
          // traverse tree
          for ( iter = rb_first(root); iter != NULL && cnt < ptrbuf[2]; iter = rb_next(iter), cnt++ )
          {
+           struct uprobe_consumer **con;
            struct und_uprobe *up = rb_entry(iter, struct und_uprobe, rb_node);
+           curr[cnt].addr = up;
            curr[cnt].inode = up->inode;
            curr[cnt].offset = up->offset;
+           curr[cnt].i_no = 0;
            curr[cnt].flags = up->flags;
            // try get filename from inode
            curr[cnt].name[0] = 0;
            if ( up->inode )
            {
              struct dentry *de = d_find_any_alias(up->inode);
+             curr[cnt].i_no = up->inode->i_ino;
              if ( de )
                dentry_path_raw(de, curr[cnt].name, sizeof(curr[cnt].name));
            }
+           // calc count of consumers
+           curr[cnt].cons_cnt = 0;
+           down_write(&up->consumer_rwsem);
+           for (con = &up->consumers; *con; con = &(*con)->next)
+             curr[cnt].cons_cnt++;
+           up_write(&up->consumer_rwsem);
          }
          // unlock
          spin_unlock(lock);
