@@ -362,7 +362,7 @@ void dump_uprobes(int fd, sa64 delta)
       }
       // dump consumers
       one_uprobe_consumer *uc = (one_uprobe_consumer *)(cbuf + sizeof(unsigned long));
-      for ( auto cnt2 = 0; cnt2 < *palias; cnt2++ )
+      for ( auto cnt2 = 0; cnt2 < *calias; cnt2++ )
       {
         printf(" consumer[%d] at %p\n", cnt2, uc[cnt2].addr);
         if ( uc[cnt2].handler )
