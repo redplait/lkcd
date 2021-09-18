@@ -283,13 +283,120 @@ void dump_kptr(unsigned long l, const char *name, sa64 delta)
   }
 }
 
+static size_t calc_uprobes_size(size_t n)
+{
+  return n * sizeof(one_uprobe) + sizeof(unsigned long);
+}
+
+static size_t calc_uprobes_clnt_size(size_t n)
+{
+  return n * sizeof(one_uprobe_consumer) + sizeof(unsigned long);
+}
+
+void dump_uprobes(int fd, sa64 delta)
+{
+  unsigned long a1 = get_addr("uprobes_tree");
+  if ( !a1 )
+  {
+    printf("cannot find uprobes_tree\n");
+    return;
+  }
+  unsigned long a2 = get_addr("uprobes_treelock");
+  if ( !a2 )
+  {
+    printf("cannot find uprobes_treelock\n");
+    return;
+  }
+  unsigned long params[2] = { a1 + delta, a2 + delta };
+  int err = ioctl(fd, IOCTL_CNT_UPROBES, (int *)&params);
+  if ( err )
+  {
+    printf("IOCTL_CNT_UPROBES failed, error %d (%s)\n", errno, strerror(errno));
+    return;
+  }
+  printf("uprobes: %ld\n", params[0]);
+  if ( !params[0] )
+    return;
+  size_t size = calc_uprobes_size(params[0]);
+  char *buf = (char *)malloc(size);
+  if ( !buf )
+  {
+    printf("cannot alloc buffer for uprobes, len %lX\n", size);
+    return;
+  }
+  unsigned long *palias = (unsigned long *)buf;
+  palias[0] = a1 + delta;
+  palias[1] = a2 + delta;
+  palias[2] = params[0];
+  err = ioctl(fd, IOCTL_UPROBES, (int *)palias);
+  if ( err )
+  {
+    printf("IOCTL_UPROBES failed, error %d (%s)\n", errno, strerror(errno));
+  } else {
+    one_uprobe *up = (one_uprobe *)(buf + sizeof(unsigned long));
+    for ( auto cnt = 0; cnt < *palias; cnt++ )
+    {
+      printf("[%d] addr %p inode %p ino %ld clnts %ld offset %lX flags %lX %s\n", 
+        cnt, up[cnt].addr, up[cnt].inode, up[cnt].i_no, up[cnt].cons_cnt, up[cnt].offset, up[cnt].flags, up[cnt].name);
+      if ( !up[cnt].cons_cnt )
+        continue;
+      size_t client_size = calc_uprobes_clnt_size(up[cnt].cons_cnt);
+      char *cbuf = (char *)malloc(client_size);
+      if ( !cbuf )
+      {
+        printf("cannot alloc buffer for uprobes consumers, len %lX\n", size);
+        continue;
+      }
+      // form params for IOCTL_CNT_UPROBES
+      unsigned long *calias = (unsigned long *)cbuf;
+      calias[0] = a1 + delta;
+      calias[1] = a2 + delta;
+      calias[2] = (unsigned long)up[cnt].addr;
+      calias[3] = up[cnt].cons_cnt;
+      err = ioctl(fd, IOCTL_UPROBES_CONS, (int *)calias);
+      if ( err )
+      {
+        printf("IOCTL_UPROBES_CONS for %p failed, error %d (%s)\n", up[cnt].addr, errno, strerror(errno));
+        free(cbuf);
+        continue;
+      }
+      // dump consumers
+      one_uprobe_consumer *uc = (one_uprobe_consumer *)(cbuf + sizeof(unsigned long));
+      for ( auto cnt2 = 0; cnt2 < *palias; cnt2++ )
+      {
+        printf(" consumer[%d] at %p\n", cnt2, uc[cnt2].addr);
+        if ( uc[cnt2].handler )
+          dump_kptr((unsigned long)uc[cnt2].handler, "  handler", delta);
+        if ( uc[cnt2].ret_handler )
+          dump_kptr((unsigned long)uc[cnt2].ret_handler, "  ret_handler", delta);
+        if ( uc[cnt2].filter )
+          dump_kptr((unsigned long)uc[cnt2].filter, "  filter", delta);
+      }
+      free(cbuf);
+    }
+  }
+  free(buf);
+}
+
 static size_t calc_kprobes_size(size_t n)
 {
   return n * sizeof(one_kprobe) + sizeof(unsigned long);
 }
 
-void dump_kprobes(int fd, unsigned long a1, unsigned long a2, sa64 delta)
+void dump_kprobes(int fd, sa64 delta)
 {
+  unsigned long a1 = get_addr("kprobe_table");
+  if ( !a1 )
+  {
+    printf("cannot find kprobe_table\n");
+    return;
+  }
+  unsigned long a2 = get_addr("kprobe_mutex");
+  if ( !a2 )
+  {
+    printf("cannot find kprobe_mutex\n");
+    return;
+  }
   size_t curr_n = 3;
   size_t ksize = calc_kprobes_size(curr_n);
   unsigned long *buf = (unsigned long *)malloc(ksize);
@@ -801,14 +908,8 @@ int main(int argc, char **argv)
      // dump kprobes
      if ( opt_k && opt_c )
      {
-       auto a1 = get_addr("kprobe_table");
-       auto a2 = get_addr("kprobe_mutex");
-       if ( !a1 )
-         printf("cannot find kprobe_table\n");
-       if ( !a2 )
-         printf("cannot find kprobe_mutex\n");
-       if ( a1 && a2 )
-         dump_kprobes(fd, a1, a2, delta);
+       dump_kprobes(fd, delta);
+       dump_uprobes(fd, delta);
      }
      // check sysfs f_ops
      if ( opt_c && opt_s )
