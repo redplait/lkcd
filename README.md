@@ -1,6 +1,6 @@
 # lkcd
 Small pet project to find and dump some linux kernel guts like
-* notification chains
+* notification chains (https://0xax.gitbooks.io/linux-insides/content/Concepts/linux-cpu-4.html)
 * function pointers in .data section
 * check them with -c option (you need load driver lkcd first)
 * function pointers in .bss section - with some disasm magic
