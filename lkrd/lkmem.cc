@@ -38,7 +38,8 @@ void usage(const char *prog)
   printf("-b - check .bss section\n");
   printf("-c - check memory. Achtung - you must first load lkcd driver\n");
   printf("-d - use disasm\n");
-  printf("-f - dump ftraces\n");
+  printf("-F - dump super-blocks\n");
+  printf("-f - dump ftraces\n");  
   printf("-k - dump kprobes\n");
   printf("-r - check .rodata section\n");
   printf("-s - check fs_ops for sysfs files\n");
@@ -374,6 +375,57 @@ void dump_uprobes(int fd, sa64 delta)
       }
       free(cbuf);
     }
+  }
+  free(buf);
+}
+
+static size_t calc_super_size(size_t n)
+{
+   return n * sizeof(one_super_block) + sizeof(unsigned long);
+}
+
+void dump_super_blocks(int fd, sa64 delta)
+{
+  unsigned long cnt = 0;
+  int err = ioctl(fd, IOCTL_GET_SUPERBLOCKS, (int *)&cnt);
+  if ( err )
+  {
+    printf("IOCTL_GET_SUPERBLOCKS count failed, error %d (%s)\n", errno, strerror(errno));
+    return;
+  }
+  printf("super-blocks: %ld\n", cnt);
+  if ( !cnt )
+    return;
+  size_t size = calc_super_size(cnt);
+  unsigned long *buf = (unsigned long *)malloc(size);
+  if ( !buf )
+    return;
+  buf[0] = cnt;
+  err = ioctl(fd, IOCTL_GET_SUPERBLOCKS, (int *)buf);
+  if ( err )
+  {
+    printf("IOCTL_GET_SUPERBLOCKS failed, error %d (%s)\n", errno, strerror(errno));
+    free(buf);
+    return;
+  }
+  size = buf[0];
+//  printf("size %ld\n", size);
+  struct one_super_block *sb = (struct one_super_block *)(buf + 1);
+  for ( size_t idx = 0; idx < size; idx++ )
+  {
+    printf("superblock[%ld] at %p dev %ld %s\n", idx, sb[idx].addr, sb[idx].dev, sb[idx].s_id);
+    if ( sb[idx].s_type )
+      dump_kptr((unsigned long)sb[idx].s_type, "s_type", delta);
+    if ( sb[idx].s_op )
+      dump_kptr((unsigned long)sb[idx].s_op, "s_op", delta);
+    if ( sb[idx].dq_op )
+      dump_kptr((unsigned long)sb[idx].dq_op, "dq_op", delta);
+    if ( sb[idx].s_qcop )
+      dump_kptr((unsigned long)sb[idx].s_qcop, "s_qcop", delta);
+    if ( sb[idx].s_export_op )
+      dump_kptr((unsigned long)sb[idx].s_export_op, "s_export_op", delta);
+    if ( sb[idx].s_fsnotify_mask || sb[idx].s_fsnotify_marks )
+      printf(" s_fsnotify_mask: %lX s_fsnotify_marks %p\n", sb[idx].s_fsnotify_mask, sb[idx].s_fsnotify_marks);
   }
   free(buf);
 }
@@ -766,6 +818,7 @@ int main(int argc, char **argv)
 {
    // read options
    int opt_f = 0,
+       opt_F = 0,
        opt_d = 0,
        opt_c = 0,
        opt_k = 0,
@@ -778,7 +831,7 @@ int main(int argc, char **argv)
    int fd = 0;
    while (1)
    {
-     c = getopt(argc, argv, "bcdfkrstuv");
+     c = getopt(argc, argv, "bcdFfkrstuv");
      if (c == -1)
 	break;
 
@@ -786,6 +839,9 @@ int main(int argc, char **argv)
      {
         case 'b':
           opt_b = 1;
+         break;
+ 	case 'F':
+ 	  opt_F = 1;
          break;
  	case 'f':
  	  opt_f = 1;
@@ -910,6 +966,11 @@ int main(int argc, char **argv)
      {
        dump_kprobes(fd, delta);
        dump_uprobes(fd, delta);
+     }
+     // dump super-blocks
+     if ( opt_F && opt_c )
+     {
+       dump_super_blocks(fd, delta);
      }
      // check sysfs f_ops
      if ( opt_c && opt_s )
