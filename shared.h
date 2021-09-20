@@ -173,4 +173,26 @@ struct one_uprobe_consumer
 // out params - long size + N * one_uprobe_consumer
 #define IOCTL_UPROBES_CONS             _IOR(IOCTL_NUM, 0x17, int*)
 
+struct one_super_block
+{
+  void *addr;
+  unsigned long dev;
+  void *s_type;
+  void *s_op;
+  void *dq_op;
+  void *s_qcop;
+  void *s_export_op;
+  unsigned long s_fsnotify_mask;
+  void *s_fsnotify_marks;
+  char s_id[32];
+};
+
+// get super-blocks
+// in params:
+//   0 - count of super-blocks (if zero - return count)
+// out params
+//   if 0 param is zero - count of super-blocks
+//   else long size + N * one_super_block
+#define IOCTL_GET_SUPERBLOCKS          _IOR(IOCTL_NUM, 0x18, int*)
+
 #endif /* LKCD_SHARED_H */

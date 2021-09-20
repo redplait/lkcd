@@ -240,6 +240,42 @@ void file_close(struct file *file)
 typedef struct kernfs_node *(*krnf_node_type)(struct dentry *dentry);
 static krnf_node_type krnf_node_ptr = 0;
 
+typedef void (*und_iterate_supers)(void (*f)(struct super_block *, void *), void *arg);
+und_iterate_supers iterate_supers_ptr = 0;
+
+struct super_args
+{
+   unsigned long cnt;
+   unsigned long *curr;
+   struct one_super_block *data;
+};
+
+void count_super_blocks(struct super_block *sb, void *arg)
+{
+  (*(unsigned long *)arg)++;
+}
+
+void fill_super_blocks(struct super_block *sb, void *arg)
+{
+  struct super_args *args = (struct super_args *)arg;
+  unsigned long index = args->curr[0];
+  if ( index >= args->cnt )
+    return;
+  // copy data from super-block
+  args->data[index].addr   = sb;
+  args->data[index].dev    = sb->s_dev;
+  args->data[index].s_type = sb->s_type;
+  args->data[index].dq_op  = (void *)sb->dq_op;
+  args->data[index].s_qcop = (void *)sb->s_qcop;
+  args->data[index].s_export_op = (void *)sb->s_export_op;
+#ifdef CONFIG_FSNOTIFY
+  args->data[index].s_fsnotify_mask = sb->s_fsnotify_mask;
+  args->data[index].s_fsnotify_marks = sb->s_fsnotify_marks;
+#endif /* CONFIG_FSNOTIFY */
+  strncpy(args->data[index].s_id, sb->s_id, 31);
+  // inc index for next
+  args->curr[0]++;
+}
 
 #ifdef __x86_64__
 // some uprobe functions
@@ -874,6 +910,40 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
       }
      break; /* IOCTL_KERNFS_NODE */
 
+#ifdef CONFIG_FSNOTIFY
+     case IOCTL_GET_SUPERBLOCKS:
+       if ( !iterate_supers_ptr )
+         return -EFAULT;
+       if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long)) > 0 )
+         return -EFAULT;
+       if ( !ptrbuf[0] )
+       {
+         ptrbuf[0] = 0;
+         iterate_supers_ptr(count_super_blocks, (void*)ptrbuf);
+         if (copy_to_user((void*)ioctl_param, (void*)ptrbuf, sizeof(ptrbuf[0])) > 0)
+           return -EFAULT;
+       } else {
+         struct super_args sargs;
+         size_t ksize = sizeof(unsigned long) + ptrbuf[0] * sizeof(struct one_super_block);
+         sargs.cnt = ptrbuf[0];
+         sargs.curr = (unsigned long *)kmalloc(ksize, GFP_KERNEL);
+         if ( !sargs.curr )
+           return -ENOMEM;
+         sargs.data = (struct one_super_block *)(sargs.curr + 1);
+         sargs.curr[0] = 0;
+         iterate_supers_ptr(fill_super_blocks, (void*)&sargs);
+         ksize = sizeof(unsigned long) + sargs.curr[0] * sizeof(struct one_super_block);
+         if (copy_to_user((void*)ioctl_param, (void*)sargs.curr, ksize) > 0)
+         {
+           kfree(sargs.curr);
+           return -EFAULT;
+         }
+         kfree(sargs.curr);
+       }
+      break; /* IOCTL_GET_SUPERBLOCKS */
+
+#endif /* CONFIG_FSNOTIFY */
+
 #ifdef __x86_64__
      case IOCTL_CNT_UPROBES:
        if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 2) > 0 )
@@ -1366,6 +1436,7 @@ init_module (void)
     return ret;
   }
   krnf_node_ptr = (krnf_node_type)lkcd_lookup_name("kernfs_node_from_dentry");
+  iterate_supers_ptr = (und_iterate_supers)lkcd_lookup_name("iterate_supers");
 #ifdef __x86_64__
   find_uprobe_ptr = (find_uprobe)lkcd_lookup_name("find_uprobe");
   get_uprobe_ptr = (get_uprobe)lkcd_lookup_name("get_uprobe");
