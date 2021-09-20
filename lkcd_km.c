@@ -264,6 +264,7 @@ void fill_super_blocks(struct super_block *sb, void *arg)
   // copy data from super-block
   args->data[index].addr   = sb;
   args->data[index].dev    = sb->s_dev;
+  args->data[index].s_op   = (void *)sb->s_op;
   args->data[index].s_type = sb->s_type;
   args->data[index].dq_op  = (void *)sb->dq_op;
   args->data[index].s_qcop = (void *)sb->s_qcop;
