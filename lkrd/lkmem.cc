@@ -394,6 +394,11 @@ static size_t calc_marks_size(size_t n)
   return n * sizeof(one_fsnotify) + sizeof(unsigned long);
 }
 
+static size_t calc_mount_size(size_t n)
+{
+  return n * sizeof(one_mount) + sizeof(unsigned long);
+}
+
 // ripped from include/uapi/linux/stat.h
 const char *get_mod_name(unsigned long mod)
 {
@@ -444,7 +449,9 @@ void dump_super_blocks(int fd, sa64 delta)
   struct one_super_block *sb = (struct one_super_block *)(buf + 1);
   for ( size_t idx = 0; idx < size; idx++ )
   {
-    printf("superblock[%ld] at %p dev %ld flags %lX inodes %ld %s\n", idx, sb[idx].addr, sb[idx].dev, sb[idx].s_flags, sb[idx].inodes_cnt, sb[idx].s_id);
+    printf("superblock[%ld] at %p dev %ld flags %lX inodes %ld %s mnt_count %ld root %p %s\n", idx, sb[idx].addr, sb[idx].dev, sb[idx].s_flags, sb[idx].inodes_cnt, sb[idx].s_id, 
+      sb[idx].mount_count, sb[idx].s_root, sb[idx].root
+    );
     if ( sb[idx].s_type )
       dump_kptr((unsigned long)sb[idx].s_type, "s_type", delta);
     if ( sb[idx].s_op )
@@ -459,6 +466,59 @@ void dump_super_blocks(int fd, sa64 delta)
       dump_kptr((unsigned long)sb[idx].s_d_op, "s_d_op", delta);
     if ( sb[idx].s_fsnotify_mask || sb[idx].s_fsnotify_marks )
       printf(" s_fsnotify_mask: %lX s_fsnotify_marks %p\n", sb[idx].s_fsnotify_mask, sb[idx].s_fsnotify_marks);
+    // dump mounts
+    if ( sb[idx].mount_count )
+    {
+      size_t msize = calc_mount_size(sb[idx].mount_count);
+      unsigned long *mbuf = (unsigned long *)malloc(msize);
+      if ( mbuf )
+      {
+        // params for IOCTL_GET_SUPERBLOCK_MOUNTS
+        mbuf[0] = (unsigned long)sb[idx].addr;
+        mbuf[1] = sb[idx].mount_count;
+        err = ioctl(fd, IOCTL_GET_SUPERBLOCK_MOUNTS, (int *)mbuf);
+        if ( err )
+        {
+          printf("IOCTL_GET_SUPERBLOCK_MOUNTS failed, error %d (%s)\n", errno, strerror(errno));
+        } else {
+          msize = mbuf[0];
+          struct one_mount *mnt = (struct one_mount *)(mbuf + 1);
+          for ( size_t j = 0; j < msize; j++ )
+          {
+            printf(" mnt[%ld] %p mark_cnt %ld %s %s %s\n", j, mnt[j].addr, mnt[j].mark_count, mnt[j].mnt_root, mnt[j].root, mnt[j].mnt_mp);
+            if ( !mnt[j].mark_count )
+              continue;
+            size_t mmsize = calc_marks_size(mnt[j].mark_count);
+            unsigned long *mmbuf = (unsigned long *)malloc(mmsize);
+            if ( !mmbuf )
+              continue;
+            // params for IOCTL_GET_MOUNT_MARKS
+            mmbuf[0] = (unsigned long)sb[idx].addr;
+            mmbuf[1] = (unsigned long)mnt[j].addr;
+            mmbuf[2] = mnt[j].mark_count;
+            err = ioctl(fd, IOCTL_GET_MOUNT_MARKS, (int *)mmbuf);
+            if ( err )
+            {
+               printf("IOCTL_GET_MOUNT_MARKS failed, error %d (%s)\n", errno, strerror(errno));
+               free(mmbuf);
+               continue;
+            }
+            mmsize = mmbuf[0];
+            one_fsnotify *of = (one_fsnotify *)(mmbuf + 1);
+            for ( size_t k = 0; k < mmsize; k++ )
+            {
+              printf("    fsnotify[%ld] %p mask %X ignored_mask %X flags %X\n", k, of[k].mark_addr, of[k].mask, of[k].ignored_mask, of[k].flags);
+              if ( of[k].group )
+                printf("     group: %p\n", of[k].group);
+              if ( of[k].ops )
+              dump_kptr((unsigned long)of[k].ops, "     ops", delta);
+            }
+            free(mmbuf);
+          }
+        }
+        free(mbuf);
+      }
+    }
     // dump inodes
     if ( !sb[idx].inodes_cnt )
       continue;
