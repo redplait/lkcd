@@ -389,6 +389,11 @@ static size_t calc_inodes_size(size_t n)
   return n * sizeof(one_inode) + sizeof(unsigned long);
 }
 
+static size_t calc_marks_size(size_t n)
+{
+  return n * sizeof(one_fsnotify) + sizeof(unsigned long);
+}
+
 // ripped from include/uapi/linux/stat.h
 const char *get_mod_name(unsigned long mod)
 {
@@ -461,6 +466,7 @@ void dump_super_blocks(int fd, sa64 delta)
     unsigned long *ibuf = (unsigned long *)malloc(isize);
     if ( !ibuf )
       continue;
+    // params for IOCTL_GET_SUPERBLOCK_INODES
     ibuf[0] = (unsigned long)sb[idx].addr;
     ibuf[1] = sb[idx].inodes_cnt;
     err = ioctl(fd, IOCTL_GET_SUPERBLOCK_INODES, (int *)ibuf);
@@ -479,7 +485,35 @@ void dump_super_blocks(int fd, sa64 delta)
       const char *mod = get_mod_name(inod[j].i_mode);
       printf("  inode[%ld] %p i_no %ld i_flags %X %s\n", j, inod[j].addr, inod[j].i_ino, inod[j].i_flags, mod);
       if ( inod[j].i_fsnotify_mask || inod[j].i_fsnotify_marks )
-        printf("    i_fsnotify_mask: %lX i_fsnotify_marks %p\n", inod[j].i_fsnotify_mask, inod[j].i_fsnotify_marks);
+        printf("    i_fsnotify_mask: %lX i_fsnotify_marks %p count %ld\n", inod[j].i_fsnotify_mask, inod[j].i_fsnotify_marks, inod[j].mark_count);
+      if ( !inod[j].mark_count )
+        continue;
+      size_t msize = calc_marks_size(inod[j].mark_count);
+      unsigned long *fbuf = (unsigned long *)malloc(msize);
+      if ( !fbuf )
+        continue;
+      // params for IOCTL_GET_INODE_MARKS
+      fbuf[0] = (unsigned long)sb[idx].addr;
+      fbuf[1] = (unsigned long)inod[j].addr;
+      fbuf[2] = inod[j].mark_count;
+      err = ioctl(fd, IOCTL_GET_INODE_MARKS, (int *)fbuf);
+      if ( err )
+      {
+        printf("IOCTL_GET_INODE_MARKS failed, error %d (%s)\n", errno, strerror(errno));
+        free(fbuf);
+        continue;
+      }
+      msize = fbuf[0];
+      one_fsnotify *of = (one_fsnotify *)(fbuf + 1);
+      for ( size_t k = 0; k < msize; k++ )
+      {
+        printf("    fsnotify[%ld] %p mask %X ignored_mask %X flags %X\n", k, of[k].mark_addr, of[k].mask, of[k].ignored_mask, of[k].flags);
+        if ( of[k].group )
+          printf("     group: %p\n", of[k].group);
+        if ( of[k].ops )
+          dump_kptr((unsigned long)of[k].ops, "     ops", delta);
+      }
+      free(fbuf);
     }
     free(ibuf);
   }
