@@ -249,6 +249,46 @@ und_fsnotify_first_mark fsnotify_first_mark_ptr = 0;
 und_fsnotify_next_mark  fsnotify_next_mark_ptr  = 0;
 #endif /* CONFIG_FSNOTIFY */
 
+struct super_inodes_args
+{
+  void *sb_addr;
+  int found;
+  unsigned long cnt;
+  unsigned long *curr;
+  struct one_inode *data;
+};
+
+void fill_super_block_inodes(struct super_block *sb, void *arg)
+{
+  struct super_inodes_args *args = (struct super_inodes_args *)arg;
+  if ( (void *)sb != args->sb_addr )
+    return;
+  else {
+    struct inode *inode;
+    args->found++;
+    // iterate on inodes
+    spin_lock(&sb->s_inode_list_lock);
+    list_for_each_entry(inode, &sb->s_inodes, i_sb_list)
+    {
+      unsigned long index = args->curr[0];
+      if ( args->curr[0] > args->cnt )
+        break;
+      // copy data for this inode
+      args->data[index].addr    = (void *)inode;
+      args->data[index].i_mode  = inode->i_mode;
+      args->data[index].i_ino   = inode->i_ino;
+      args->data[index].i_flags = inode->i_flags;
+#ifdef CONFIG_FSNOTIFY
+      args->data[index].i_fsnotify_mask = inode->i_fsnotify_mask;
+      args->data[index].i_fsnotify_marks = (void *)inode->i_fsnotify_marks;
+#endif /* CONFIG_FSNOTIFY */
+      // inc count for next iteration
+      args->curr[0]++;
+    }
+    spin_unlock(&sb->s_inode_list_lock);
+  }
+}
+
 struct super_args
 {
    unsigned long cnt;
@@ -929,6 +969,41 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
      break; /* IOCTL_KERNFS_NODE */
 
 #ifdef CONFIG_FSNOTIFY
+     case IOCTL_GET_SUPERBLOCK_INODES:
+       if ( !iterate_supers_ptr )
+         return -EFAULT;
+       if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 2) > 0 )
+         return -EFAULT;
+       // check size
+       if ( !ptrbuf[1] )
+         return -EINVAL;
+       else {
+         struct super_inodes_args sargs;
+         size_t ksize = sizeof(unsigned long) + ptrbuf[1] * sizeof(struct one_inode);
+         sargs.sb_addr = (void *)ptrbuf[0];
+         sargs.cnt     = ptrbuf[1];
+         sargs.found   = 0;
+         sargs.curr = (unsigned long *)kmalloc(ksize, GFP_KERNEL);
+         if ( !sargs.curr )
+           return -ENOMEM;
+         sargs.data = (struct one_inode *)(sargs.curr + 1);
+         sargs.curr[0] = 0;
+         iterate_supers_ptr(fill_super_block_inodes, (void*)&sargs);
+         if ( !sargs.found )
+         {
+           kfree(sargs.curr);
+           return -EBADF;
+         }
+         ksize = sizeof(unsigned long) + sargs.curr[0] * sizeof(struct one_inode);
+         if (copy_to_user((void*)ioctl_param, (void*)sargs.curr, ksize) > 0)
+         {
+           kfree(sargs.curr);
+           return -EFAULT;
+         }
+         kfree(sargs.curr);
+       }
+      break; /* IOCTL_GET_SUPERBLOCK_INODES */
+
      case IOCTL_GET_SUPERBLOCKS:
        if ( !iterate_supers_ptr )
          return -EFAULT;

@@ -195,9 +195,26 @@ struct one_super_block
 // get super-blocks
 // in params:
 //   0 - count of super-blocks (if zero - return count)
-// out params
+// out params:
 //   if 0 param is zero - count of super-blocks
 //   else long size + N * one_super_block
 #define IOCTL_GET_SUPERBLOCKS          _IOR(IOCTL_NUM, 0x18, int*)
+
+struct one_inode
+{
+  void *addr;
+  unsigned long i_mode;
+  unsigned long i_ino;
+  unsigned int i_flags;
+  unsigned long i_fsnotify_mask;
+  void *i_fsnotify_marks;
+};
+
+// get inodes for some superblock
+// in params:
+//  0 - superblock address
+//  1 - count
+// out params - long size + N * one_inode
+#define IOCTL_GET_SUPERBLOCK_INODES    _IOR(IOCTL_NUM, 0x19, int*)
 
 #endif /* LKCD_SHARED_H */
