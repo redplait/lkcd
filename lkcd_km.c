@@ -299,6 +299,46 @@ struct inode_mark_args
   struct one_fsnotify *data;
 };
 
+void fill_mount_marks(struct super_block *sb, void *arg)
+{
+  struct inode_mark_args *args = (struct inode_mark_args *)arg;
+  if ( (void *)sb != args->sb_addr )
+    return;
+  else {
+    struct mount *mnt;
+    struct fsnotify_mark *mark;
+    args->found |= 1;
+    lock_mount_hash();
+    list_for_each_entry(mnt, &sb->s_mounts, mnt_instance)
+    {
+      if ( (void *)mnt != args->inode_addr )
+        continue;
+      args->found |= 2;
+      for ( mark = fsnotify_first_mark_ptr(&mnt->mnt_fsnotify_marks);
+            mark != NULL && args->curr[0] < args->cnt;
+            mark = fsnotify_next_mark_ptr(mark), args->curr[0]++
+          )
+      {
+        unsigned long index = args->curr[0];
+        args->data[index].mark_addr = (void *)mark;
+        args->data[index].mask = mark->mask;
+        args->data[index].ignored_mask = mark->ignored_mask;
+        args->data[index].flags = mark->flags;
+        if ( mark->group )
+        {
+          args->data[index].group = (void *)mark->group;
+          args->data[index].ops   = (void *)mark->group->ops;
+        } else {
+          args->data[index].group = NULL;
+          args->data[index].ops = NULL;
+        }
+      }
+      break;
+    }
+    unlock_mount_hash();
+  }
+}
+
 void fill_inode_marks(struct super_block *sb, void *arg)
 {
   struct inode_mark_args *args = (struct inode_mark_args *)arg;
@@ -1204,6 +1244,43 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
          kfree(sargs.curr);
        }
       break; /* IOCTL_GET_SUPERBLOCK_INODES */
+
+     case IOCTL_GET_MOUNT_MARKS:
+       if ( !iterate_supers_ptr || !mount_lock)
+         return -EFAULT;
+       if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 3) > 0 )
+         return -EFAULT;
+       // check size
+       if ( !ptrbuf[2] )
+         return -EINVAL;
+       else {
+         struct inode_mark_args args;
+         size_t ksize = sizeof(unsigned long) + ptrbuf[2] * sizeof(struct one_fsnotify);
+         // fill inode_mark_args
+         args.sb_addr    = (void *)ptrbuf[0];
+         args.inode_addr = (void *)ptrbuf[1]; // mnt address actually but I am too lazy to add new structure
+         args.cnt        = ptrbuf[2];
+         args.found      = 0;
+         args.curr = (unsigned long *)kmalloc(ksize, GFP_KERNEL);
+         if ( !args.curr )
+           return -ENOMEM;
+         args.data = (struct one_fsnotify *)(args.curr + 1);
+         args.curr[0] = 0;
+         iterate_supers_ptr(fill_mount_marks, (void*)&args);
+         if ( args.found != 3 )
+         {
+           kfree(args.curr);
+           return -EBADF;
+         }
+         ksize = sizeof(unsigned long) + args.curr[0] * sizeof(struct one_fsnotify);
+         if (copy_to_user((void*)ioctl_param, (void*)args.curr, ksize) > 0)
+         {
+           kfree(args.curr);
+           return -EFAULT;
+         }
+         kfree(args.curr);
+       }
+      break; /* IOCTL_GET_MOUNT_MARKS */
 
      case IOCTL_GET_SUPERBLOCK_MOUNTS:
        if ( !iterate_supers_ptr || !mount_lock)
