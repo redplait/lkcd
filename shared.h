@@ -206,6 +206,7 @@ struct one_inode
   unsigned long i_mode;
   unsigned long i_ino;
   unsigned int i_flags;
+  unsigned long mark_count;
   unsigned long i_fsnotify_mask;
   void *i_fsnotify_marks;
 };
@@ -216,5 +217,23 @@ struct one_inode
 //  1 - count
 // out params - long size + N * one_inode
 #define IOCTL_GET_SUPERBLOCK_INODES    _IOR(IOCTL_NUM, 0x19, int*)
+
+struct one_fsnotify
+{
+  void *mark_addr;    // address of fsnotify_mark
+  unsigned int mask;  // fsnotify_mark.mask
+  unsigned int ignored_mask; // fsnotify_mark.ignored_mask
+  unsigned int flags; // fsnotify_mark.flags
+  void *group;        // address of fsnotify_group
+  void *ops;          // fsnotify_group->fsnotify_ops
+};
+
+// get fsnotify_mark/fsnotify_group/fsnotify_ops for some inode
+// in params:
+//  0 - superblock address
+//  1 - inode address
+//  2 - count
+// out params - long size + N * one_fsnotify
+#define IOCTL_GET_INODE_MARKS          _IOR(IOCTL_NUM, 0x1a, int*)
 
 #endif /* LKCD_SHARED_H */

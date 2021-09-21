@@ -17,6 +17,9 @@
 #include <linux/kprobes.h>
 #include "uprobes.h"
 #endif
+#ifdef CONFIG_FSNOTIFY
+#include <linux/fsnotify_backend.h>
+#endif /* CONFIG_FSNOTIFY */
 #include <linux/smp.h>
 #include <linux/miscdevice.h>
 #include <linux/notifier.h>
@@ -245,8 +248,83 @@ und_iterate_supers iterate_supers_ptr = 0;
 #ifdef CONFIG_FSNOTIFY
 typedef struct fsnotify_mark *(*und_fsnotify_first_mark)(struct fsnotify_mark_connector **connp);
 typedef struct fsnotify_mark *(*und_fsnotify_next_mark)(struct fsnotify_mark *mark);
+struct srcu_struct *fsnotify_mark_srcu_ptr = 0;
 und_fsnotify_first_mark fsnotify_first_mark_ptr = 0;
 und_fsnotify_next_mark  fsnotify_next_mark_ptr  = 0;
+
+static struct fsnotify_mark *my_fsnotify_first_mark(struct fsnotify_mark_connector **connp)
+{
+	struct fsnotify_mark_connector *conn;
+	struct hlist_node *node = NULL;
+
+	conn = srcu_dereference(*connp, fsnotify_mark_srcu_ptr);
+	if (conn)
+		node = srcu_dereference(conn->list.first, fsnotify_mark_srcu_ptr);
+
+	return hlist_entry_safe(node, struct fsnotify_mark, obj_list);
+}
+
+static struct fsnotify_mark *my_fsnotify_next_mark(struct fsnotify_mark *mark)
+{
+	struct hlist_node *node = NULL;
+
+	if (mark)
+		node = srcu_dereference(mark->obj_list.next,
+					fsnotify_mark_srcu_ptr);
+
+	return hlist_entry_safe(node, struct fsnotify_mark, obj_list);
+}
+
+struct inode_mark_args
+{
+  void *sb_addr;
+  void *inode_addr;
+  int found;
+  unsigned long cnt;
+  unsigned long *curr;
+  struct one_fsnotify *data;
+};
+
+void fill_inode_marks(struct super_block *sb, void *arg)
+{
+  struct inode_mark_args *args = (struct inode_mark_args *)arg;
+  if ( (void *)sb != args->sb_addr )
+    return;
+  else {
+    struct inode *inode;
+    struct fsnotify_mark *mark;
+    args->found |= 1;
+    // iterate on inodes
+    spin_lock(&sb->s_inode_list_lock);
+    list_for_each_entry(inode, &sb->s_inodes, i_sb_list)
+    {      
+      if ( (void *)inode != args->inode_addr )
+        continue;
+      args->found |= 2;
+      for ( mark = fsnotify_first_mark_ptr(&inode->i_fsnotify_marks);
+            mark != NULL && args->curr[0] < args->cnt;
+            mark = fsnotify_next_mark_ptr(mark), args->curr[0]++
+          )
+      {
+        unsigned long index = args->curr[0];
+        args->data[index].mark_addr = (void *)mark;
+        args->data[index].mask = mark->mask;
+        args->data[index].ignored_mask = mark->ignored_mask;
+        args->data[index].flags = mark->flags;
+        if ( mark->group )
+        {
+          args->data[index].group = (void *)mark->group;
+          args->data[index].ops   = (void *)mark->group->ops;
+        } else {
+          args->data[index].group = NULL;
+          args->data[index].ops = NULL;
+        }
+      }
+      break;
+    }
+    spin_unlock(&sb->s_inode_list_lock);
+  }
+}
 #endif /* CONFIG_FSNOTIFY */
 
 struct super_inodes_args
@@ -281,6 +359,14 @@ void fill_super_block_inodes(struct super_block *sb, void *arg)
 #ifdef CONFIG_FSNOTIFY
       args->data[index].i_fsnotify_mask = inode->i_fsnotify_mask;
       args->data[index].i_fsnotify_marks = (void *)inode->i_fsnotify_marks;
+      args->data[index].mark_count = 0;
+      // iterate on marks
+      if ( fsnotify_first_mark_ptr && fsnotify_next_mark_ptr )
+      {
+        struct fsnotify_mark *mark;
+        for ( mark = fsnotify_first_mark_ptr(&inode->i_fsnotify_marks); mark != NULL; mark = fsnotify_next_mark_ptr(mark) )
+          args->data[index].mark_count++;
+      }
 #endif /* CONFIG_FSNOTIFY */
       // inc count for next iteration
       args->curr[0]++;
@@ -969,6 +1055,43 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
      break; /* IOCTL_KERNFS_NODE */
 
 #ifdef CONFIG_FSNOTIFY
+     case IOCTL_GET_INODE_MARKS:
+       if ( !iterate_supers_ptr )
+         return -EFAULT;
+       if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 3) > 0 )
+         return -EFAULT;
+       // check size
+       if ( !ptrbuf[2] )
+         return -EINVAL;
+       else {
+         struct inode_mark_args args;
+         size_t ksize = sizeof(unsigned long) + ptrbuf[2] * sizeof(struct one_fsnotify);
+         // fill inode_mark_args
+         args.sb_addr    = (void *)ptrbuf[0];
+         args.inode_addr = (void *)ptrbuf[1];
+         args.cnt        = ptrbuf[2];
+         args.found      = 0;
+         args.curr = (unsigned long *)kmalloc(ksize, GFP_KERNEL);
+         if ( !args.curr )
+           return -ENOMEM;
+         args.data = (struct one_fsnotify *)(args.curr + 1);
+         args.curr[0] = 0;
+         iterate_supers_ptr(fill_inode_marks, (void*)&args);
+         if ( args.found != 3 )
+         {
+           kfree(args.curr);
+           return -EBADF;
+         }
+         ksize = sizeof(unsigned long) + args.curr[0] * sizeof(struct one_fsnotify);
+         if (copy_to_user((void*)ioctl_param, (void*)args.curr, ksize) > 0)
+         {
+           kfree(args.curr);
+           return -EFAULT;
+         }
+         kfree(args.curr);
+       }
+       break; /* IOCTL_GET_INODE_MARKS */
+
      case IOCTL_GET_SUPERBLOCK_INODES:
        if ( !iterate_supers_ptr )
          return -EFAULT;
@@ -980,6 +1103,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
        else {
          struct super_inodes_args sargs;
          size_t ksize = sizeof(unsigned long) + ptrbuf[1] * sizeof(struct one_inode);
+         // fill super_inodes_args
          sargs.sb_addr = (void *)ptrbuf[0];
          sargs.cnt     = ptrbuf[1];
          sargs.found   = 0;
@@ -1531,12 +1655,21 @@ init_module (void)
   krnf_node_ptr = (krnf_node_type)lkcd_lookup_name("kernfs_node_from_dentry");
   iterate_supers_ptr = (und_iterate_supers)lkcd_lookup_name("iterate_supers");
 #ifdef CONFIG_FSNOTIFY
+  fsnotify_mark_srcu_ptr = (struct srcu_struct *)lkcd_lookup_name("fsnotify_mark_srcu");
   fsnotify_first_mark_ptr = (und_fsnotify_first_mark)lkcd_lookup_name("fsnotify_first_mark");
   if ( !fsnotify_first_mark_ptr )
+  {
     printk("cannot find fsnotify_first_mark\n");
+    if ( fsnotify_mark_srcu_ptr )
+      fsnotify_first_mark_ptr = my_fsnotify_first_mark;
+  }
   fsnotify_next_mark_ptr = (und_fsnotify_next_mark)lkcd_lookup_name("fsnotify_next_mark");
   if ( !fsnotify_next_mark_ptr )
+  {
     printk("cannot find fsnotify_next_mark\n");
+    if ( fsnotify_mark_srcu_ptr )
+      fsnotify_next_mark_ptr = my_fsnotify_next_mark;
+  }
 #endif /* CONFIG_FSNOTIFY */
 #ifdef __x86_64__
   find_uprobe_ptr = (find_uprobe)lkcd_lookup_name("find_uprobe");
