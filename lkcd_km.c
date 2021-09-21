@@ -247,6 +247,18 @@ static krnf_node_type krnf_node_ptr = 0;
 
 typedef void (*und_iterate_supers)(void (*f)(struct super_block *, void *), void *arg);
 und_iterate_supers iterate_supers_ptr = 0;
+seqlock_t *mount_lock = 0;
+
+inline void lock_mount_hash(void)
+{
+  write_seqlock(mount_lock);
+}
+
+inline void unlock_mount_hash(void)
+{
+  write_sequnlock(mount_lock);
+}
+
 #ifdef CONFIG_FSNOTIFY
 typedef struct fsnotify_mark *(*und_fsnotify_first_mark)(struct fsnotify_mark_connector **connp);
 typedef struct fsnotify_mark *(*und_fsnotify_next_mark)(struct fsnotify_mark *mark);
@@ -394,6 +406,7 @@ void fill_super_block_mounts(struct super_block *sb, void *arg)
   else {
     struct mount *mnt;
     args->found++;
+    lock_mount_hash();
     list_for_each_entry(mnt, &sb->s_mounts, mnt_instance)
     {
       unsigned long index = args->curr[0];
@@ -426,6 +439,7 @@ void fill_super_block_mounts(struct super_block *sb, void *arg)
       // inc count for next iteration
       args->curr[0]++;
     }
+    unlock_mount_hash();
   }
 }
 
@@ -1192,7 +1206,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
       break; /* IOCTL_GET_SUPERBLOCK_INODES */
 
      case IOCTL_GET_SUPERBLOCK_MOUNTS:
-       if ( !iterate_supers_ptr )
+       if ( !iterate_supers_ptr || !mount_lock)
          return -EFAULT;
        if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 2) > 0 )
          return -EFAULT;
@@ -1753,6 +1767,9 @@ init_module (void)
   }
   krnf_node_ptr = (krnf_node_type)lkcd_lookup_name("kernfs_node_from_dentry");
   iterate_supers_ptr = (und_iterate_supers)lkcd_lookup_name("iterate_supers");
+  mount_lock = (seqlock_t *)lkcd_lookup_name("mount_lock");
+  if ( !mount_lock )
+    printk("cannot find mount_lock\n");
 #ifdef CONFIG_FSNOTIFY
   fsnotify_mark_srcu_ptr = (struct srcu_struct *)lkcd_lookup_name("fsnotify_mark_srcu");
   fsnotify_first_mark_ptr = (und_fsnotify_first_mark)lkcd_lookup_name("fsnotify_first_mark");
