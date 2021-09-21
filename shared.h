@@ -255,13 +255,12 @@ struct one_mount
 // out params - long size + N * one_mount
 #define IOCTL_GET_SUPERBLOCK_MOUNTS    _IOR(IOCTL_NUM, 0x1b, int*)
 
+// get fsnotify_mark/fsnotify_group/fsnotify_ops for some mount point 
 // in params:
 //  0 - superblock address
 //  1 - mount address
 //  2 - count
 // out params - long size + N * one_fsnotify
 #define IOCTL_GET_MOUNT_MARKS          _IOR(IOCTL_NUM, 0x1c, int*)
-
-// get fsnotify_mark/fsnotify_group/fsnotify_ops for some mount point 
 
 #endif /* LKCD_SHARED_H */
