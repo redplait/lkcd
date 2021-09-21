@@ -242,6 +242,12 @@ static krnf_node_type krnf_node_ptr = 0;
 
 typedef void (*und_iterate_supers)(void (*f)(struct super_block *, void *), void *arg);
 und_iterate_supers iterate_supers_ptr = 0;
+#ifdef CONFIG_FSNOTIFY
+typedef struct fsnotify_mark *(*und_fsnotify_first_mark)(struct fsnotify_mark_connector **connp);
+typedef struct fsnotify_mark *(*und_fsnotify_next_mark)(struct fsnotify_mark *mark);
+und_fsnotify_first_mark fsnotify_first_mark_ptr = 0;
+und_fsnotify_next_mark  fsnotify_next_mark_ptr  = 0;
+#endif /* CONFIG_FSNOTIFY */
 
 struct super_args
 {
@@ -259,21 +265,32 @@ void fill_super_blocks(struct super_block *sb, void *arg)
 {
   struct super_args *args = (struct super_args *)arg;
   unsigned long index = args->curr[0];
+  struct inode *inode;
   if ( index >= args->cnt )
     return;
   // copy data from super-block
-  args->data[index].addr   = sb;
-  args->data[index].dev    = sb->s_dev;
-  args->data[index].s_op   = (void *)sb->s_op;
-  args->data[index].s_type = sb->s_type;
-  args->data[index].dq_op  = (void *)sb->dq_op;
-  args->data[index].s_qcop = (void *)sb->s_qcop;
+  args->data[index].addr      = sb;
+  args->data[index].dev       = sb->s_dev;
+  args->data[index].s_flags   = sb->s_flags;
+  args->data[index].s_iflags  = sb->s_iflags;
+  args->data[index].s_op      = (void *)sb->s_op;
+  args->data[index].s_type    = sb->s_type;
+  args->data[index].dq_op     = (void *)sb->dq_op;
+  args->data[index].s_qcop    = (void *)sb->s_qcop;
   args->data[index].s_export_op = (void *)sb->s_export_op;
+  args->data[index].s_d_op    = (void *)sb->s_d_op;
+  args->data[index].s_user_ns = (void *)sb->s_user_ns;
+  args->data[index].inodes_cnt = 0;
 #ifdef CONFIG_FSNOTIFY
   args->data[index].s_fsnotify_mask = sb->s_fsnotify_mask;
   args->data[index].s_fsnotify_marks = sb->s_fsnotify_marks;
 #endif /* CONFIG_FSNOTIFY */
   strncpy(args->data[index].s_id, sb->s_id, 31);
+  // iterate on inodes
+  spin_lock(&sb->s_inode_list_lock);
+  list_for_each_entry(inode, &sb->s_inodes, i_sb_list)
+    args->data[index].inodes_cnt++;
+  spin_unlock(&sb->s_inode_list_lock);
   // inc index for next
   args->curr[0]++;
 }
@@ -1438,13 +1455,21 @@ init_module (void)
   }
   krnf_node_ptr = (krnf_node_type)lkcd_lookup_name("kernfs_node_from_dentry");
   iterate_supers_ptr = (und_iterate_supers)lkcd_lookup_name("iterate_supers");
+#ifdef CONFIG_FSNOTIFY
+  fsnotify_first_mark_ptr = (und_fsnotify_first_mark)lkcd_lookup_name("fsnotify_first_mark");
+  if ( !fsnotify_first_mark_ptr )
+    printk("cannot find fsnotify_first_mark\n");
+  fsnotify_next_mark_ptr = (und_fsnotify_next_mark)lkcd_lookup_name("fsnotify_next_mark");
+  if ( !fsnotify_next_mark_ptr )
+    printk("cannot find fsnotify_next_mark\n");
+#endif /* CONFIG_FSNOTIFY */
 #ifdef __x86_64__
   find_uprobe_ptr = (find_uprobe)lkcd_lookup_name("find_uprobe");
   get_uprobe_ptr = (get_uprobe)lkcd_lookup_name("get_uprobe");
   if ( !get_uprobe_ptr )
     get_uprobe_ptr = my_get_uprobe;
   put_uprobe_ptr = (put_uprobe)lkcd_lookup_name("put_uprobe");
-#endif
+#endif /* __x86_64__ */
   return 0;
 }
 

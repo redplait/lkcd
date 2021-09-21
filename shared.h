@@ -182,6 +182,11 @@ struct one_super_block
   void *dq_op;
   void *s_qcop;
   void *s_export_op;
+  void *s_d_op;
+  void *s_user_ns;
+  unsigned long s_flags;
+  unsigned long s_iflags;
+  unsigned long inodes_cnt;
   unsigned long s_fsnotify_mask;
   void *s_fsnotify_marks;
   char s_id[32];
