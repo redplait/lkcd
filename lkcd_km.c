@@ -19,6 +19,8 @@
 #endif
 #ifdef CONFIG_FSNOTIFY
 #include <linux/fsnotify_backend.h>
+#include <linux/mount.h>
+#include "mnt.h"
 #endif /* CONFIG_FSNOTIFY */
 #include <linux/smp.h>
 #include <linux/miscdevice.h>
@@ -375,6 +377,58 @@ void fill_super_block_inodes(struct super_block *sb, void *arg)
   }
 }
 
+struct super_mount_args
+{
+  void *sb_addr;
+  int found;
+  unsigned long cnt;
+  unsigned long *curr;
+  struct one_mount *data;
+};
+
+void fill_super_block_mounts(struct super_block *sb, void *arg)
+{
+  struct super_mount_args *args = (struct super_mount_args *)arg;
+  if ( (void *)sb != args->sb_addr )
+    return;
+  else {
+    struct mount *mnt;
+    args->found++;
+    list_for_each_entry(mnt, &sb->s_mounts, mnt_instance)
+    {
+      unsigned long index = args->curr[0];
+      if ( args->curr[0] >= args->cnt )
+        break;
+      // copy data for this inode
+      args->data[index].addr = (void *)mnt;
+      if ( mnt->mnt_mountpoint )
+        dentry_path_raw(mnt->mnt_mountpoint, args->data[index].root, sizeof(args->data[index].root));
+      else
+        args->data[index].root[0] = 0;
+      if ( mnt->mnt.mnt_root )
+        dentry_path_raw(mnt->mnt.mnt_root, args->data[index].mnt_root, sizeof(args->data[index].mnt_root));
+      else
+        args->data[index].mnt_root[0] = 0;
+      if ( mnt->mnt_mp )
+        dentry_path_raw(mnt->mnt_mp->m_dentry, args->data[index].mnt_mp, sizeof(args->data[index].mnt_mp));
+      else
+        args->data[index].mnt_mp[0] = 0;
+      args->data[index].mark_count = 0;
+#ifdef CONFIG_FSNOTIFY
+      // iterate on marks
+      if ( fsnotify_first_mark_ptr && fsnotify_next_mark_ptr )
+      {
+        struct fsnotify_mark *mark;
+        for ( mark = fsnotify_first_mark_ptr(&mnt->mnt_fsnotify_marks); mark != NULL; mark = fsnotify_next_mark_ptr(mark) )
+          args->data[index].mark_count++;
+      }
+#endif /* CONFIG_FSNOTIFY */
+      // inc count for next iteration
+      args->curr[0]++;
+    }
+  }
+}
+
 struct super_args
 {
    unsigned long cnt;
@@ -392,6 +446,7 @@ void fill_super_blocks(struct super_block *sb, void *arg)
   struct super_args *args = (struct super_args *)arg;
   unsigned long index = args->curr[0];
   struct inode *inode;
+  struct mount *mnt;
   if ( index >= args->cnt )
     return;
   // copy data from super-block
@@ -407,6 +462,14 @@ void fill_super_blocks(struct super_block *sb, void *arg)
   args->data[index].s_d_op    = (void *)sb->s_d_op;
   args->data[index].s_user_ns = (void *)sb->s_user_ns;
   args->data[index].inodes_cnt = 0;
+  args->data[index].s_root    = (void *)sb->s_root;
+  if ( sb->s_root )
+    dentry_path_raw(sb->s_root, args->data[index].root, sizeof(args->data[index].root));
+  else
+    args->data[index].root[0] = 0;
+  args->data[index].mount_count = 0;
+  list_for_each_entry(mnt, &sb->s_mounts, mnt_instance)
+    args->data[index].mount_count++;
 #ifdef CONFIG_FSNOTIFY
   args->data[index].s_fsnotify_mask = sb->s_fsnotify_mask;
   args->data[index].s_fsnotify_marks = sb->s_fsnotify_marks;
@@ -1127,6 +1190,42 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
          kfree(sargs.curr);
        }
       break; /* IOCTL_GET_SUPERBLOCK_INODES */
+
+     case IOCTL_GET_SUPERBLOCK_MOUNTS:
+       if ( !iterate_supers_ptr )
+         return -EFAULT;
+       if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 2) > 0 )
+         return -EFAULT;
+       // check size
+       if ( !ptrbuf[1] )
+         return -EINVAL;
+       else {
+         struct super_mount_args sargs;
+         size_t ksize = sizeof(unsigned long) + ptrbuf[1] * sizeof(struct one_mount);
+         // fill super_inodes_args
+         sargs.sb_addr = (void *)ptrbuf[0];
+         sargs.cnt     = ptrbuf[1];
+         sargs.found   = 0;
+         sargs.curr = (unsigned long *)kmalloc(ksize, GFP_KERNEL);
+         if ( !sargs.curr )
+           return -ENOMEM;
+         sargs.data = (struct one_mount *)(sargs.curr + 1);
+         sargs.curr[0] = 0;
+         iterate_supers_ptr(fill_super_block_mounts, (void*)&sargs);
+         if ( !sargs.found )
+         {
+           kfree(sargs.curr);
+           return -EBADF;
+         }
+         ksize = sizeof(unsigned long) + sargs.curr[0] * sizeof(struct one_mount);
+         if (copy_to_user((void*)ioctl_param, (void*)sargs.curr, ksize) > 0)
+         {
+           kfree(sargs.curr);
+           return -EFAULT;
+         }
+         kfree(sargs.curr);
+       }
+      break; /* IOCTL_GET_SUPERBLOCK_MOUNTS */
 
      case IOCTL_GET_SUPERBLOCKS:
        if ( !iterate_supers_ptr )

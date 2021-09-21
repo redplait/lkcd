@@ -190,6 +190,9 @@ struct one_super_block
   unsigned long s_fsnotify_mask;
   void *s_fsnotify_marks;
   char s_id[32];
+  void *s_root;
+  char root[256];
+  unsigned long mount_count;
 };
 
 // get super-blocks
@@ -235,5 +238,21 @@ struct one_fsnotify
 //  2 - count
 // out params - long size + N * one_fsnotify
 #define IOCTL_GET_INODE_MARKS          _IOR(IOCTL_NUM, 0x1a, int*)
+
+struct one_mount
+{
+  void *addr;
+  unsigned long mark_count;
+  char mnt_root[256]; // mnt.mnt_root
+  char root[256];     // from mnt_mountpoint
+  char mnt_mp[256];   // mnt_mp
+};
+
+// get super-block mount points
+// in params:
+//  0 - superblock address
+//  1 - count
+// out params - long size + N * one_mount
+#define IOCTL_GET_SUPERBLOCK_MOUNTS    _IOR(IOCTL_NUM, 0x1b, int*)
 
 #endif /* LKCD_SHARED_H */
