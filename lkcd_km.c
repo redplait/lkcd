@@ -271,7 +271,7 @@ void fill_super_block_inodes(struct super_block *sb, void *arg)
     list_for_each_entry(inode, &sb->s_inodes, i_sb_list)
     {
       unsigned long index = args->curr[0];
-      if ( args->curr[0] > args->cnt )
+      if ( args->curr[0] >= args->cnt )
         break;
       // copy data for this inode
       args->data[index].addr    = (void *)inode;
