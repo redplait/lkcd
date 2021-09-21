@@ -381,7 +381,33 @@ void dump_uprobes(int fd, sa64 delta)
 
 static size_t calc_super_size(size_t n)
 {
-   return n * sizeof(one_super_block) + sizeof(unsigned long);
+  return n * sizeof(one_super_block) + sizeof(unsigned long);
+}
+
+static size_t calc_inodes_size(size_t n)
+{
+  return n * sizeof(one_inode) + sizeof(unsigned long);
+}
+
+// ripped from include/uapi/linux/stat.h
+const char *get_mod_name(unsigned long mod)
+{
+   auto what = mod & 00170000;
+   if ( what == 0140000 )
+     return "SOCK";
+   if ( what == 0120000 )
+     return "LNK";
+   if ( what == 0100000 )
+     return "FILE";
+   if ( what == 060000 )
+     return "BLK";
+   if ( what == 040000 )
+     return "DIR";
+   if ( what == 020000 )
+     return "CHR";
+   if ( what == 010000 )
+     return "FIFO";
+   return "???";
 }
 
 void dump_super_blocks(int fd, sa64 delta)
@@ -413,7 +439,7 @@ void dump_super_blocks(int fd, sa64 delta)
   struct one_super_block *sb = (struct one_super_block *)(buf + 1);
   for ( size_t idx = 0; idx < size; idx++ )
   {
-    printf("superblock[%ld] at %p dev %ld %s\n", idx, sb[idx].addr, sb[idx].dev, sb[idx].s_id);
+    printf("superblock[%ld] at %p dev %ld flags %lX inodes %ld %s\n", idx, sb[idx].addr, sb[idx].dev, sb[idx].s_flags, sb[idx].inodes_cnt, sb[idx].s_id);
     if ( sb[idx].s_type )
       dump_kptr((unsigned long)sb[idx].s_type, "s_type", delta);
     if ( sb[idx].s_op )
@@ -424,8 +450,38 @@ void dump_super_blocks(int fd, sa64 delta)
       dump_kptr((unsigned long)sb[idx].s_qcop, "s_qcop", delta);
     if ( sb[idx].s_export_op )
       dump_kptr((unsigned long)sb[idx].s_export_op, "s_export_op", delta);
+    if ( sb[idx].s_d_op )
+      dump_kptr((unsigned long)sb[idx].s_d_op, "s_d_op", delta);
     if ( sb[idx].s_fsnotify_mask || sb[idx].s_fsnotify_marks )
       printf(" s_fsnotify_mask: %lX s_fsnotify_marks %p\n", sb[idx].s_fsnotify_mask, sb[idx].s_fsnotify_marks);
+    // dump inodes
+    if ( !sb[idx].inodes_cnt )
+      continue;
+    auto isize = calc_inodes_size(sb[idx].inodes_cnt);
+    unsigned long *ibuf = (unsigned long *)malloc(isize);
+    if ( !ibuf )
+      continue;
+    ibuf[0] = (unsigned long)sb[idx].addr;
+    ibuf[1] = sb[idx].inodes_cnt;
+    err = ioctl(fd, IOCTL_GET_SUPERBLOCK_INODES, (int *)ibuf);
+    if ( err )
+    {
+      printf("IOCTL_GET_SUPERBLOCK_INODES failed, error %d (%s)\n", errno, strerror(errno));
+      free(ibuf);
+      continue;
+    }
+    isize = ibuf[0];
+    struct one_inode *inod = (struct one_inode *)(ibuf + 1);
+    for ( size_t j = 0; j < isize; j++ )
+    {
+      if ( !g_opt_v && !inod[j].i_fsnotify_mask && !inod[j].i_fsnotify_marks )
+        continue;
+      const char *mod = get_mod_name(inod[j].i_mode);
+      printf("  inode[%ld] %p i_no %ld i_flags %X %s\n", j, inod[j].addr, inod[j].i_ino, inod[j].i_flags, mod);
+      if ( inod[j].i_fsnotify_mask || inod[j].i_fsnotify_marks )
+        printf("    i_fsnotify_mask: %lX i_fsnotify_marks %p\n", inod[j].i_fsnotify_mask, inod[j].i_fsnotify_marks);
+    }
+    free(ibuf);
   }
   free(buf);
 }
