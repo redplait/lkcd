@@ -19,6 +19,7 @@
 #include "../shared.h"
 #include "kmods.h"
 #include "lk.h"
+#include "minfo.h"
 #endif
 
 int g_opt_v = 0;
@@ -446,6 +447,7 @@ void dump_super_blocks(int fd, sa64 delta)
   }
   size = buf[0];
 //  printf("size %ld\n", size);
+  init_mountinfo();
   struct one_super_block *sb = (struct one_super_block *)(buf + 1);
   for ( size_t idx = 0; idx < size; idx++ )
   {
@@ -485,7 +487,16 @@ void dump_super_blocks(int fd, sa64 delta)
           struct one_mount *mnt = (struct one_mount *)(mbuf + 1);
           for ( size_t j = 0; j < msize; j++ )
           {
-            printf(" mnt[%ld] %p mark_cnt %ld %s %s %s\n", j, mnt[j].addr, mnt[j].mark_count, mnt[j].mnt_root, mnt[j].root, mnt[j].mnt_mp);
+            const char *path = NULL;
+            if ( mnt[j].mnt_root[0] )
+              path = mnt[j].mnt_root;
+            else if ( mnt[j].root[0] )
+              path = mnt[j].root;
+            else if ( mnt[j].mnt_mp[0] )
+              path = mnt[j].mnt_mp;
+            else
+              path = get_mnt(mnt[j].mnt_id);
+            printf(" mnt[%ld] %p mark_cnt %ld mnt_id %d %s\n", j, mnt[j].addr, mnt[j].mark_count, mnt[j].mnt_id, path ? path : "");
             if ( !mnt[j].mark_count )
               continue;
             size_t mmsize = calc_marks_size(mnt[j].mark_count);
