@@ -242,6 +242,7 @@ struct one_fsnotify
 struct one_mount
 {
   void *addr;
+  int mnt_id;
   unsigned long mark_count;
   char mnt_root[256]; // mnt.mnt_root
   char root[256];     // from mnt_mountpoint

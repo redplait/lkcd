@@ -454,13 +454,17 @@ void fill_super_block_mounts(struct super_block *sb, void *arg)
         break;
       // copy data for this inode
       args->data[index].addr = (void *)mnt;
+      args->data[index].mnt_id = mnt->mnt_id;
       if ( mnt->mnt_mountpoint )
         dentry_path_raw(mnt->mnt_mountpoint, args->data[index].root, sizeof(args->data[index].root));
       else
         args->data[index].root[0] = 0;
       if ( mnt->mnt.mnt_root )
+      {
+//        struct path mnt_path = { .dentry = mnt->mnt.mnt_root, .mnt = &mnt->mnt };
+//        d_path(&mnt_path, args->data[index].mnt_root, sizeof(args->data[index].mnt_root));
         dentry_path_raw(mnt->mnt.mnt_root, args->data[index].mnt_root, sizeof(args->data[index].mnt_root));
-      else
+      } else
         args->data[index].mnt_root[0] = 0;
       if ( mnt->mnt_mp )
         dentry_path_raw(mnt->mnt_mp->m_dentry, args->data[index].mnt_mp, sizeof(args->data[index].mnt_mp));
