@@ -40,7 +40,9 @@ static void free_tracked_nodes(void *ptr, void *arg)
   {
     struct fsnotify_mark *fsn_mark = fsnotify_find_mark(&tn->node->i_fsnotify_marks, lkntfy_group);
     if ( fsn_mark )
+    {
       fsnotify_destroy_mark(fsn_mark, lkntfy_group);
+    }
     iput(tn->node);
   }
   kfree(tn);
@@ -214,6 +216,7 @@ static long lkntfy_ioctl(struct file *file, unsigned int ioctl_num, unsigned lon
 
 static void lkntfy_file_fsnotify_free_mark(struct fsnotify_mark *mark, struct fsnotify_group *group)
 {
+  printk("lkntfy_file_fsnotify_free_mark: %p\n", mark);
   kfree(mark);
 }
 
@@ -285,11 +288,12 @@ fail:
   {
     fsnotify_put_group(lkntfy_group);
     lkntfy_group = 0;
-  }  
+  }
+  misc_deregister(&lkntfy_dev);
   return ret;
 }
 
-void cleanup_module (void)
+void cleanup_module(void)
 {
   if ( tracked_ht )
   {
@@ -301,4 +305,5 @@ void cleanup_module (void)
   }
   if ( lkntfy_group )
     fsnotify_put_group(lkntfy_group);
+  misc_deregister(&lkntfy_dev);
 }
