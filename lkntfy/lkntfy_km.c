@@ -23,7 +23,7 @@ static const struct rhashtable_params tracked_hash_params = {
 	.nelem_hint = NR_CPUS_HINT,
 	.head_offset = offsetof(struct tracked_inode, head),
 	.key_offset = offsetof(struct tracked_inode, node),
-	.key_len = sizeof_field(struct tracked_inode, node),
+	.key_len = sizeof(struct inode *),
 	.max_size = NR_CPUS,
 	.min_size = 2,
 	.automatic_shrinking = true,
@@ -41,7 +41,9 @@ static void free_tracked_nodes(void *ptr, void *arg)
     struct fsnotify_mark *fsn_mark = fsnotify_find_mark(&tn->node->i_fsnotify_marks, lkntfy_group);
     if ( fsn_mark )
     {
+      printk("free_tracked_nodes mark %p ref %X\n", fsn_mark, atomic_read(&fsn_mark->refcnt.refs));
       fsnotify_destroy_mark(fsn_mark, lkntfy_group);
+      fsnotify_put_mark(fsn_mark);
     }
     iput(tn->node);
   }
@@ -84,7 +86,7 @@ static int in_tracked(struct inode *node)
 {
   struct tracked_inode *res = 0;
   do_raw_read_trylock(&hlock);
-  res = rhashtable_lookup(tracked_ht, node, tracked_hash_params);
+  res = rhashtable_lookup(tracked_ht, &node, tracked_hash_params);
   do_raw_read_unlock(&hlock);
   return (res != 0);
 }
@@ -115,7 +117,7 @@ static int del_tracked(struct inode *node)
 {
   struct tracked_inode *res = 0;
   do_raw_write_trylock(&hlock);
-  res = rhashtable_lookup(tracked_ht, node, tracked_hash_params);
+  res = rhashtable_lookup(tracked_ht, &node, tracked_hash_params);
   if ( res )
     rhashtable_remove_fast(tracked_ht, &res->head, tracked_hash_params);
   do_raw_write_unlock(&hlock);
@@ -159,6 +161,7 @@ static long lkntfy_ioctl(struct file *file, unsigned int ioctl_num, unsigned lon
           file_close(file);
           return -EBADF;
         }
+        printk("IOCTL_ADDFILE: inode %p ino %ld\n", file->f_path.dentry->d_inode, file->f_path.dentry->d_inode->i_ino);
         // lookup
         if ( !in_tracked(file->f_path.dentry->d_inode) )
         {
@@ -171,10 +174,15 @@ static long lkntfy_ioctl(struct file *file, unsigned int ioctl_num, unsigned lon
               err = -ENOMEM;
             else {
               fsnotify_init_mark(fsn_mark, lkntfy_group);
+              printk("fsn_mark %p ref %X\n", fsn_mark, atomic_read(&fsn_mark->refcnt.refs));
               fsn_mark->mask = mask;
               err = fsnotify_add_mark(fsn_mark, &file->f_path.dentry->d_inode->i_fsnotify_marks, FSNOTIFY_OBJ_TYPE_INODE, 0, NULL);
               if ( !err )
+              {
+                printk("added fsn_mark %p ref %X node %ld\n", fsn_mark, atomic_read(&fsn_mark->refcnt.refs), file->f_path.dentry->d_inode->i_ino);
                 err = add_tracked(file->f_path.dentry->d_inode);
+              } else
+                fsnotify_put_mark(fsn_mark);
             }
           }
         }
@@ -202,8 +210,12 @@ static long lkntfy_ioctl(struct file *file, unsigned int ioctl_num, unsigned lon
        file = file_open(name, 0, 0, &err);
        if ( !file )
          return -err;
+       printk("IOCTL_DELFILE: inode %p ino %ld\n", file->f_path.dentry->d_inode, file->f_path.dentry->d_inode->i_ino);
        if ( in_tracked(file->f_path.dentry->d_inode) )
+       {
+          printk("IOCTL_DELFILE: found node %ld\n", file->f_path.dentry->d_inode->i_ino);
           del_tracked(file->f_path.dentry->d_inode);
+       }
        file_close(file);
      }
      break; /* IOCTL_DELFILE */
@@ -226,9 +238,9 @@ lkntfy_file_fsnotify_handle_event(struct fsnotify_mark *mark, u32 mask,
 				const struct qstr *name, u32 cookie)
 {
   if ( name && name->name )
-    printk("lkntfy PID %d mask %X %s\n", task_pid_nr(current), mask, name->name);
+    printk("lkntfy PID %d mask %X %s mark %p ref %X\n", task_pid_nr(current), mask, name->name, mark, atomic_read(&mark->refcnt.refs));
   else
-    printk("lkntfy PID %d mask %X inode %ld\n", task_pid_nr(current), mask, inode->i_ino);
+    printk("lkntfy PID %d mask %X inode %ld mark %p ref %X\n", task_pid_nr(current), mask, inode->i_ino, mark, atomic_read(&mark->refcnt.refs));
   return 0;
 }
 
