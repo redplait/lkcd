@@ -10,3 +10,6 @@ ARM64PATH=../../arm64
 
 lkmem: lkmem.o minfo.o x64_disasm.o arm64_disasm.o ../test/ksyms.o ../test/lk.o ../test/kmods.o
 	g++ -lstdc++ -o lkmem -I $(INCLUDE) $^ $(UDIS86PATH)/libudis86.a $(ARM64PATH)/libarm64.a
+
+kdps: kdps.o ../test/ksyms.o ../test/lk.o ../test/kmods.o
+	g++ -lstdc++ -o kdps -I $(INCLUDE) $^
