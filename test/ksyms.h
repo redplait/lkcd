@@ -12,6 +12,7 @@ struct addr_sym
 extern "C" {
 #endif
 
+int read_system_map();
 int read_ksyms(const char *name);
 #ifdef HAS_ELFIO
 int read_syms(const ELFIO::elfio& reader, ELFIO::symbol_section_accessor &);

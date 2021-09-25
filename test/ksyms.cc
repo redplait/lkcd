@@ -7,6 +7,7 @@
 #include <vector>
 #include <algorithm>
 #include <cstring>
+#include <sys/utsname.h>
 #ifdef HAS_ELFIO
 #include "elfio/elfio_dump.hpp"
 #endif /* HAS_ELFIO */
@@ -339,6 +340,19 @@ static ksym_holder s_ksyms;
 int read_ksyms(const char *name)
 {
   return s_ksyms.read_ksyms(name);
+}
+
+int read_system_map()
+{
+  struct utsname luname;
+  if ( uname(&luname) == -1 )
+  {
+    printf("cannot uname, error %d\n", errno);
+    return errno;
+  }
+  std::string cname = "/boot/System.map-";
+  cname += luname.release;
+  return read_ksyms(cname.c_str());
 }
 
 a64 get_addr(const char *name)
