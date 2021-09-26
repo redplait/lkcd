@@ -1201,7 +1201,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
          if ( args.found != 3 )
          {
            kfree(args.curr);
-           return -EBADF;
+           return -ENOENT;
          }
          ksize = sizeof(unsigned long) + args.curr[0] * sizeof(struct one_fsnotify);
          if (copy_to_user((void*)ioctl_param, (void*)args.curr, ksize) > 0)
@@ -1237,7 +1237,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
          if ( !sargs.found )
          {
            kfree(sargs.curr);
-           return -EBADF;
+           return -ENOENT;
          }
          ksize = sizeof(unsigned long) + sargs.curr[0] * sizeof(struct one_inode);
          if (copy_to_user((void*)ioctl_param, (void*)sargs.curr, ksize) > 0)
@@ -1274,7 +1274,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
          if ( args.found != 3 )
          {
            kfree(args.curr);
-           return -EBADF;
+           return -ENOENT;
          }
          ksize = sizeof(unsigned long) + args.curr[0] * sizeof(struct one_fsnotify);
          if (copy_to_user((void*)ioctl_param, (void*)args.curr, ksize) > 0)
@@ -1310,7 +1310,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
          if ( !sargs.found )
          {
            kfree(sargs.curr);
-           return -EBADF;
+           return -ENOENT;
          }
          ksize = sizeof(unsigned long) + sargs.curr[0] * sizeof(struct one_mount);
          if (copy_to_user((void*)ioctl_param, (void*)sargs.curr, ksize) > 0)
@@ -1691,7 +1691,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
 #endif /* __x86_64__ */
 
     default:
-     return -EINVAL;
+     return -EBADRQC;
   }
   return 0;
 }
