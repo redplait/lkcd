@@ -196,6 +196,11 @@ static rwlock_t hlock;
 static struct rhashtable *tracked_ht = 0;
 static struct fsnotify_group *lkntfy_group = 0;
 
+typedef void (*und_fsnotify_destroy_group)(struct fsnotify_group *group);
+typedef void (*und_fsnotify_recalc_mask)(struct fsnotify_mark_connector *conn);
+und_fsnotify_destroy_group fsnotify_destroy_group_ptr = 0;
+und_fsnotify_recalc_mask   fsnotify_recalc_mask_ptr = 0;
+
 static void free_tracked_nodes(void *ptr, void *arg)
 {
   struct tracked_inode *tn = (struct tracked_inode *)ptr;
@@ -204,8 +209,11 @@ static void free_tracked_nodes(void *ptr, void *arg)
     struct fsnotify_mark *fsn_mark = fsnotify_find_mark(&tn->node->i_fsnotify_marks, lkntfy_group);
     if ( fsn_mark )
     {
+      fsnotify_put_mark(fsn_mark); // one from fsnotify_find_mark
       printk("free_tracked_nodes mark %p ref %X\n", fsn_mark, atomic_read(&fsn_mark->refcnt.refs));
       fsnotify_destroy_mark(fsn_mark, lkntfy_group);
+      printk("after fsnotify_destroy_mark mark %p ref %X\n", fsn_mark, atomic_read(&fsn_mark->refcnt.refs));
+      fsn_mark->flags &= ~FSNOTIFY_MARK_FLAG_ALIVE;
       fsnotify_put_mark(fsn_mark);
     }
     iput(tn->node);
@@ -262,9 +270,8 @@ static int add_tracked(struct inode *node)
   if ( !res )
     return -ENOMEM;
   do_raw_write_trylock(&hlock);
+  ihold(node);
   res->node = node;
-  // __iget(node);
-  atomic_inc(&node->i_count);
   ret = rhashtable_insert_fast(tracked_ht, &res->head, tracked_hash_params);
   do_raw_write_unlock(&hlock);
   if ( ret )
@@ -347,7 +354,8 @@ static long lkntfy_ioctl(struct file *file, unsigned int ioctl_num, unsigned lon
               } else
                 fsnotify_put_mark(fsn_mark);
             }
-          }
+          } else
+           fsnotify_put_mark(fsn_mark);
         }
         file_close(file);
       }
@@ -389,7 +397,7 @@ static long lkntfy_ioctl(struct file *file, unsigned int ioctl_num, unsigned lon
   return 0;
 }
 
-static void lkntfy_file_fsnotify_free_mark(struct fsnotify_mark *mark, struct fsnotify_group *group)
+static void lkntfy_file_fsnotify_free_mark(struct fsnotify_mark *mark)
 {
   printk("lkntfy_file_fsnotify_free_mark: %p\n", mark);
   kfree(mark);
@@ -409,7 +417,7 @@ lkntfy_file_fsnotify_handle_event(struct fsnotify_mark *mark, u32 mask,
 
 const struct fsnotify_ops lkntfy_ntfy_ops = {
   .handle_inode_event = lkntfy_file_fsnotify_handle_event,
-  .freeing_mark = lkntfy_file_fsnotify_free_mark
+  .free_mark = lkntfy_file_fsnotify_free_mark
 };
 
 static const struct file_operations lkntfy_fops = {
@@ -424,9 +432,6 @@ static struct miscdevice lkntfy_dev = {
     .fops = &lkntfy_fops
 };
 
-typedef void (*und_fsnotify_destroy_group)(struct fsnotify_group *group);
-und_fsnotify_destroy_group fsnotify_destroy_group_ptr = 0;
-
 // init
 int __init
 init_module (void)
@@ -436,6 +441,11 @@ init_module (void)
   if ( !fsnotify_destroy_group_ptr )
   {
     printk("Unable to find fsnotify_destroy_group\n");
+  }
+  fsnotify_recalc_mask_ptr = (und_fsnotify_recalc_mask)lkcd_lookup_name("fsnotify_recalc_mask");
+  if ( !fsnotify_recalc_mask_ptr )
+  {
+    printk("Unable to find fsnotify_recalc_mask\n");
   }
   ret = misc_register(&lkntfy_dev);
   if (ret)
@@ -496,8 +506,8 @@ void cleanup_module(void)
       lkntfy_group->shutdown = true;
       spin_unlock(&lkntfy_group->notification_lock);    
       fsnotify_wait_marks_destroyed();
+      fsnotify_put_group(lkntfy_group);
     }
-    fsnotify_put_group(lkntfy_group);
   }
   misc_deregister(&lkntfy_dev);
 }
