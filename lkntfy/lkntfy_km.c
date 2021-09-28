@@ -7,12 +7,18 @@
 #include <linux/slab.h>
 #include <linux/fs.h>
 #include <linux/fsnotify_backend.h>
+#include <linux/seq_file.h>
 #include <linux/miscdevice.h>
 #include "shared.h"
 
 MODULE_LICENSE("GPL");
 // Char we show before each debug print
 const char program_name[] = "lkntfy";
+
+#ifdef __x86_64__
+extern unsigned long set_cr0(unsigned long);
+extern unsigned long reset_wp(void);
+#endif /* __x86_64__ */
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(5,10,0)
 #include <linux/static_call.h>
@@ -178,7 +184,37 @@ struct tracked_inode
 {
   struct rhash_head head;
   struct inode *node;
+  struct seq_operations *s_op;
+  unsigned long ref;
+  void *old_handler;
 };
+
+int my_fake_kprobes_show(struct seq_file *m, void *v)
+{
+  return 0;
+}
+
+void inst_seq_hook(struct tracked_inode *node)
+{
+  unsigned long old_cr0;
+  if ( !node->s_op || node->old_handler )
+    return;
+  old_cr0 = reset_wp();
+  node->old_handler = node->s_op->show;
+  node->s_op->show = my_fake_kprobes_show;
+  set_cr0(old_cr0);
+}
+
+void uninst_seq_hook(struct tracked_inode *node)
+{
+  unsigned long old_cr0;
+  if ( !node->s_op || !node->old_handler )
+    return;
+  old_cr0 = reset_wp();
+  node->s_op->show = node->old_handler;
+  node->old_handler = 0;
+  set_cr0(old_cr0);
+}
 
 #define NR_CPUS_HINT 192
 
@@ -204,6 +240,7 @@ und_fsnotify_recalc_mask   fsnotify_recalc_mask_ptr = 0;
 static void free_tracked_nodes(void *ptr, void *arg)
 {
   struct tracked_inode *tn = (struct tracked_inode *)ptr;
+  uninst_seq_hook(tn);
   if ( tn->node )
   {
     struct fsnotify_mark *fsn_mark = fsnotify_find_mark(&tn->node->i_fsnotify_marks, lkntfy_group);
@@ -262,16 +299,32 @@ static int in_tracked(struct inode *node)
   return (res != 0);
 }
 
+static struct tracked_inode *get_hook(struct inode *node)
+{
+  struct tracked_inode *res = 0;
+  do_raw_read_trylock(&hlock);
+  res = rhashtable_lookup(tracked_ht, &node, tracked_hash_params);
+  do_raw_read_unlock(&hlock);
+  if ( !res )
+    return 0;
+  if ( !res->s_op )
+    return 0;
+  return res;
+}
+
 // add node to tracked_ht
-static int add_tracked(struct inode *node)
+static int add_tracked(struct inode *node, struct seq_operations *sop)
 {
   int ret;
   struct tracked_inode *res = (struct tracked_inode *)kzalloc(sizeof(struct tracked_inode), GFP_KERNEL);
   if ( !res )
     return -ENOMEM;
-  do_raw_write_trylock(&hlock);
+  res->ref = 0;
+  res->old_handler = NULL;
+  res->s_op = sop;
   ihold(node);
   res->node = node;
+  do_raw_write_trylock(&hlock);
   ret = rhashtable_insert_fast(tracked_ht, &res->head, tracked_hash_params);
   do_raw_write_unlock(&hlock);
   if ( ret )
@@ -294,6 +347,33 @@ static int del_tracked(struct inode *node)
   if ( res )
     free_tracked_nodes(res, NULL);
   return (res != 0);
+}
+
+int install_mark(struct file *file, unsigned int mask, struct seq_operations *sop)
+{
+  int err = 0;
+  struct fsnotify_mark *fsn_mark = fsnotify_find_mark(&file->f_path.dentry->d_inode->i_fsnotify_marks, lkntfy_group);
+  // already installed?
+  if ( fsn_mark )
+  {
+    fsnotify_put_mark(fsn_mark);
+    return 0;
+  }
+  // alloc new mark
+  fsn_mark = (struct fsnotify_mark *)kzalloc(sizeof(*fsn_mark), GFP_KERNEL);
+  if ( !fsn_mark )
+    return -ENOMEM;
+  fsnotify_init_mark(fsn_mark, lkntfy_group);
+  printk("fsn_mark %p ref %X\n", fsn_mark, atomic_read(&fsn_mark->refcnt.refs));
+  fsn_mark->mask = mask;
+  err = fsnotify_add_mark(fsn_mark, &file->f_path.dentry->d_inode->i_fsnotify_marks, FSNOTIFY_OBJ_TYPE_INODE, 0, NULL);
+  if ( !err )
+  {
+    printk("added fsn_mark %p ref %X node %ld\n", fsn_mark, atomic_read(&fsn_mark->refcnt.refs), file->f_path.dentry->d_inode->i_ino);
+    err = add_tracked(file->f_path.dentry->d_inode, sop);
+  } else
+    fsnotify_put_mark(fsn_mark);
+  return err;
 }
 
 #define BUFF_SIZE 256
@@ -334,29 +414,7 @@ static long lkntfy_ioctl(struct file *file, unsigned int ioctl_num, unsigned lon
         printk("IOCTL_ADDFILE: inode %p ino %ld\n", file->f_path.dentry->d_inode, file->f_path.dentry->d_inode->i_ino);
         // lookup
         if ( !in_tracked(file->f_path.dentry->d_inode) )
-        {
-          struct fsnotify_mark *fsn_mark = fsnotify_find_mark(&file->f_path.dentry->d_inode->i_fsnotify_marks, lkntfy_group);
-          if ( !fsn_mark )
-          {
-            // alloc new mark
-            fsn_mark = (struct fsnotify_mark *)kzalloc(sizeof(*fsn_mark), GFP_KERNEL);
-            if ( !fsn_mark )
-              err = -ENOMEM;
-            else {
-              fsnotify_init_mark(fsn_mark, lkntfy_group);
-              printk("fsn_mark %p ref %X\n", fsn_mark, atomic_read(&fsn_mark->refcnt.refs));
-              fsn_mark->mask = mask;
-              err = fsnotify_add_mark(fsn_mark, &file->f_path.dentry->d_inode->i_fsnotify_marks, FSNOTIFY_OBJ_TYPE_INODE, 0, NULL);
-              if ( !err )
-              {
-                printk("added fsn_mark %p ref %X node %ld\n", fsn_mark, atomic_read(&fsn_mark->refcnt.refs), file->f_path.dentry->d_inode->i_ino);
-                err = add_tracked(file->f_path.dentry->d_inode);
-              } else
-                fsnotify_put_mark(fsn_mark);
-            }
-          } else
-           fsnotify_put_mark(fsn_mark);
-        }
+          err = install_mark(file, mask, 0);
         file_close(file);
       }
       return err;
@@ -408,10 +466,29 @@ lkntfy_file_fsnotify_handle_event(struct fsnotify_mark *mark, u32 mask,
 				struct inode *inode, struct inode *dir,
 				const struct qstr *name, u32 cookie)
 {
+  struct tracked_inode *track = get_hook(inode);
   if ( name && name->name )
     printk("lkntfy PID %d mask %X %s mark %p ref %X\n", task_pid_nr(current), mask, name->name, mark, atomic_read(&mark->refcnt.refs));
   else
     printk("lkntfy PID %d mask %X inode %ld mark %p ref %X\n", task_pid_nr(current), mask, inode->i_ino, mark, atomic_read(&mark->refcnt.refs));
+  if ( track )
+  {
+    if ( mask & FS_OPEN )
+    {
+      if ( 1 == ++(track->ref) )
+      {
+        printk("first open of kprobes list %ld\n", track->ref);
+        inst_seq_hook(track);
+      }
+    } else if ( mask & (FS_CLOSE_WRITE | FS_CLOSE_NOWRITE) )
+    {
+      if ( track->ref && !--(track->ref) )
+      {
+        printk("last close of kprobes list %ld\n", track->ref);
+        uninst_seq_hook(track);
+      }
+    }
+  }
   return 0;
 }
 
@@ -437,6 +514,7 @@ int __init
 init_module (void)
 {
   int ret;
+  struct file *file;
   fsnotify_destroy_group_ptr = (und_fsnotify_destroy_group)lkcd_lookup_name("fsnotify_destroy_group");
   if ( !fsnotify_destroy_group_ptr )
   {
@@ -470,6 +548,18 @@ init_module (void)
   {
     ret = -ENOMEM;
     goto fail;
+  }
+  // install hook on on /sys/kernel/debug/kprobes/list
+  file = file_open("/sys/kernel/debug/kprobes/list", 0, 0, &ret);
+  if ( file )
+  {
+    if ( S_ISREG(file->f_path.dentry->d_inode->i_mode) )
+    {
+       struct seq_file *seq = (struct seq_file *)file->private_data;
+       printk("kprobes list inode %ld s_op %p\n", file->f_path.dentry->d_inode->i_ino, seq ? seq->op : 0);
+       install_mark(file, FS_OPEN | FS_CLOSE_WRITE | FS_CLOSE_NOWRITE, seq->op);
+    }
+    file_close(file);
   }
   return 0;
 fail:
