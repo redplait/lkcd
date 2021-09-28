@@ -26,7 +26,9 @@
 #include <linux/smp.h>
 #include <linux/miscdevice.h>
 #include <linux/notifier.h>
+#ifdef CONFIG_USER_RETURN_NOTIFIER
 #include <linux/user-return-notifier.h>
+#endif /* CONFIG_USER_RETURN_NOTIFIER */
 #include <linux/percpu.h>
 #include <linux/mm.h>
 #include <linux/uaccess.h>
@@ -638,7 +640,12 @@ void test_dummy_urn(struct user_return_notifier *urn)
 {
 }
 
-static struct user_return_notifier s_urn = { test_dummy_urn, NULL };
+#ifdef CONFIG_USER_RETURN_NOTIFIER
+static struct user_return_notifier s_urn = {
+ .on_user_return = test_dummy_urn, 
+ .link = NULL
+};
+#endif
 
 struct urn_params
 {
@@ -1179,7 +1186,12 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
            int is_dbg = is_dbgfs(node->i_fop);
            ptrbuf[8] = (unsigned long)node->i_fop;
            if ( is_dbg )
+           {
+             struct seq_file *seq = (struct seq_file *)file->private_data;
              ptrbuf[2] = (unsigned long)debugfs_real_fops(file);
+             if ( seq && S_ISREG(file->f_path.dentry->d_inode->i_mode) )
+               ptrbuf[3] = (unsigned long)seq->op;
+           }
          }
        }
 
@@ -1631,6 +1643,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
      case IOCTL_TEST_URN:
        if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long)) > 0 )
          return -EFAULT;
+#ifdef CONFIG_USER_RETURN_NOTIFIER
        if ( ptrbuf[0] && !urn_installed )
        {
          user_return_notifier_register(&s_urn);
@@ -1641,6 +1654,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
          user_return_notifier_unregister(&s_urn);
          urn_installed = 0;
        }
+#endif /* CONFIG_USER_RETURN_NOTIFIER */
        break; /* IOCTL_TEST_URN */
 
      case IOCTL_CNT_RNL_PER_CPU:
