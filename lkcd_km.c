@@ -7,6 +7,7 @@
 #include <linux/slab.h>
 #include <asm/io.h>
 #include <linux/fs.h>
+#include <linux/debugfs.h>
 #include <linux/namei.h>
 #include <linux/kernfs.h>
 #ifdef __x86_64__
@@ -239,6 +240,14 @@ struct file *file_open(const char *path, int flags, int rights, int *err)
 void file_close(struct file *file) 
 {
     filp_close(file, NULL);
+}
+
+const struct file_operations *s_dbg_open = 0;
+const struct file_operations *s_dbg_full = 0;
+
+int is_dbgfs(const struct file_operations *in)
+{
+  return (in == s_dbg_open) || (in == s_dbg_full);
 }
 
 // kernfs_node_from_dentry is not exported
@@ -1166,7 +1175,12 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
          ptrbuf[6] = (unsigned long)file->f_path.dentry->d_sb->s_op;
          ptrbuf[7] = (unsigned long)node;
          if ( node )
+         {
+           int is_dbg = is_dbgfs(node->i_fop);
            ptrbuf[8] = (unsigned long)node->i_fop;
+           if ( is_dbg )
+             ptrbuf[2] = (unsigned long)debugfs_real_fops(file);
+         }
        }
 
        file_close(file);
@@ -1846,6 +1860,12 @@ init_module (void)
     printk("Unable to register the lkcd device\n");
     return ret;
   }
+  s_dbg_open = (const struct file_operations *)lkcd_lookup_name("debugfs_open_proxy_file_operations");
+  if ( !s_dbg_open )
+    printk("cannot find debugfs_open_proxy_file_operations\n");
+  s_dbg_full = (const struct file_operations *)lkcd_lookup_name("debugfs_full_proxy_file_operations");
+  if ( !s_dbg_full )
+    printk("cannot find debugfs_full_proxy_file_operations\n");
   krnf_node_ptr = (krnf_node_type)lkcd_lookup_name("kernfs_node_from_dentry");
   iterate_supers_ptr = (und_iterate_supers)lkcd_lookup_name("iterate_supers");
   mount_lock = (seqlock_t *)lkcd_lookup_name("mount_lock");
