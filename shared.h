@@ -114,6 +114,7 @@ struct one_kprobe
   void *pre_handler;
   void *post_handler;
   unsigned int flags;
+  int is_aggr;
 };
 
 // get kprobes for kprobe_table[index]

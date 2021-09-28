@@ -636,11 +636,19 @@ static struct kprobe test_kp = {
 	.symbol_name	= "__x64_sys_fork", // try better do_int3, he-he
 };
 
+static unsigned long kprobe_aggr = 0;
+
+// ripped from kernel/kprobes.c
+int is_krpobe_aggregated(struct kprobe *p)
+{
+  return (unsigned long)p->pre_handler == kprobe_aggr;
+}
+
+#ifdef CONFIG_USER_RETURN_NOTIFIER
 void test_dummy_urn(struct user_return_notifier *urn)
 {
 }
 
-#ifdef CONFIG_USER_RETURN_NOTIFIER
 static struct user_return_notifier s_urn = {
  .on_user_return = test_dummy_urn, 
  .link = NULL
@@ -1622,6 +1630,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
              out_buf[curr].pre_handler = (void *)p->pre_handler;
              out_buf[curr].post_handler = (void *)p->post_handler;
              out_buf[curr].flags = (unsigned int)p->flags;
+             out_buf[curr].is_aggr = is_krpobe_aggregated(p);
              curr++;
            }
            // unlock
@@ -1903,6 +1912,7 @@ init_module (void)
   }
 #endif /* CONFIG_FSNOTIFY */
 #ifdef __x86_64__
+  kprobe_aggr = (unsigned long)lkcd_lookup_name("aggr_pre_handler");
   find_uprobe_ptr = (find_uprobe)lkcd_lookup_name("find_uprobe");
   get_uprobe_ptr = (get_uprobe)lkcd_lookup_name("get_uprobe");
   if ( !get_uprobe_ptr )
