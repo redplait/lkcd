@@ -1596,6 +1596,99 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
        }
       break; /* IOCTL_CNT_KPROBE_BUCKET */
 
+     case IOCTL_GET_AGGR_KPROBE:
+       if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 5) > 0 )
+         return -EFAULT;
+       else {
+         struct hlist_head *head;
+         struct kprobe *p, *kp;
+         struct mutex *m = (struct mutex *)ptrbuf[1];
+         size_t kbuf_size = 0;
+         int found = 0;
+         if ( ptrbuf[2] >= KPROBE_TABLE_SIZE )
+           return -EFBIG;
+         if ( !ptrbuf[3] )
+           break;
+         head = (struct hlist_head *)ptrbuf[0] + ptrbuf[2];
+         // check if we need just count
+         if ( !ptrbuf[4] )
+         {
+           // lock
+	   mutex_lock(m);
+           // traverse
+           hlist_for_each_entry(p, head, hlist)
+           {
+             if ( (unsigned long)p != ptrbuf[3] )
+               continue;
+             found++;
+             if ( !is_krpobe_aggregated(p) )
+               break;
+             list_for_each_entry_rcu(kp, &p->list, list)
+             {
+               kbuf_size++;
+             }
+             break;
+           }
+           // unlock
+           mutex_unlock(m);
+           if ( !found )
+             return -ENOENT;
+           // copy count to user
+           if (copy_to_user((void*)ioctl_param, (void*)&kbuf_size, sizeof(kbuf_size)) > 0)
+             return -EFAULT;
+         } else {
+            struct one_kprobe *out_buf;
+            unsigned long *buf = NULL;
+            unsigned long curr = 0;
+            kbuf_size = sizeof(unsigned long) + ptrbuf[4] * sizeof(struct one_kprobe);
+            buf = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL);
+            if ( !buf )
+              return -ENOMEM;
+            out_buf = (struct one_kprobe *)(buf + 1);
+            // lock
+	    mutex_lock(m);
+            // traverse
+            hlist_for_each_entry(p, head, hlist)
+            {
+              if ( (unsigned long)p != ptrbuf[3] )
+                continue;
+              found++;
+              if ( !is_krpobe_aggregated(p) )
+                break;
+              // found our aggregated krobe
+              list_for_each_entry_rcu(kp, &p->list, list)
+              {
+                if ( curr >= ptrbuf[4] )
+                  break;
+                out_buf[curr].kaddr = (void *)kp;
+                out_buf[curr].addr = (void *)kp->addr;
+                out_buf[curr].pre_handler = (void *)kp->pre_handler;
+                out_buf[curr].post_handler = (void *)kp->post_handler;
+                out_buf[curr].flags = (unsigned int)kp->flags;
+                out_buf[curr].is_aggr = is_krpobe_aggregated(kp);
+                curr++;
+              }
+              break;
+            }
+            // unlock
+            mutex_unlock(m);
+            if ( !found )
+            {
+              kfree(buf);
+              return -ENOENT;
+            }
+            buf[0] = curr;
+            // copy to user
+            if (copy_to_user((void*)ioctl_param, (void*)buf, kbuf_size) > 0)
+            {
+              kfree(buf);
+              return -EFAULT;
+            }
+            kfree(buf);
+         }
+       }
+      break; /* IOCTL_GET_AGGR_KPROBE */
+
      case IOCTL_GET_KPROBE_BUCKET:
        if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 4) > 0 )
          return -EFAULT;

@@ -126,9 +126,21 @@ struct one_kprobe
 // out params - long size + N * one_kprobe
 #define IOCTL_GET_KPROBE_BUCKET        _IOR(IOCTL_NUM, 0x13, int*)
 
+// get aggrageted kprobes
+// in params:
+//  0 - kprobe_table address
+//  1 - kprobe_mutex address
+//  2 - index (must be between 0 and nonincluded KPROBE_TABLE_SIZE)
+//  3 - kprobe address
+//  4 - cnt
+// out params:
+//  if ( !cnt ) - long - count of aggreagted kprobes
+//  else long size + N * one_kprobe
+#define IOCTL_GET_AGGR_KPROBE          _IOR(IOCTL_NUM, 0x14, int*)
+
 // install/remove test uprobe for /usr/bin/ls
 // in param 0 - 1 to install, 0 to remove
-#define IOCTL_TEST_UPROBE              _IOR(IOCTL_NUM, 0x14, int*)
+#define IOCTL_TEST_UPROBE              _IOR(IOCTL_NUM, 0x15, int*)
 
 // get cnt of uprobes (from uprobes_tree)
 // in params:
@@ -136,7 +148,7 @@ struct one_kprobe
 //  1 - uprobes_treelock address
 // out params:
 //  0 - cnt
-#define IOCTL_CNT_UPROBES              _IOR(IOCTL_NUM, 0x15, int*)
+#define IOCTL_CNT_UPROBES              _IOR(IOCTL_NUM, 0x16, int*)
 
 struct one_uprobe
 {
@@ -155,7 +167,7 @@ struct one_uprobe
 //  1 - uprobes_treelock address
 //  2 - cnt (gathered with IOCTL_CNT_UPROBES)
 // out params - long size + N * one_uprobe
-#define IOCTL_UPROBES                  _IOR(IOCTL_NUM, 0x16, int*)
+#define IOCTL_UPROBES                  _IOR(IOCTL_NUM, 0x17, int*)
 
 struct one_uprobe_consumer
 {
@@ -172,7 +184,7 @@ struct one_uprobe_consumer
 //  2 - address of uprobe. it can be removed so return error EBADF
 //  3 - cnt (gathered with IOCTL_CNT_UPROBES)
 // out params - long size + N * one_uprobe_consumer
-#define IOCTL_UPROBES_CONS             _IOR(IOCTL_NUM, 0x17, int*)
+#define IOCTL_UPROBES_CONS             _IOR(IOCTL_NUM, 0x18, int*)
 
 struct one_super_block
 {
@@ -202,7 +214,7 @@ struct one_super_block
 // out params:
 //   if 0 param is zero - count of super-blocks
 //   else long size + N * one_super_block
-#define IOCTL_GET_SUPERBLOCKS          _IOR(IOCTL_NUM, 0x18, int*)
+#define IOCTL_GET_SUPERBLOCKS          _IOR(IOCTL_NUM, 0x19, int*)
 
 struct one_inode
 {
@@ -220,7 +232,7 @@ struct one_inode
 //  0 - superblock address
 //  1 - count
 // out params - long size + N * one_inode
-#define IOCTL_GET_SUPERBLOCK_INODES    _IOR(IOCTL_NUM, 0x19, int*)
+#define IOCTL_GET_SUPERBLOCK_INODES    _IOR(IOCTL_NUM, 0x1b, int*)
 
 struct one_fsnotify
 {
@@ -238,7 +250,7 @@ struct one_fsnotify
 //  1 - inode address
 //  2 - count
 // out params - long size + N * one_fsnotify
-#define IOCTL_GET_INODE_MARKS          _IOR(IOCTL_NUM, 0x1a, int*)
+#define IOCTL_GET_INODE_MARKS          _IOR(IOCTL_NUM, 0x1c, int*)
 
 struct one_mount
 {
@@ -255,7 +267,7 @@ struct one_mount
 //  0 - superblock address
 //  1 - count
 // out params - long size + N * one_mount
-#define IOCTL_GET_SUPERBLOCK_MOUNTS    _IOR(IOCTL_NUM, 0x1b, int*)
+#define IOCTL_GET_SUPERBLOCK_MOUNTS    _IOR(IOCTL_NUM, 0x1d, int*)
 
 // get fsnotify_mark/fsnotify_group/fsnotify_ops for some mount point 
 // in params:
@@ -263,6 +275,6 @@ struct one_mount
 //  1 - mount address
 //  2 - count
 // out params - long size + N * one_fsnotify
-#define IOCTL_GET_MOUNT_MARKS          _IOR(IOCTL_NUM, 0x1c, int*)
+#define IOCTL_GET_MOUNT_MARKS          _IOR(IOCTL_NUM, 0x1e, int*)
 
 #endif /* LKCD_SHARED_H */
