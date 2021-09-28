@@ -1182,6 +1182,8 @@ int main(int argc, char **argv)
              dump_kptr(kparm.res.s_op, "s_op", delta);
            if ( kparm.res.priv )
              dump_kptr(kparm.res.priv, "inode->i_fop", delta);
+           if ( kparm.res.ktype )
+             dump_kptr(kparm.res.ktype, "debugfs_real_fops", delta);
          }
        }
      }
