@@ -468,6 +468,39 @@ void dump_super_blocks(int fd, sa64 delta)
       dump_kptr((unsigned long)sb[idx].s_d_op, "s_d_op", delta);
     if ( sb[idx].s_fsnotify_mask || sb[idx].s_fsnotify_marks )
       printf(" s_fsnotify_mask: %lX s_fsnotify_marks %p\n", sb[idx].s_fsnotify_mask, sb[idx].s_fsnotify_marks);
+    // dump super-block marks
+    unsigned long sb_marks_arg[2] = { (unsigned long)sb[idx].addr, 0 };
+    err = ioctl(fd, IOCTL_GET_SUPERBLOCK_MARKS, (int *)sb_marks_arg);
+    if ( err )
+    {
+      printf("IOCTL_GET_SUPERBLOCK_MARKS count failed, error %d (%s)\n", errno, strerror(errno));
+    } else if ( sb_marks_arg[1] )
+    {
+      size_t mmsize = calc_marks_size(sb_marks_arg[1]);
+      unsigned long *mmbuf = (unsigned long *)malloc(mmsize);
+      if ( mmbuf )
+      {
+        // params for IOCTL_GET_MOUNT_MARKS
+        mmbuf[0] = (unsigned long)sb[idx].addr;
+        mmbuf[1] = sb_marks_arg[1];
+        err = ioctl(fd, IOCTL_GET_SUPERBLOCK_MARKS, (int *)mmbuf);
+        if ( err )
+          printf("IOCTL_GET_SUPERBLOCK_MARKS failed, error %d (%s)\n", errno, strerror(errno));
+        else {
+            mmsize = mmbuf[0];
+            one_fsnotify *of = (one_fsnotify *)(mmbuf + 1);
+            for ( size_t k = 0; k < mmsize; k++ )
+            {
+              printf(" fsnotify[%ld] %p mask %X ignored_mask %X flags %X\n", k, of[k].mark_addr, of[k].mask, of[k].ignored_mask, of[k].flags);
+              if ( of[k].group )
+                printf(" group: %p\n", of[k].group);
+              if ( of[k].ops )
+              dump_kptr((unsigned long)of[k].ops, " ops", delta);
+            }
+        }
+        free(mmbuf);
+      }
+    }
     // dump mounts
     if ( sb[idx].mount_count )
     {
@@ -655,7 +688,10 @@ void dump_kprobes(int fd, sa64 delta)
     struct one_kprobe *kp = (struct one_kprobe *)(buf + 1);
     for ( size_t idx = 0; idx < ksize; idx++ )
     {
-      printf(" kprobe at %p flags %X\n", kp[idx].kaddr, kp[idx].flags);
+      if ( kp[idx].is_aggr )
+        printf(" kprobe at %p flags %X aggregated\n", kp[idx].kaddr, kp[idx].flags);
+      else
+        printf(" kprobe at %p flags %X\n", kp[idx].kaddr, kp[idx].flags);
       dump_kptr((unsigned long)kp[idx].addr, " addr", delta);
       if ( kp[idx].pre_handler )
         dump_kptr((unsigned long)kp[idx].pre_handler, " pre_handler", delta);
@@ -1184,6 +1220,8 @@ int main(int argc, char **argv)
              dump_kptr(kparm.res.priv, "inode->i_fop", delta);
            if ( kparm.res.ktype )
              dump_kptr(kparm.res.ktype, "debugfs_real_fops", delta);
+           if ( kparm.res.sysfs_ops )
+             dump_kptr(kparm.res.sysfs_ops, "private_data", delta);
          }
        }
      }
