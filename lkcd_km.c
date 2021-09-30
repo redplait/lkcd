@@ -300,6 +300,61 @@ static struct fsnotify_mark *my_fsnotify_next_mark(struct fsnotify_mark *mark)
 	return hlist_entry_safe(node, struct fsnotify_mark, obj_list);
 }
 
+struct super_mark_args
+{
+  void *sb_addr;
+  int found;
+  unsigned long cnt;
+  unsigned long *curr;
+  struct one_fsnotify *data;
+};
+
+void count_superblock_marks(struct super_block *sb, void *arg)
+{
+  struct super_mark_args *args = (struct super_mark_args *)arg;
+  if ( (void *)sb != args->sb_addr )
+    return;
+  else {
+    struct fsnotify_mark *mark;
+    args->found |= 1;
+    for ( mark = fsnotify_first_mark_ptr(&sb->s_fsnotify_marks);
+            mark != NULL;
+            mark = fsnotify_next_mark_ptr(mark)
+          )
+      args->cnt++;
+  }
+}
+
+void fill_superblock_marks(struct super_block *sb, void *arg)
+{
+  struct super_mark_args *args = (struct super_mark_args *)arg;
+  if ( (void *)sb != args->sb_addr )
+    return;
+  else {
+    struct fsnotify_mark *mark;
+    args->found |= 1;
+    for ( mark = fsnotify_first_mark_ptr(&sb->s_fsnotify_marks);
+          mark != NULL && args->curr[0] < args->cnt;
+          mark = fsnotify_next_mark_ptr(mark), args->curr[0]++
+        )
+     {
+        unsigned long index = args->curr[0];
+        args->data[index].mark_addr = (void *)mark;
+        args->data[index].mask = mark->mask;
+        args->data[index].ignored_mask = mark->ignored_mask;
+        args->data[index].flags = mark->flags;
+        if ( mark->group )
+        {
+          args->data[index].group = (void *)mark->group;
+          args->data[index].ops   = (void *)mark->group->ops;
+        } else {
+          args->data[index].group = NULL;
+          args->data[index].ops = NULL;
+        }
+     }
+  }
+}
+
 struct inode_mark_args
 {
   void *sb_addr;
@@ -1246,6 +1301,52 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
          kfree(args.curr);
        }
        break; /* IOCTL_GET_INODE_MARKS */
+
+     case IOCTL_GET_SUPERBLOCK_MARKS:
+         if ( !iterate_supers_ptr )
+           return -EFAULT;
+         if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 2) > 0 )
+           return -EFAULT;
+         if ( !ptrbuf[1] )
+         {
+           struct super_mark_args sbargs = {
+            .sb_addr = (void *)ptrbuf[0],
+            .cnt = 0,
+            .found = 0,
+           };
+           iterate_supers_ptr(count_superblock_marks, (void*)&sbargs);
+           if ( !sbargs.found )
+             return -ENOENT;
+           // copy result to user
+           if (copy_to_user((void*)ioctl_param, (void*)&sbargs.cnt, sizeof(sbargs.cnt)) > 0)
+             return -EFAULT;
+         } else {
+           struct super_mark_args sbargs;
+           size_t ksize = sizeof(unsigned long) + ptrbuf[1] * sizeof(struct one_fsnotify);
+           // fill inode_mark_args
+           sbargs.sb_addr    = (void *)ptrbuf[0];
+           sbargs.cnt        = ptrbuf[1];
+           sbargs.found      = 0;
+           sbargs.curr = (unsigned long *)kmalloc(ksize, GFP_KERNEL);
+           if ( !sbargs.curr )
+             return -ENOMEM;
+           sbargs.data = (struct one_fsnotify *)(sbargs.curr + 1);
+           sbargs.curr[0] = 0;
+           iterate_supers_ptr(fill_superblock_marks, (void*)&sbargs);
+           if ( !sbargs.found  )
+           {
+             kfree(sbargs.curr);
+             return -ENOENT;
+           }
+           ksize = sizeof(unsigned long) + sbargs.curr[0] * sizeof(struct one_fsnotify);
+           if (copy_to_user((void*)ioctl_param, (void*)sbargs.curr, ksize) > 0)
+           {
+             kfree(sbargs.curr);
+             return -EFAULT;
+           }
+           kfree(sbargs.curr);
+         }
+       break; /* IOCTL_GET_SUPERBLOCK_MARKS */
 
      case IOCTL_GET_SUPERBLOCK_INODES:
        if ( !iterate_supers_ptr )

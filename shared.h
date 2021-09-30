@@ -227,13 +227,6 @@ struct one_inode
   void *i_fsnotify_marks;
 };
 
-// get inodes for some superblock
-// in params:
-//  0 - superblock address
-//  1 - count
-// out params - long size + N * one_inode
-#define IOCTL_GET_SUPERBLOCK_INODES    _IOR(IOCTL_NUM, 0x1b, int*)
-
 struct one_fsnotify
 {
   void *mark_addr;    // address of fsnotify_mark
@@ -244,13 +237,27 @@ struct one_fsnotify
   void *ops;          // fsnotify_group->fsnotify_ops
 };
 
+// get fsnotify_mark/fsnotify_group/fsnotify_ops for super-blocks 
+// in params:
+//  0 - superblock address
+//  1 - count
+// out params - long size + N * one_fsnotify
+#define IOCTL_GET_SUPERBLOCK_MARKS     _IOR(IOCTL_NUM, 0x1b, int*)
+
+// get inodes for some superblock
+// in params:
+//  0 - superblock address
+//  1 - count
+// out params - long size + N * one_inode
+#define IOCTL_GET_SUPERBLOCK_INODES    _IOR(IOCTL_NUM, 0x1c, int*)
+
 // get fsnotify_mark/fsnotify_group/fsnotify_ops for some inode
 // in params:
 //  0 - superblock address
 //  1 - inode address
 //  2 - count
 // out params - long size + N * one_fsnotify
-#define IOCTL_GET_INODE_MARKS          _IOR(IOCTL_NUM, 0x1c, int*)
+#define IOCTL_GET_INODE_MARKS          _IOR(IOCTL_NUM, 0x1d, int*)
 
 struct one_mount
 {
@@ -267,7 +274,7 @@ struct one_mount
 //  0 - superblock address
 //  1 - count
 // out params - long size + N * one_mount
-#define IOCTL_GET_SUPERBLOCK_MOUNTS    _IOR(IOCTL_NUM, 0x1d, int*)
+#define IOCTL_GET_SUPERBLOCK_MOUNTS    _IOR(IOCTL_NUM, 0x1e, int*)
 
 // get fsnotify_mark/fsnotify_group/fsnotify_ops for some mount point 
 // in params:
@@ -275,6 +282,6 @@ struct one_mount
 //  1 - mount address
 //  2 - count
 // out params - long size + N * one_fsnotify
-#define IOCTL_GET_MOUNT_MARKS          _IOR(IOCTL_NUM, 0x1e, int*)
+#define IOCTL_GET_MOUNT_MARKS          _IOR(IOCTL_NUM, 0x1f, int*)
 
 #endif /* LKCD_SHARED_H */
