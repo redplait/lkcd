@@ -94,6 +94,10 @@ struct one_trace_event
 // out params - long size + N * pvoid
 #define IOCTL_RNL_PER_CPU              _IOR(IOCTL_NUM, 0x10, int*)
 
+/*
+ *  kprobes & uprobes
+ */
+
 // install/remove test kprobe
 // in param 0 - 1 to install, 0 to remove
 #define IOCTL_TEST_KPROBE              _IOR(IOCTL_NUM, 0x11, int*)
@@ -185,6 +189,11 @@ struct one_uprobe_consumer
 //  3 - cnt (gathered with IOCTL_CNT_UPROBES)
 // out params - long size + N * one_uprobe_consumer
 #define IOCTL_UPROBES_CONS             _IOR(IOCTL_NUM, 0x18, int*)
+
+/*
+ *  marks on inodes/mounts/syperblocks
+ */
+
 
 struct one_super_block
 {
@@ -283,5 +292,21 @@ struct one_mount
 //  2 - count
 // out params - long size + N * one_fsnotify
 #define IOCTL_GET_MOUNT_MARKS          _IOR(IOCTL_NUM, 0x1f, int*)
+
+struct one_net
+{
+  void *addr;
+  void *rtnl;
+  void *genl_sock;
+  void *uevent_sock;
+  int ifindex;
+  unsigned long dev_cnt;
+  unsigned long netdev_chain_cnt;
+};
+
+// read net from net_namespace_list
+// in params:
+//  0 - count
+#define IOCTL_GET_NETS                 _IOR(IOCTL_NUM, 0x20, int*)
 
 #endif /* LKCD_SHARED_H */

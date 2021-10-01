@@ -35,11 +35,16 @@
 #include <linux/vmalloc.h>
 #include <linux/trace_events.h>
 #include <linux/tracepoint-defs.h>
+#include <net/net_namespace.h>
+#include <linux/netdevice.h>
 #include "shared.h"
 
 MODULE_LICENSE("GPL");
 // Char we show before each debug print
 const char program_name[] = "lkcd";
+
+struct rw_semaphore *s_net = 0;
+rwlock_t *s_dev_base_lock = 0;
 
 #ifdef __x86_64__
 #define KPROBE_HASH_BITS 6
@@ -1267,7 +1272,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
 #ifdef CONFIG_FSNOTIFY
      case IOCTL_GET_INODE_MARKS:
        if ( !iterate_supers_ptr )
-         return -EFAULT;
+         return -ENOCSI;
        if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 3) > 0 )
          return -EFAULT;
        // check size
@@ -1304,7 +1309,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
 
      case IOCTL_GET_SUPERBLOCK_MARKS:
          if ( !iterate_supers_ptr )
-           return -EFAULT;
+           return -ENOCSI;
          if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 2) > 0 )
            return -EFAULT;
          if ( !ptrbuf[1] )
@@ -1350,7 +1355,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
 
      case IOCTL_GET_SUPERBLOCK_INODES:
        if ( !iterate_supers_ptr )
-         return -EFAULT;
+         return -ENOCSI;
        if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 2) > 0 )
          return -EFAULT;
        // check size
@@ -1386,7 +1391,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
 
      case IOCTL_GET_MOUNT_MARKS:
        if ( !iterate_supers_ptr || !mount_lock)
-         return -EFAULT;
+         return -ENOCSI;
        if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 3) > 0 )
          return -EFAULT;
        // check size
@@ -1423,7 +1428,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
 
      case IOCTL_GET_SUPERBLOCK_MOUNTS:
        if ( !iterate_supers_ptr || !mount_lock)
-         return -EFAULT;
+         return -ENOCSI;
        if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 2) > 0 )
          return -EFAULT;
        // check size
@@ -1921,6 +1926,72 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
       break; /* IOCTL_RNL_PER_CPU */
 #endif /* __x86_64__ */
 
+     case IOCTL_GET_NETS:
+        // check pre-req
+        if ( !s_net )
+          return -ENOCSI;
+        // read count
+        if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long)) > 0 )
+  	  return -EFAULT;
+  	if ( !ptrbuf[0] )
+  	{
+          struct net *net;
+          down_read(s_net);
+          for_each_net(net)
+            ptrbuf[0]++;
+          up_read(s_net);
+          if (copy_to_user((void*)ioctl_param, (void*)ptrbuf, sizeof(ptrbuf[0])) > 0)
+            return -EFAULT;
+  	} else {
+          struct net *net;
+          struct one_net *curr;
+          size_t kbuf_size = sizeof(unsigned long) + ptrbuf[0] * sizeof(struct one_net);
+          unsigned long *buf = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL);
+          if ( !buf )
+            return -ENOMEM;
+          curr = (struct one_net *)(buf + 1);
+          down_read(s_net);
+          for_each_net(net)
+          {
+            if ( buf[0] >= ptrbuf[0] )
+              break;
+            // fill loot
+            curr->addr = (void *)net;
+            curr->ifindex = net->ifindex;
+            curr->rtnl = (void *)net->rtnl;
+            curr->genl_sock = (void *)net->genl_sock;
+            curr->uevent_sock = (void *)net->uevent_sock;
+            curr->netdev_chain_cnt = 0;
+            curr->dev_cnt = 0;
+            if ( net->netdev_chain.head != NULL )
+            {
+              struct notifier_block *b;
+              for ( b = net->netdev_chain.head; b != NULL; b = b->next )
+               curr->netdev_chain_cnt++;
+            }
+            if ( s_dev_base_lock )
+            {
+              struct net_device *dev;
+              read_lock(s_dev_base_lock);
+              for_each_netdev(net, dev)
+                curr->dev_cnt++;
+              read_unlock(s_dev_base_lock);
+            }
+            curr++;
+            buf[0]++;
+          }
+          up_read(s_net);
+          // copy to user
+          kbuf_size = sizeof(unsigned long) + buf[0] * sizeof(struct one_net);
+          if (copy_to_user((void*)ioctl_param, (void*)buf, kbuf_size) > 0)
+          {
+            kfree(buf);
+            return -EFAULT;
+          }
+          kfree(buf);
+        }
+      break; /* IOCTL_GET_NETS */
+
     default:
      return -EBADRQC;
   }
@@ -2088,6 +2159,12 @@ init_module (void)
   mount_lock = (seqlock_t *)lkcd_lookup_name("mount_lock");
   if ( !mount_lock )
     printk("cannot find mount_lock\n");
+  s_net = (struct rw_semaphore *)lkcd_lookup_name("net_rwsem");
+  if ( !s_net )
+    printk("cannot find net_rwsem\n");
+  s_dev_base_lock = (rwlock_t *)lkcd_lookup_name("dev_base_lock");
+  if ( !s_dev_base_lock )
+    printk("cannot find dev_base_lock\n");
 #ifdef CONFIG_FSNOTIFY
   fsnotify_mark_srcu_ptr = (struct srcu_struct *)lkcd_lookup_name("fsnotify_mark_srcu");
   fsnotify_first_mark_ptr = (und_fsnotify_first_mark)lkcd_lookup_name("fsnotify_first_mark");
