@@ -6,6 +6,7 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <errno.h>
+#include <net/if.h>
 #endif
 
 #include <iostream>
@@ -42,6 +43,7 @@ void usage(const char *prog)
   printf("-F - dump super-blocks\n");
   printf("-f - dump ftraces\n");  
   printf("-k - dump kprobes\n");
+  printf("-n - dump nets\n");
   printf("-r - check .rodata section\n");
   printf("-s - check fs_ops for sysfs files\n");
   printf("-u - dump usb_monitor\n");
@@ -380,6 +382,301 @@ void dump_uprobes(int fd, sa64 delta)
   free(buf);
 }
 
+void dump_link_ops(int fd, a64 nca, sa64 delta)
+{
+  unsigned long args[2] = { nca + delta, 0 };
+  int err = ioctl(fd, IOCTL_GET_LINKS_OPS, (int *)args);
+  if ( err )
+  {
+    printf("IOCTL_GET_LINKS_OPS failed, error %d (%s)\n", errno, strerror(errno));
+    return;
+  }
+  printf("\nlink_ops at %p: %ld\n", (void *)(nca + delta), args[0]);
+  if ( !args[0] )
+    return;
+  size_t m = args[0];
+  if ( m < 2 )
+    m = 2;
+  unsigned long *buf = (unsigned long *)malloc(m * sizeof(unsigned long));
+  if ( !buf )
+    return;
+  buf[0] = nca + delta;
+  buf[1] = args[0];
+  err = ioctl(fd, IOCTL_GET_LINKS_OPS, (int *)buf);
+  if ( err )
+  {
+    printf("IOCTL_GET_LINKS_OPS failed, error %d (%s)\n", errno, strerror(errno));
+    free(buf);
+    return;
+  }
+  for ( size_t j = 0; j < buf[0]; j++ )
+  {
+    if ( is_inside_kernel(buf[1 + j]) )
+    {
+      const char *sname = name_by_addr(buf[1 + j] - delta);
+      if (sname != NULL)
+        printf(" %p - kernel!%s\n", (void *)buf[1 + j], sname);
+      else
+        printf(" %p - kernel\n", (void *)buf[1 + j]);
+    } else {
+      const char *mname = find_kmod(buf[1 + j]);
+      if ( mname )
+        printf(" %p - %s\n", (void *)buf[1 + j], mname);
+      else
+        printf(" %p UNKNOWN\n", (void *)buf[1 + j]);
+    }
+  }
+  free(buf);
+}
+
+static size_t calc_one_pernet_ops_size(size_t n)
+{
+  return n * sizeof(one_pernet_ops) + sizeof(unsigned long);
+}
+
+void dump_pernet_ops(int fd, a64 nca, a64 plock, sa64 delta)
+{
+  if ( !nca )
+  {
+    printf("cannot find pernet_list\n");
+    return;
+  }
+  if ( !plock )
+  {
+    printf("cannot find pernet_ops_rwsem\n");
+    return;
+  }
+  unsigned long cbuf[3] = { nca + delta, plock + delta, 0 };
+  int err = ioctl(fd, IOCTL_GET_PERNET_OPS, (int *)cbuf);
+  if ( err )
+  {
+    printf("IOCTL_GET_PERNET_OPS failed, error %d (%s)\n", errno, strerror(errno));
+    return;
+  }
+  printf("\npernet_ops: %ld\n", cbuf[0]);
+  if ( !cbuf[0] )
+    return;
+  size_t size = calc_one_pernet_ops_size(cbuf[0]);
+  unsigned long *buf = (unsigned long *)malloc(size);
+  if ( !buf )
+    return;
+  buf[0] = nca + delta;
+  buf[1] = plock + delta;
+  buf[2] = cbuf[0];
+  err = ioctl(fd, IOCTL_GET_PERNET_OPS, (int *)buf);
+  if ( err )
+  {
+    printf("IOCTL_GET_PERNET_OPS failed, error %d (%s)\n", errno, strerror(errno));
+    free(buf);
+    return;
+  }
+  size = buf[0];
+  struct one_pernet_ops *sb = (struct one_pernet_ops *)(buf + 1);
+  for ( size_t idx = 0; idx < size; idx++, sb++ )
+  {
+    printf(" [%ld] at %p:\n", idx, sb);
+    if ( sb->init )
+     dump_kptr((unsigned long)sb->init, " init", delta);
+    if ( sb->exit )
+     dump_kptr((unsigned long)sb->exit, " exit", delta);
+    if ( sb->exit_batch )
+     dump_kptr((unsigned long)sb->exit_batch, " exit_batch", delta);
+  }
+  free(buf);
+}
+
+static size_t calc_net_chains_size(size_t n)
+{
+  return (n + 1) * sizeof(unsigned long);
+}
+
+void dump_net_chains(int fd, a64 nca, size_t cnt, sa64 delta)
+{
+  size_t size = calc_net_chains_size(cnt);
+  unsigned long *buf = (unsigned long *)malloc(size);
+  if ( !buf )
+    return;
+  buf[0] = nca + delta;
+  buf[1] = cnt;
+  int err = ioctl(fd, IOCTL_GET_NETDEV_CHAIN, (int *)buf);
+  if ( err )
+  {
+    printf("IOCTL_GET_NETDEV_CHAIN failed, error %d (%s)\n", errno, strerror(errno));
+    free(buf);
+    return;
+  }
+  size = buf[0];
+  for ( size_t j = 0; j < size; j++ )
+  {
+    if ( is_inside_kernel(buf[1 + j]) )
+    {
+      const char *sname = name_by_addr(buf[1 + j] - delta);
+      if (sname != NULL)
+        printf(" %p - kernel!%s\n", (void *)buf[1 + j], sname);
+      else
+        printf(" %p - kernel\n", (void *)buf[1 + j]);
+    } else {
+      const char *mname = find_kmod(buf[1 + j]);
+      if ( mname )
+        printf(" %p - %s\n", (void *)buf[1 + j], mname);
+      else
+        printf(" %p UNKNOWN\n", (void *)buf[1 + j]);
+    }
+  }
+  free(buf);
+}
+
+static size_t calc_net_size(size_t n)
+{
+  return n * sizeof(one_net) + sizeof(unsigned long);
+}
+
+static size_t calc_net_dev_size(size_t n)
+{
+  return n * sizeof(one_net_dev) + sizeof(unsigned long);
+}
+
+void dump_nets(int fd, sa64 delta)
+{
+  unsigned long cnt = 0;
+  int err = ioctl(fd, IOCTL_GET_NETS, (int *)&cnt);
+  if ( err )
+  {
+    printf("IOCTL_GET_NETS count failed, error %d (%s)\n", errno, strerror(errno));
+    return;
+  }
+  printf("nets: %ld\n", cnt);
+  if ( !cnt )
+    return;
+  size_t size = calc_net_size(cnt);
+  unsigned long *buf = (unsigned long *)malloc(size);
+  if ( !buf )
+    return;
+  buf[0] = cnt;
+  err = ioctl(fd, IOCTL_GET_NETS, (int *)buf);
+  if ( err )
+  {
+    printf("IOCTL_GET_NETS failed, error %d (%s)\n", errno, strerror(errno));
+    free(buf);
+    return;
+  }
+  size = buf[0];
+  struct one_net *sb = (struct one_net *)(buf + 1);
+  for ( size_t idx = 0; idx < size; idx++, sb++ )
+  {
+    printf("Net[%ld]: %p ifindex %d rtnl %p genl_sock %p diag_nlsk %p uevent_sock %p dev_cnt %ld netdev_chain_cnt %ld\n",
+      idx, sb->addr, sb->ifindex, sb->rtnl, sb->genl_sock, sb->diag_nlsk, sb->uevent_sock, sb->dev_cnt, sb->netdev_chain_cnt
+    );
+    if ( sb->rtnl_proto )
+      dump_kptr((unsigned long)sb->rtnl_proto, "rtnl_proto", delta);
+    if ( sb->rtnl_filter )
+      dump_kptr((unsigned long)sb->rtnl_filter, "rtnl_filter", delta);
+    if ( sb->genl_sock_proto )
+      dump_kptr((unsigned long)sb->genl_sock_proto, "genl_sock_proto", delta);
+    if ( sb->genl_sock_filter )
+      dump_kptr((unsigned long)sb->genl_sock_filter, "genl_sock_filter", delta);
+    if ( sb->diag_nlsk_proto )
+      dump_kptr((unsigned long)sb->diag_nlsk_proto, "diag_nlsk_proto", delta);
+    if ( sb->diag_nlsk_filter )
+      dump_kptr((unsigned long)sb->diag_nlsk_filter, "diag_nlsk_filter", delta);
+    if ( !sb->dev_cnt )
+      continue;
+    size_t dsize = calc_net_dev_size(sb->dev_cnt);
+    unsigned long *dbuf = (unsigned long *)malloc(dsize);
+    if ( !dbuf )
+     continue;
+    dbuf[0] = (unsigned long)sb->addr;
+    dbuf[1] = sb->dev_cnt;
+    err = ioctl(fd, IOCTL_GET_NET_DEVS, (int *)dbuf);
+    if ( err )
+    {
+      printf("IOCTL_GET_NET_DEVS failed, error %d (%s)\n", errno, strerror(errno));
+      free(dbuf);
+      continue;
+    }
+    dsize = dbuf[0];
+    struct one_net_dev *nd = (struct one_net_dev *)(dbuf + 1);
+    for ( size_t j = 0; j < dsize; j++, nd++ )
+    {
+      printf(" Dev[%ld]: %p %s ntfy_cnt %ld type %d mtu %d min_mtu %d max_mtu %d\n", 
+        j, nd->addr, nd->name, nd->netdev_chain_cnt, nd->type, nd->mtu, nd->min_mtu, nd->max_mtu
+      );
+      if ( nd->netdev_ops )
+        dump_kptr((unsigned long)nd->netdev_ops, " netdev_ops", delta);
+      if ( nd->ethtool_ops )
+        dump_kptr((unsigned long)nd->ethtool_ops, " ethtool_ops", delta);
+      if ( nd->l3mdev_ops )
+        dump_kptr((unsigned long)nd->l3mdev_ops, " l3mdev_ops", delta);
+      if ( nd->ndisc_ops )
+        dump_kptr((unsigned long)nd->ndisc_ops, " ndisc_ops", delta);
+      if ( nd->xfrmdev_ops )
+        dump_kptr((unsigned long)nd->xfrmdev_ops, " xfrmdev_ops", delta);
+      if ( nd->tlsdev_ops )
+        dump_kptr((unsigned long)nd->tlsdev_ops, " tlsdev_ops", delta);
+      if ( nd->header_ops )
+        dump_kptr((unsigned long)nd->header_ops, " header_ops", delta);
+      if ( nd->xdp_prog )
+        dump_kptr((unsigned long)nd->xdp_prog, " xdp_prog", delta);
+      if ( nd->rx_handler )
+        dump_kptr((unsigned long)nd->rx_handler, " rx_handler", delta);
+      if ( nd->rtnl_link_ops )
+        dump_kptr((unsigned long)nd->rtnl_link_ops, " rtnl_link_ops", delta);
+      if ( nd->num_hook_entries )
+        printf("num_hook_entries: %ld\n", nd->num_hook_entries);
+    }
+    free(dbuf);
+  }
+  free(buf);
+  // sock diags
+  for ( int i = 0; i < AF_MAX; i++ )
+  {
+    one_sock_diag sd;
+    sd.addr = (void *)i;
+    err = ioctl(fd, IOCTL_GET_SOCK_DIAG, (int *)&sd);
+    if ( err )
+    {
+      printf("IOCTL_GET_SOCK_DIAG(%d) failed, error %d (%s)\n", i, errno, strerror(errno));
+      continue;
+    }
+    if ( !sd.addr )
+      continue;
+    printf("sock_diag[%d]: %p\n", i, sd.addr);
+    if ( sd.dump )
+      dump_kptr((unsigned long)sd.dump, "dump", delta);
+    if ( sd.get_info )
+      dump_kptr((unsigned long)sd.get_info, "get_info", delta);
+    if ( sd.destroy )
+      dump_kptr((unsigned long)sd.destroy, "destroy", delta);
+  }
+  // netdev chains
+  unsigned long nca = get_addr("netdev_chain");
+  if ( nca )
+  {
+    unsigned long nc[2];
+    nc[0] = nca + delta;
+    nc[1] = 0;
+    err = ioctl(fd, IOCTL_GET_NETDEV_CHAIN, (int *)nc);
+    if ( err )
+      printf("IOCTL_GET_NETDEV_CHAIN failed, error %d (%s)\n", errno, strerror(errno));
+    else {
+      printf("\nnetdev_chain at %p: %ld\n", (void *)(nca + delta), nc[0]);
+      if ( nc[0] )
+        dump_net_chains(fd, nca, nc[0], delta);
+    }
+  } else
+    printf("cannot find netdev_chain");
+  // pernet ops
+  nca = get_addr("pernet_list");
+  auto plock = get_addr("pernet_ops_rwsem");
+  dump_pernet_ops(fd, nca, plock, delta);
+  // link ops
+  nca = get_addr("link_ops");
+  if ( !nca )
+    printf("cannot find link_ops");
+  else
+    dump_link_ops(fd, nca, delta);
+}
+
 static size_t calc_super_size(size_t n)
 {
   return n * sizeof(one_super_block) + sizeof(unsigned long);
@@ -480,7 +777,7 @@ void dump_super_blocks(int fd, sa64 delta)
       unsigned long *mmbuf = (unsigned long *)malloc(mmsize);
       if ( mmbuf )
       {
-        // params for IOCTL_GET_MOUNT_MARKS
+        // params for IOCTL_GET_SUPERBLOCK_MARKS
         mmbuf[0] = (unsigned long)sb[idx].addr;
         mmbuf[1] = sb_marks_arg[1];
         err = ioctl(fd, IOCTL_GET_SUPERBLOCK_MARKS, (int *)mmbuf);
@@ -1019,6 +1316,7 @@ int main(int argc, char **argv)
        opt_d = 0,
        opt_c = 0,
        opt_k = 0,
+       opt_n = 0,
        opt_r = 0,
        opt_s = 0,
        opt_t = 0,
@@ -1028,7 +1326,7 @@ int main(int argc, char **argv)
    int fd = 0;
    while (1)
    {
-     c = getopt(argc, argv, "bcdFfkrstuv");
+     c = getopt(argc, argv, "bcdFfknrstuv");
      if (c == -1)
 	break;
 
@@ -1055,6 +1353,9 @@ int main(int argc, char **argv)
         case 'k':
           opt_k = 1;
           opt_c = 1;
+         break;
+        case 'n':
+          opt_n = 1;
          break;
         case 'r':
           opt_r = 1;
@@ -1166,9 +1467,9 @@ int main(int argc, char **argv)
      }
      // dump super-blocks
      if ( opt_F && opt_c )
-     {
        dump_super_blocks(fd, delta);
-     }
+     if ( opt_c && opt_n )
+       dump_nets(fd, delta);
      // check sysfs f_ops
      if ( opt_c && opt_s )
      {
