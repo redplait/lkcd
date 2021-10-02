@@ -804,6 +804,47 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
       }
       break; /* IOCTL_RKSYM */
 
+    case IOCTL_GET_NETDEV_CHAIN:
+       if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 2) > 0 )
+ 	 return -EFAULT;
+       if ( !ptrbuf[1] )
+       {
+         unsigned long cnt = 0;
+         struct notifier_block *b;
+         struct raw_notifier_head *head = (struct raw_notifier_head *)ptrbuf[0];
+         rtnl_lock();
+         for ( b = head->head; b != NULL; b = b->next )
+            cnt++;
+         rtnl_unlock();
+         // copy count to user-mode
+         if ( copy_to_user((void*)ioctl_param, (void*)&cnt, sizeof(cnt)) > 0 )
+   	   return -EFAULT;
+       } else {
+         struct notifier_block *b;
+         unsigned long cnt = 0;
+         struct raw_notifier_head *head = (struct raw_notifier_head *)ptrbuf[0];
+         unsigned long *kbuf = (unsigned long *)kmalloc_array(ptrbuf[1] + 1, sizeof(unsigned long), GFP_KERNEL);
+         if ( !kbuf )
+           return -ENOMEM;
+         rtnl_lock();
+         for ( b = head->head; b != NULL; b = b->next )
+         {
+           if ( cnt >= ptrbuf[1] )
+             break;
+           kbuf[cnt + 1] = (unsigned long)b->notifier_call;
+           cnt++;
+         }
+         rtnl_unlock();
+         kbuf[0] = cnt;
+         if ( copy_to_user((void*)(ioctl_param), (void*)kbuf, sizeof(unsigned long) * (1 + cnt)) > 0 )
+         {
+           kfree(kbuf);
+           return -EFAULT;
+         }
+         kfree(kbuf);
+       }
+      break; /* IOCTL_GET_NETDEV_CHAIN */
+
     case IOCTL_CNTNTFYCHAIN:
      {
        // copy address of blocking_notifier_head from user-mode

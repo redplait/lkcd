@@ -371,4 +371,13 @@ struct one_sock_diag
 //  one_sock_diag
 #define IOCTL_GET_SOCK_DIAG            _IOR(IOCTL_NUM, 0x22, int*)
 
+// read netdev chain
+// in params:
+//  0 - address of netdev_chain - struct raw_notifier_head *
+//  1 - cnt
+// out params:
+//   if 0 param is zero - count of netdev ntfy
+//   else long size + N * void*
+#define IOCTL_GET_NETDEV_CHAIN         _IOR(IOCTL_NUM, 0x23, int*)
+
 #endif /* LKCD_SHARED_H */
