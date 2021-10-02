@@ -194,7 +194,6 @@ struct one_uprobe_consumer
  *  marks on inodes/mounts/syperblocks
  */
 
-
 struct one_super_block
 {
   void *addr;
@@ -293,6 +292,10 @@ struct one_mount
 // out params - long size + N * one_fsnotify
 #define IOCTL_GET_MOUNT_MARKS          _IOR(IOCTL_NUM, 0x1f, int*)
 
+/*
+ *  network data
+ */
+
 struct one_net
 {
   void *addr;
@@ -306,7 +309,34 @@ struct one_net
 
 // read net from net_namespace_list
 // in params:
-//  0 - count
+//   0 - count
+// out params:
+//   if 0 param is zero - count of nets
+//   else long size + N * one_net
 #define IOCTL_GET_NETS                 _IOR(IOCTL_NUM, 0x20, int*)
+
+struct one_net_dev
+{
+  void *addr;
+  char name[IFNAMSIZ];
+  void *netdev_ops;
+  void *ethtool_ops;
+  void *header_ops;
+  void *xdp_prog;
+  void *rx_handler;
+  void *rtnl_link_ops;
+  void *nf_hooks_ingress;
+  unsigned long num_hook_entries; // nf_hooks_ingress->num_hook_entries
+  unsigned long netdev_chain_cnt; // count of net_notifier_list
+};
+
+// read netdevs
+// in params:
+//  0 - net addr
+//  1 - count
+// out params:
+//   if 0 param is zero - count of nets
+//   else long size + N * one_net_dev
+#define IOCTL_GET_NET_DEVS             _IOR(IOCTL_NUM, 0x21, int*)
 
 #endif /* LKCD_SHARED_H */

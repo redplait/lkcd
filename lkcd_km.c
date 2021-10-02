@@ -37,6 +37,7 @@
 #include <linux/tracepoint-defs.h>
 #include <net/net_namespace.h>
 #include <linux/netdevice.h>
+#include <linux/netfilter.h>
 #include "shared.h"
 
 MODULE_LICENSE("GPL");
@@ -1562,7 +1563,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
          if ( !found )
          {
            kfree(kbuf);
-           return -EBADF;
+           return -ENOENT;
          }
          // copy to user
          *(unsigned long *)kbuf = cnt;
@@ -1925,6 +1926,103 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
       }
       break; /* IOCTL_RNL_PER_CPU */
 #endif /* __x86_64__ */
+
+     case IOCTL_GET_NET_DEVS:
+        // check pre-req
+        if ( !s_net || !s_dev_base_lock )
+          return -ENOCSI;
+        // read count
+        if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 2) > 0 )
+  	  return -EFAULT;
+  	if ( !ptrbuf[1] )
+  	{
+          struct net *net;
+          struct net_device *dev;
+          int found = 0;
+          unsigned long count = 0;
+          down_read(s_net);
+          for_each_net(net)
+          {
+            if ( ptrbuf[0] != (unsigned long)net )
+              continue;
+            found++;
+            read_lock(s_dev_base_lock);
+            for_each_netdev(net, dev)
+              count++;
+            read_unlock(s_dev_base_lock);
+            break;
+          }
+          up_read(s_net);
+          if ( !found )
+            return -ENOENT;
+          // copy count to user
+          if (copy_to_user((void*)ioctl_param, (void*)&count, sizeof(count)) > 0)
+            return -EFAULT;
+        } else {
+          struct net *net;
+          struct net_device *dev;
+          struct one_net_dev *curr;
+          int found = 0;
+          size_t kbuf_size = sizeof(unsigned long) + ptrbuf[1] * sizeof(struct one_net_dev);
+          unsigned long *buf = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL);
+          if ( !buf )
+            return -ENOMEM;
+          curr = (struct one_net_dev *)(buf + 1);
+          buf[0] = 0;
+          down_read(s_net);
+          for_each_net(net)
+          {
+            if ( ptrbuf[0] != (unsigned long)net )
+              continue;
+            found++;
+            read_lock(s_dev_base_lock);
+            for_each_netdev(net, dev)
+            {
+              if ( buf[0] >= ptrbuf[1] )
+                break;
+              // fill one_net_dev
+              curr->addr = (void *)dev;
+              strlcpy(curr->name, dev->name, IFNAMSIZ);
+              curr->netdev_ops  = (void *)dev->netdev_ops;
+              curr->ethtool_ops = (void *)dev->ethtool_ops;
+              curr->header_ops  = (void *)dev->header_ops;
+              curr->xdp_prog    = (void *)dev->xdp_prog;
+              curr->rx_handler  = (void *)dev->rx_handler;
+              curr->rtnl_link_ops = (void *)dev->rtnl_link_ops;
+#ifdef CONFIG_NETFILTER_INGRESS
+              curr->nf_hooks_ingress = (void *)dev->nf_hooks_ingress;
+              if ( dev->nf_hooks_ingress )
+                curr->num_hook_entries = dev->nf_hooks_ingress->num_hook_entries;
+#endif
+              if ( dev->net_notifier_list.next != NULL )
+              {
+                struct netdev_net_notifier *nn;
+                list_for_each_entry(nn, &dev->net_notifier_list, list)
+                 curr->netdev_chain_cnt++;
+              }
+              // for next iteration
+              curr++;
+              buf[0]++;
+            }
+            read_unlock(s_dev_base_lock);
+            break;
+          }
+          up_read(s_net);
+          if ( !found )
+          {
+            kfree(buf);
+            return -ENOENT;
+          }
+          // copy to user
+          kbuf_size = sizeof(unsigned long) + buf[0] * sizeof(struct one_net_dev);
+          if (copy_to_user((void*)ioctl_param, (void*)buf, kbuf_size) > 0)
+          {
+            kfree(buf);
+            return -EFAULT;
+          }
+          kfree(buf);
+        }
+      break; /* IOCTL_GET_NET_DEVS */
 
      case IOCTL_GET_NETS:
         // check pre-req
