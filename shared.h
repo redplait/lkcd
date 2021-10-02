@@ -398,4 +398,13 @@ struct one_pernet_ops
 //   else long size + N * one_pernet_ops
 #define IOCTL_GET_PERNET_OPS           _IOR(IOCTL_NUM, 0x24, int*)
 
+// read link ops
+// in params:
+//  0 - address of link_ops list
+//  1 - count
+// out params:
+//   if 0 param is zero - count of netdev ntfy
+//   else long size + N * void*
+#define IOCTL_GET_LINKS_OPS            _IOR(IOCTL_NUM, 0x25, int*)
+
 #endif /* LKCD_SHARED_H */

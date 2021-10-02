@@ -2116,6 +2116,52 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
         }
       break; /* IOCTL_GET_NET_DEVS */
 
+     case IOCTL_GET_LINKS_OPS:
+        if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 2) > 0 )
+  	  return -EFAULT;
+  	if ( !ptrbuf[0] )
+          return -EINVAL;
+        if ( !ptrbuf[1] )
+        {
+          // count number of links_ops
+          struct list_head *l = (struct list_head *)ptrbuf[0];
+          unsigned long cnt = 0;
+          const struct rtnl_link_ops *ops;
+          rtnl_lock();
+          list_for_each_entry(ops, l, list)
+            cnt++;
+          rtnl_unlock();
+          if (copy_to_user((void*)ioctl_param, (void*)&cnt, sizeof(cnt)) > 0)
+            return -EFAULT;
+        } else {
+          struct list_head *l = (struct list_head *)ptrbuf[0];
+          const struct rtnl_link_ops *ops;
+          unsigned long cnt = 0;
+          size_t kbuf_size = sizeof(unsigned long) * (1 + ptrbuf[1]);
+          unsigned long *buf = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL);
+          if ( !buf )
+            return -ENOMEM;
+          rtnl_lock();
+          list_for_each_entry(ops, l, list)
+          {
+            if ( cnt >= ptrbuf[1] )
+             break;
+            buf[1 + cnt] = (unsigned long)ops;
+            cnt++;
+          }
+          rtnl_unlock();
+          buf[0] = cnt;
+          // copy to user
+          kbuf_size = sizeof(unsigned long) * (cnt + 1);
+          if (copy_to_user((void*)ioctl_param, (void*)buf, kbuf_size) > 0)
+          {
+            kfree(buf);
+            return -EFAULT;
+          }
+          kfree(buf);          
+        }
+      break; /* IOCTL_GET_LINKS_OPS */
+
      case IOCTL_GET_PERNET_OPS:
         if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 3) > 0 )
   	  return -EFAULT;
@@ -2123,6 +2169,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
           return -EINVAL;
         if ( !ptrbuf[2] )
         {
+          // count num of pernet_operations
           struct list_head *l = (struct list_head *)ptrbuf[0];
           struct rw_semaphore *lock = (struct rw_semaphore *)ptrbuf[1];
           struct pernet_operations *ops;
