@@ -5,6 +5,7 @@
 #include <string.h>
 #include <stdio.h>
 #include <errno.h>
+#include <net/if.h>
 #include "lk.h"
 #include "shared.h"
 
