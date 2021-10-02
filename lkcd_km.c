@@ -39,6 +39,7 @@
 #include <net/sock.h>
 #include <linux/netdevice.h>
 #include <linux/netfilter.h>
+#include <linux/sock_diag.h>
 #include "shared.h"
 
 MODULE_LICENSE("GPL");
@@ -47,6 +48,8 @@ const char program_name[] = "lkcd";
 
 struct rw_semaphore *s_net = 0;
 rwlock_t *s_dev_base_lock = 0;
+struct sock_diag_handler **s_sock_diag_handlers = 0;
+struct mutex *s_sock_diag_table_mutex = 0;
 
 #ifdef __x86_64__
 #define KPROBE_HASH_BITS 6
@@ -1928,6 +1931,36 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
       break; /* IOCTL_RNL_PER_CPU */
 #endif /* __x86_64__ */
 
+     case IOCTL_GET_SOCK_DIAG:
+        // check pre-req
+        if ( !s_sock_diag_handlers || !s_sock_diag_table_mutex )
+          return -ENOCSI;
+        // read index
+        if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long)) > 0 )
+  	  return -EFAULT;
+  	if ( ptrbuf[0] >= AF_MAX)
+          return -EINVAL;
+        else {
+          struct one_sock_diag params;
+          // lock
+          mutex_lock(s_sock_diag_table_mutex);
+          // fill out params
+          params.addr = (void *)s_sock_diag_handlers[ptrbuf[0]];
+          if ( params.addr )
+          {
+            params.dump = (void *)s_sock_diag_handlers[ptrbuf[0]]->dump;
+            params.get_info = (void *)s_sock_diag_handlers[ptrbuf[0]]->get_info;
+            params.destroy = (void *)s_sock_diag_handlers[ptrbuf[0]]->destroy;
+          } else
+            params.dump = params.get_info = params.destroy = 0;
+          // unlock
+          mutex_unlock(s_sock_diag_table_mutex);
+          // copy to user
+          if (copy_to_user((void*)ioctl_param, (void*)&params, sizeof(params)) > 0)
+            return -EFAULT;
+        }
+       break; /* IOCTL_GET_SOCK_DIAG */
+
      case IOCTL_GET_NET_DEVS:
         // check pre-req
         if ( !s_net || !s_dev_base_lock )
@@ -2089,6 +2122,13 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
                  curr->genl_sock_filter = (void *)net->genl_sock->sk_filter->prog->bpf_func;
             }
             curr->uevent_sock = (void *)net->uevent_sock;
+            curr->diag_nlsk = (void *)net->diag_nlsk;
+            if ( net->diag_nlsk )
+            {
+               curr->diag_nlsk_proto = (void *)net->diag_nlsk->sk_prot;
+               if ( net->diag_nlsk->sk_filter && net->diag_nlsk->sk_filter->prog )
+                 curr->diag_nlsk_filter = (void *)net->diag_nlsk->sk_filter->prog->bpf_func;
+            }
             curr->netdev_chain_cnt = 0;
             curr->dev_cnt = 0;
             if ( net->netdev_chain.head != NULL )
@@ -2293,6 +2333,12 @@ init_module (void)
   s_dev_base_lock = (rwlock_t *)lkcd_lookup_name("dev_base_lock");
   if ( !s_dev_base_lock )
     printk("cannot find dev_base_lock\n");
+  s_sock_diag_handlers = (struct sock_diag_handler **)lkcd_lookup_name("sock_diag_handlers");
+  if ( !s_sock_diag_handlers )
+    printk("cannot find sock_diag_handlers\n");
+  s_sock_diag_table_mutex = (struct mutex *)lkcd_lookup_name("sock_diag_table_mutex");
+  if ( !s_sock_diag_table_mutex )
+    printk("cannot find sock_diag_table_mutex\n");
 #ifdef CONFIG_FSNOTIFY
   fsnotify_mark_srcu_ptr = (struct srcu_struct *)lkcd_lookup_name("fsnotify_mark_srcu");
   fsnotify_first_mark_ptr = (und_fsnotify_first_mark)lkcd_lookup_name("fsnotify_first_mark");

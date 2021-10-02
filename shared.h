@@ -306,6 +306,9 @@ struct one_net
   void *genl_sock_proto;
   void *genl_sock_filter;
   void *uevent_sock;
+  void *diag_nlsk;
+  void *diag_nlsk_proto;
+  void *diag_nlsk_filter;
   int ifindex;
   unsigned long dev_cnt;
   unsigned long netdev_chain_cnt;
@@ -351,5 +354,21 @@ struct one_net_dev
 //   if 0 param is zero - count of nets
 //   else long size + N * one_net_dev
 #define IOCTL_GET_NET_DEVS             _IOR(IOCTL_NUM, 0x21, int*)
+
+// sock_diag_handler *sock_diag_handlers[AF_MAX]
+struct one_sock_diag
+{
+  void *addr;
+  void *dump;
+  void *get_info;
+  void *destroy;
+};
+
+// read sock_diag_handler
+// in params:
+//  0 - index
+// out params:
+//  one_sock_diag
+#define IOCTL_GET_SOCK_DIAG            _IOR(IOCTL_NUM, 0x22, int*)
 
 #endif /* LKCD_SHARED_H */
