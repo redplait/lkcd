@@ -300,7 +300,11 @@ struct one_net
 {
   void *addr;
   void *rtnl;
+  void *rtnl_proto;
+  void *rtnl_filter; // sk_filter->prog->bpf_func
   void *genl_sock;
+  void *genl_sock_proto;
+  void *genl_sock_filter;
   void *uevent_sock;
   int ifindex;
   unsigned long dev_cnt;
@@ -321,6 +325,15 @@ struct one_net_dev
   char name[IFNAMSIZ];
   void *netdev_ops;
   void *ethtool_ops;
+  void *l3mdev_ops;  // if CONFIG_NET_L3_MASTER_DEV
+  void *ndisc_ops;   // if CONFIG_IPV6
+  void *xfrmdev_ops; // if CONFIG_XFRM_OFFLOAD
+  void *tlsdev_ops;  // if CONFIG_TLS_DEVICE
+  unsigned int 		flags;
+  unsigned int		mtu;
+  unsigned int		min_mtu;
+  unsigned int		max_mtu;
+  unsigned short	type;
   void *header_ops;
   void *xdp_prog;
   void *rx_handler;

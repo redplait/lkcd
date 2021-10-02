@@ -36,6 +36,7 @@
 #include <linux/trace_events.h>
 #include <linux/tracepoint-defs.h>
 #include <net/net_namespace.h>
+#include <net/sock.h>
 #include <linux/netdevice.h>
 #include <linux/netfilter.h>
 #include "shared.h"
@@ -1983,6 +1984,11 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
               // fill one_net_dev
               curr->addr = (void *)dev;
               strlcpy(curr->name, dev->name, IFNAMSIZ);
+              curr->flags       = dev->flags;
+              curr->mtu         = dev->mtu;
+              curr->min_mtu     = dev->min_mtu;
+              curr->max_mtu     = dev->max_mtu;
+              curr->type        = dev->type;
               curr->netdev_ops  = (void *)dev->netdev_ops;
               curr->ethtool_ops = (void *)dev->ethtool_ops;
               curr->header_ops  = (void *)dev->header_ops;
@@ -1993,6 +1999,18 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
               curr->nf_hooks_ingress = (void *)dev->nf_hooks_ingress;
               if ( dev->nf_hooks_ingress )
                 curr->num_hook_entries = dev->nf_hooks_ingress->num_hook_entries;
+#endif
+#ifdef CONFIG_NET_L3_MASTER_DEV
+              curr->l3mdev_ops = (void *)dev->l3mdev_ops;
+#endif
+#ifdef CONFIG_IPV6
+              curr->ndisc_ops = (void *)dev->ndisc_ops;
+#endif
+#ifdef CONFIG_XFRM_OFFLOAD
+              curr->xfrmdev_ops = (void *)dev->xfrmdev_ops;
+#endif
+#ifdef CONFIG_TLS_DEVICE
+              curr->tlsdev_ops = (void *)dev->tlsdev_ops;
 #endif
               if ( dev->net_notifier_list.next != NULL )
               {
@@ -2057,7 +2075,19 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
             curr->addr = (void *)net;
             curr->ifindex = net->ifindex;
             curr->rtnl = (void *)net->rtnl;
+            if ( net->rtnl )
+            {
+               curr->rtnl_proto = (void *)net->rtnl->sk_prot;
+               if ( net->rtnl->sk_filter && net->rtnl->sk_filter->prog )
+                 curr->rtnl_filter = (void *)net->rtnl->sk_filter->prog->bpf_func;
+            }
             curr->genl_sock = (void *)net->genl_sock;
+            if ( net->genl_sock )
+            {
+               curr->genl_sock_proto = (void *)net->genl_sock->sk_prot;
+               if ( net->genl_sock->sk_filter && net->genl_sock->sk_filter->prog )
+                 curr->genl_sock_filter = (void *)net->genl_sock->sk_filter->prog->bpf_func;
+            }
             curr->uevent_sock = (void *)net->uevent_sock;
             curr->netdev_chain_cnt = 0;
             curr->dev_cnt = 0;
