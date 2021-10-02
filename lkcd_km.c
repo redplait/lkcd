@@ -2116,6 +2116,58 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
         }
       break; /* IOCTL_GET_NET_DEVS */
 
+     case IOCTL_GET_PERNET_OPS:
+        if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 3) > 0 )
+  	  return -EFAULT;
+  	if ( !ptrbuf[0] || !ptrbuf[1] )
+          return -EINVAL;
+        if ( !ptrbuf[2] )
+        {
+          struct list_head *l = (struct list_head *)ptrbuf[0];
+          struct rw_semaphore *lock = (struct rw_semaphore *)ptrbuf[1];
+          struct pernet_operations *ops;
+          ptrbuf[0] = 0;
+          down_read(lock);
+          list_for_each_entry(ops, l, list)
+            ptrbuf[0]++;
+          up_read(lock);
+          if (copy_to_user((void*)ioctl_param, (void*)ptrbuf, sizeof(ptrbuf[0])) > 0)
+            return -EFAULT;
+        } else {
+          struct list_head *l = (struct list_head *)ptrbuf[0];
+          struct rw_semaphore *lock = (struct rw_semaphore *)ptrbuf[1];
+          struct one_pernet_ops *curr;
+          struct pernet_operations *ops;
+          size_t kbuf_size = sizeof(unsigned long) + ptrbuf[2] * sizeof(struct one_pernet_ops);
+          unsigned long *buf = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL);
+          if ( !buf )
+            return -ENOMEM;
+          curr = (struct one_pernet_ops *)(buf + 1);
+          buf[0] = 0;
+          down_read(lock);
+          list_for_each_entry(ops, l, list)
+          {
+            if ( buf[0] >= ptrbuf[2] )
+              break;
+            curr->addr = (void *)ops;
+            curr->init = (void *)ops->init;
+            curr->exit = (void *)ops->exit;
+            curr->exit_batch = (void *)ops->exit_batch;
+            curr++;
+            buf[0]++;
+          }
+          up_read(lock);
+          // copy to user
+          kbuf_size = sizeof(unsigned long) + buf[0] * sizeof(struct one_pernet_ops);
+          if (copy_to_user((void*)ioctl_param, (void*)buf, kbuf_size) > 0)
+          {
+            kfree(buf);
+            return -EFAULT;
+          }
+          kfree(buf);
+        }
+      break; /* IOCTL_GET_PERNET_OPS */
+
      case IOCTL_GET_NETS:
         // check pre-req
         if ( !s_net )

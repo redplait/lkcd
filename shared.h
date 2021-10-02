@@ -380,4 +380,22 @@ struct one_sock_diag
 //   else long size + N * void*
 #define IOCTL_GET_NETDEV_CHAIN         _IOR(IOCTL_NUM, 0x23, int*)
 
+struct one_pernet_ops
+{
+  void *addr;
+  void *init;
+  void *exit;
+  void *exit_batch;
+};
+
+// read pernet ops
+// in params:
+//  0 - address of pernet_list
+//  1 - address of pernet_ops_rwsem
+//  2 - count
+// out params:
+//   if 0 param is zero - count of registered pernet ops
+//   else long size + N * one_pernet_ops
+#define IOCTL_GET_PERNET_OPS           _IOR(IOCTL_NUM, 0x24, int*)
+
 #endif /* LKCD_SHARED_H */
