@@ -718,6 +718,20 @@ const char *get_mod_name(unsigned long mod)
    return "???";
 }
 
+void dump_marks(unsigned long size, one_fsnotify *of, sa64 delta, const char *margin = "")
+{
+  std::string m = margin;
+  m += " ops";
+  for ( size_t k = 0; k < size; k++ )
+  {
+    printf("%s fsnotify[%ld] %p mask %X ignored_mask %X flags %X\n", margin, k, of[k].mark_addr, of[k].mask, of[k].ignored_mask, of[k].flags);
+    if ( of[k].group )
+      printf("%s group: %p\n", margin, of[k].group);
+    if ( of[k].ops )
+      dump_kptr((unsigned long)of[k].ops, m.c_str(), delta);
+  }
+}
+
 void dump_super_blocks(int fd, sa64 delta)
 {
   unsigned long cnt = 0;
@@ -783,18 +797,8 @@ void dump_super_blocks(int fd, sa64 delta)
         err = ioctl(fd, IOCTL_GET_SUPERBLOCK_MARKS, (int *)mmbuf);
         if ( err )
           printf("IOCTL_GET_SUPERBLOCK_MARKS failed, error %d (%s)\n", errno, strerror(errno));
-        else {
-            mmsize = mmbuf[0];
-            one_fsnotify *of = (one_fsnotify *)(mmbuf + 1);
-            for ( size_t k = 0; k < mmsize; k++ )
-            {
-              printf(" fsnotify[%ld] %p mask %X ignored_mask %X flags %X\n", k, of[k].mark_addr, of[k].mask, of[k].ignored_mask, of[k].flags);
-              if ( of[k].group )
-                printf(" group: %p\n", of[k].group);
-              if ( of[k].ops )
-              dump_kptr((unsigned long)of[k].ops, " ops", delta);
-            }
-        }
+        else
+          dump_marks(mmbuf[0], (one_fsnotify *)(mmbuf + 1), delta);
         free(mmbuf);
       }
     }
@@ -844,16 +848,7 @@ void dump_super_blocks(int fd, sa64 delta)
                free(mmbuf);
                continue;
             }
-            mmsize = mmbuf[0];
-            one_fsnotify *of = (one_fsnotify *)(mmbuf + 1);
-            for ( size_t k = 0; k < mmsize; k++ )
-            {
-              printf("    fsnotify[%ld] %p mask %X ignored_mask %X flags %X\n", k, of[k].mark_addr, of[k].mask, of[k].ignored_mask, of[k].flags);
-              if ( of[k].group )
-                printf("     group: %p\n", of[k].group);
-              if ( of[k].ops )
-              dump_kptr((unsigned long)of[k].ops, "     ops", delta);
-            }
+            dump_marks(mmbuf[0], (one_fsnotify *)(mmbuf + 1), delta, "   ");
             free(mmbuf);
           }
         }
@@ -904,16 +899,7 @@ void dump_super_blocks(int fd, sa64 delta)
         free(fbuf);
         continue;
       }
-      msize = fbuf[0];
-      one_fsnotify *of = (one_fsnotify *)(fbuf + 1);
-      for ( size_t k = 0; k < msize; k++ )
-      {
-        printf("    fsnotify[%ld] %p mask %X ignored_mask %X flags %X\n", k, of[k].mark_addr, of[k].mask, of[k].ignored_mask, of[k].flags);
-        if ( of[k].group )
-          printf("     group: %p\n", of[k].group);
-        if ( of[k].ops )
-          dump_kptr((unsigned long)of[k].ops, "     ops", delta);
-      }
+      dump_marks(fbuf[0], (one_fsnotify *)(fbuf + 1), delta, "   ");
       free(fbuf);
     }
     free(ibuf);
