@@ -400,6 +400,55 @@ void dump_uprobes(int fd, sa64 delta)
   free(buf);
 }
 
+static size_t calc_protosw_size(size_t n)
+{
+  return n * sizeof(one_protosw) + sizeof(unsigned long);
+}
+
+void dump_protosw(int fd, a64 list, a64 lock, sa64 delta, const char *what)
+{
+  printf("\n%s at %p:\n", what, (void *)(list + delta));
+  for ( int i = 0; i < 11; i++ )
+  {
+    unsigned long args[4] = { list + delta, lock + delta, (unsigned long)i, 0 };
+    int err = ioctl(fd, IOCTL_GET_PROTOSW, (int *)args);
+    if ( err )
+    {
+      printf("IOCTL_GET_PROTOSW count for %d failed, error %d (%s)\n", i, errno, strerror(errno));
+      continue;
+    }
+    if ( !args[0] )
+      continue;
+    size_t size = calc_protosw_size(args[0]);
+    unsigned long *buf = (unsigned long *)malloc(size);
+    if ( !buf )
+      continue;
+    buf[0] = list + delta;
+    buf[1] = lock + delta;
+    buf[2] = i;
+    buf[3] = args[0];
+    err = ioctl(fd, IOCTL_GET_PROTOSW, (int *)buf);
+    if ( err )
+    {
+      printf("IOCTL_GET_PROTOSW for %d failed, error %d (%s)\n", i, errno, strerror(errno));
+      free(buf);
+      continue;
+    }
+    size = buf[0];
+    printf("[%d]: count %ld\n", i, size);
+    struct one_protosw *sb = (struct one_protosw *)(buf + 1);
+    for ( size_t idx = 0; idx < size; idx++, sb++ )
+    {
+      printf(" addr %p type %d protocol %d\n", sb->addr, sb->type, sb->protocol);
+      if ( sb->prot )
+        dump_kptr((unsigned long)sb->prot, " prot", delta);
+      if ( sb->ops )
+        dump_kptr((unsigned long)sb->ops, " ops", delta);
+    }
+    free(buf);
+  }
+}
+
 void dump_link_ops(int fd, a64 nca, sa64 delta)
 {
   unsigned long args[2] = { nca + delta, 0 };
@@ -493,6 +542,38 @@ void dump_pernet_ops(int fd, a64 nca, a64 plock, sa64 delta)
 static size_t calc_net_chains_size(size_t n)
 {
   return (n + 1) * sizeof(unsigned long);
+}
+
+void dump_block_chain(int fd, a64 nca, sa64 delta, const char *name)
+{
+  unsigned long val = nca + delta;
+  int err = ioctl(fd, IOCTL_CNTNTFYCHAIN, (int *)&val);
+  if ( err )
+  {
+    printf("IOCTL_CNTSNTFYCHAIN for %s failed, error %d (%s)\n", name, errno, strerror(errno));
+    return;
+  }
+  printf("\n%s at %p: count %ld\n", name, (void *)(nca + delta), val);
+  if ( !val )
+    return;
+  size_t size = calc_net_chains_size(val);
+  unsigned long *buf = (unsigned long *)malloc(size);
+  if ( !buf )
+    return;
+  buf[0] = nca + delta;
+  buf[1] = val;
+  err = ioctl(fd, IOCTL_ENUMNTFYCHAIN, (int *)buf);
+  if ( err )
+  {
+    printf("IOCTL_ENUMNTFYCHAIN for %s failed, error %d (%s)\n", name, errno, strerror(errno));
+    free(buf);
+    return;
+  }
+  for ( size_t i = 0; i < buf[0]; i++ )
+  {
+    printf(" [%ld]", i);
+    dump_unnamed_kptr(buf[i+1], delta);
+  }
 }
 
 void dump_net_chains(int fd, a64 nca, size_t cnt, sa64 delta)
@@ -667,6 +748,36 @@ void dump_nets(int fd, sa64 delta)
     printf("cannot find link_ops");
   else
     dump_link_ops(fd, nca, delta);
+  // protosw
+  nca = get_addr("inetsw");
+  plock = get_addr("inetsw_lock");
+  if ( !nca )
+    printf("cannot find inetsw\n");
+  else if ( !plock )
+    printf("cannot find inetsw_lock\n");
+  else
+    dump_protosw(fd, nca, plock, delta, "inetsw");
+  nca = get_addr("inetsw6");
+  plock = get_addr("inetsw6_lock");
+  if ( nca && plock )
+    dump_protosw(fd, nca, plock, delta, "inetsw6");
+  // network block chains
+  nca = get_addr("netlink_chain");
+  if ( nca )
+    dump_block_chain(fd, nca, delta, "netlink_chain");
+  nca = get_addr("inetaddr_chain");
+  if ( nca )
+    dump_block_chain(fd, nca, delta, "inetaddr_chain");
+//  inet6addr_chain is ATOMIC_NOTIFIER
+//  nca = get_addr("inet6addr_chain");
+//  if ( nca )
+//    dump_block_chain(fd, nca, delta, "inet6addr_chain");
+  nca = get_addr("inetaddr_validator_chain");
+  if ( nca )
+    dump_block_chain(fd, nca, delta, "inetaddr_validator_chain");
+  nca = get_addr("inet6addr_validator_chain");
+  if ( nca )
+    dump_block_chain(fd, nca, delta, "inet6addr_validator_chain");
 }
 
 static size_t calc_super_size(size_t n)
