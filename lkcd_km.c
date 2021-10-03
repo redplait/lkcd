@@ -40,6 +40,7 @@
 #include <linux/netdevice.h>
 #include <linux/netfilter.h>
 #include <linux/sock_diag.h>
+#include <net/protocol.h>
 #include "shared.h"
 
 MODULE_LICENSE("GPL");
@@ -2001,6 +2002,64 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
             return -EFAULT;
         }
        break; /* IOCTL_GET_SOCK_DIAG */
+
+     case IOCTL_GET_PROTOSW:
+        // read count
+        if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 4) > 0 )
+  	  return -EFAULT;
+  	if ( ptrbuf[2] >= SOCK_MAX )
+          return -EINVAL;
+        else {
+          struct list_head *isw_list = (struct list_head *)ptrbuf[0];
+          spinlock_t *lock = (spinlock_t *)ptrbuf[1];
+          struct inet_protosw *answer;
+          unsigned long cnt = 0;
+          struct list_head *lh;
+          isw_list += ptrbuf[2];
+          if ( !ptrbuf[3] )
+          {
+            // just count size
+            spin_lock_bh(lock);
+            list_for_each(lh, isw_list)
+              cnt++;
+            spin_unlock_bh(lock);
+            // copy count to user
+            if (copy_to_user((void*)ioctl_param, (void*)&cnt, sizeof(cnt)) > 0)
+              return -EFAULT;
+          } else {
+            size_t buf_size = sizeof(unsigned long) + ptrbuf[3] * sizeof(struct one_protosw);
+            unsigned long *buf = (unsigned long *)kmalloc(buf_size, GFP_KERNEL);
+            struct one_protosw *curr;
+            if ( !buf )
+              return -ENOMEM;
+            curr = (struct one_protosw *)(buf + 1);
+            spin_lock_bh(lock);
+            list_for_each(lh, isw_list)
+            {
+              answer = list_entry(lh, struct inet_protosw, list);
+              if ( cnt >= ptrbuf[3] )
+                break;
+              curr->addr = (void *)answer;
+              curr->type = answer->type;
+              curr->protocol = answer->protocol;
+              curr->prot = (void *)answer->prot;
+              curr->ops = (void *)answer->ops;
+              cnt++;
+              curr++;
+            }
+            spin_unlock_bh(lock);
+            buf[0] = cnt;
+            // copy to user
+            buf_size = sizeof(unsigned long) + buf[0] * sizeof(struct one_protosw);
+            if (copy_to_user((void*)ioctl_param, (void*)buf, buf_size) > 0)
+            {
+              kfree(buf);
+              return -EFAULT;
+            }
+            kfree(buf);
+          }
+        }
+      break; /* IOCTL_GET_PROTOSW */
 
      case IOCTL_GET_NET_DEVS:
         // check pre-req

@@ -220,7 +220,7 @@ struct one_super_block
 // in params:
 //   0 - count of super-blocks (if zero - return count)
 // out params:
-//   if 0 param is zero - count of super-blocks
+//   if count is zero - count of super-blocks
 //   else long size + N * one_super_block
 #define IOCTL_GET_SUPERBLOCKS          _IOR(IOCTL_NUM, 0x19, int*)
 
@@ -318,7 +318,7 @@ struct one_net
 // in params:
 //   0 - count
 // out params:
-//   if 0 param is zero - count of nets
+//   if count is zero - count of nets
 //   else long size + N * one_net
 #define IOCTL_GET_NETS                 _IOR(IOCTL_NUM, 0x20, int*)
 
@@ -351,7 +351,7 @@ struct one_net_dev
 //  0 - net addr
 //  1 - count
 // out params:
-//   if 0 param is zero - count of nets
+//   if count is zero - count of nets
 //   else long size + N * one_net_dev
 #define IOCTL_GET_NET_DEVS             _IOR(IOCTL_NUM, 0x21, int*)
 
@@ -374,9 +374,9 @@ struct one_sock_diag
 // read netdev chain
 // in params:
 //  0 - address of netdev_chain - struct raw_notifier_head *
-//  1 - cnt
+//  1 - count
 // out params:
-//   if 0 param is zero - count of netdev ntfy
+//   if count is zero - count of netdev ntfy
 //   else long size + N * void*
 #define IOCTL_GET_NETDEV_CHAIN         _IOR(IOCTL_NUM, 0x23, int*)
 
@@ -394,7 +394,7 @@ struct one_pernet_ops
 //  1 - address of pernet_ops_rwsem
 //  2 - count
 // out params:
-//   if 0 param is zero - count of registered pernet ops
+//   if count is zero - count of registered pernet ops
 //   else long size + N * one_pernet_ops
 #define IOCTL_GET_PERNET_OPS           _IOR(IOCTL_NUM, 0x24, int*)
 
@@ -403,8 +403,28 @@ struct one_pernet_ops
 //  0 - address of link_ops list
 //  1 - count
 // out params:
-//   if 0 param is zero - count of netdev ntfy
+//   if count is zero - count of netdev ntfy
 //   else long size + N * void*
 #define IOCTL_GET_LINKS_OPS            _IOR(IOCTL_NUM, 0x25, int*)
+
+struct one_protosw
+{
+  void *addr;
+  unsigned short type;
+  unsigned short protocol;
+  void *prot;
+  void *ops;
+};
+
+// read protosw list
+// in params:
+//  0 - list addr (inetsw or inetsw6)
+//  1 - spinlock addr (inetsw_lock or inetsw6_lock)
+//  2 - index
+//  3 - count
+// out params:
+//   if count is zero - count of inet_protosw
+//   else long size + N * one_protosw
+#define IOCTL_GET_PROTOSW              _IOR(IOCTL_NUM, 0x26, int*)
 
 #endif /* LKCD_SHARED_H */
