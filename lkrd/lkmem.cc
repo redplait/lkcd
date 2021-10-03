@@ -268,6 +268,24 @@ void dump_and_check(int fd, int opt_c, sa64 delta, int has_syms, std::map<a64, a
 }
 
 #ifndef _MSC_VER
+void dump_unnamed_kptr(unsigned long l, sa64 delta)
+{
+  if ( is_inside_kernel(l) )
+  {
+    const char *sname = name_by_addr(l - delta);
+    if (sname != NULL)
+      printf(" %p - kernel!%s\n", (void *)l, sname);
+    else
+      printf(" %p - kernel\n", (void *)l);
+  } else {
+    const char *mname = find_kmod(l);
+    if ( mname )
+      printf(" %p - %s\n", (void *)l, mname);
+    else
+      printf(" %p UNKNOWN\n", (void *)l);
+  }
+}
+
 void dump_kptr(unsigned long l, const char *name, sa64 delta)
 {
   if (is_inside_kernel(l))
@@ -411,20 +429,7 @@ void dump_link_ops(int fd, a64 nca, sa64 delta)
   }
   for ( size_t j = 0; j < buf[0]; j++ )
   {
-    if ( is_inside_kernel(buf[1 + j]) )
-    {
-      const char *sname = name_by_addr(buf[1 + j] - delta);
-      if (sname != NULL)
-        printf(" %p - kernel!%s\n", (void *)buf[1 + j], sname);
-      else
-        printf(" %p - kernel\n", (void *)buf[1 + j]);
-    } else {
-      const char *mname = find_kmod(buf[1 + j]);
-      if ( mname )
-        printf(" %p - %s\n", (void *)buf[1 + j], mname);
-      else
-        printf(" %p UNKNOWN\n", (void *)buf[1 + j]);
-    }
+    dump_unnamed_kptr(buf[1 + j], delta);
   }
   free(buf);
 }
@@ -508,20 +513,7 @@ void dump_net_chains(int fd, a64 nca, size_t cnt, sa64 delta)
   size = buf[0];
   for ( size_t j = 0; j < size; j++ )
   {
-    if ( is_inside_kernel(buf[1 + j]) )
-    {
-      const char *sname = name_by_addr(buf[1 + j] - delta);
-      if (sname != NULL)
-        printf(" %p - kernel!%s\n", (void *)buf[1 + j], sname);
-      else
-        printf(" %p - kernel\n", (void *)buf[1 + j]);
-    } else {
-      const char *mname = find_kmod(buf[1 + j]);
-      if ( mname )
-        printf(" %p - %s\n", (void *)buf[1 + j], mname);
-      else
-        printf(" %p UNKNOWN\n", (void *)buf[1 + j]);
-    }
+    dump_unnamed_kptr(buf[1 + j], delta);
   }
   free(buf);
 }
@@ -1056,6 +1048,16 @@ void dump_return_notifier_list(int fd, unsigned long this_off, unsigned long off
     free(ntfy);
 }
 
+void dump_efivar_ops_field(int fd, char *ptr, const char *fname, sa64 delta)
+{
+  char *arg = ptr;
+  int err = ioctl(fd, IOCTL_READ_PTR, (int *)&arg);
+   if ( err )
+     printf("cannot read %s at %p, err %d\n", fname, ptr, err);
+   else if ( arg )
+     dump_kptr((unsigned long)arg, fname, delta);
+}
+
 // generic_efivars is struct efivars - 2nd ptr is efivar_operations which has 5 function pointers
 // see https://elixir.bootlin.com/linux/v5.14-rc7/source/include/linux/efi.h#L948
 void dump_efivars(int fd, a64 saddr, sa64 delta)
@@ -1081,43 +1083,19 @@ void dump_efivars(int fd, a64 saddr, sa64 delta)
    }
    // dump all five fields
    ptr = arg;
-   err = ioctl(fd, IOCTL_READ_PTR, (int *)&arg);
-   if ( err )
-    printf("cannot read get_variable at %p, err %d\n", ptr, err);
-   else if ( arg )
-     dump_kptr((unsigned long)arg, "get_variable", delta);
+   dump_efivar_ops_field(fd, ptr, "get_variable", delta);
 
    ptr += sizeof(void *);
-   arg = ptr;
-   err = ioctl(fd, IOCTL_READ_PTR, (int *)&arg);
-   if ( err )
-    printf("cannot read get_variable_next at %p, err %d\n", ptr, err);
-   else if ( arg )
-     dump_kptr((unsigned long)arg, "get_variable_next", delta);
+   dump_efivar_ops_field(fd, ptr, "get_variable_next", delta);
 
    ptr += sizeof(void *);
-   arg = ptr;
-   err = ioctl(fd, IOCTL_READ_PTR, (int *)&arg);
-   if ( err )
-    printf("cannot read set_variable at %p, err %d\n", ptr, err);
-   else if ( arg )
-     dump_kptr((unsigned long)arg, "set_variable", delta);
+   dump_efivar_ops_field(fd, ptr, "set_variable", delta);
 
    ptr += sizeof(void *);
-   arg = ptr;
-   err = ioctl(fd, IOCTL_READ_PTR, (int *)&arg);
-   if ( err )
-    printf("cannot read set_variable_nonblocking at %p, err %d\n", ptr, err);
-   else if ( arg )
-     dump_kptr((unsigned long)arg, "set_variable_nonblocking", delta);
+   dump_efivar_ops_field(fd, ptr, "set_variable_nonblocking", delta);
 
    ptr += sizeof(void *);
-   arg = ptr;
-   err = ioctl(fd, IOCTL_READ_PTR, (int *)&arg);
-   if ( err )
-    printf("cannot read query_variable_store at %p, err %d\n", ptr, err);
-   else if ( arg )
-     dump_kptr((unsigned long)arg, "query_variable_store", delta);
+   dump_efivar_ops_field(fd, ptr, "query_variable_store", delta);
 }
 
 void dump_usb_mon(int fd, a64 saddr, sa64 delta)
@@ -1147,29 +1125,14 @@ void dump_usb_mon(int fd, a64 saddr, sa64 delta)
      return;
    // see https://elixir.bootlin.com/linux/v5.14-rc7/source/include/linux/usb/hcd.h#L702
    // we need read 3 pointers at ptr
-   char *stored_ptr = arg;
-   arg = ptr;
-   err = ioctl(fd, IOCTL_READ_PTR, (int *)&arg);
-   if ( err )
-    printf("cannot read urb_submit at %p, err %d\n", stored_ptr, err);
-   else if ( arg )
-     dump_kptr((unsigned long)arg, "urb_submit", delta);
+   ptr = arg;
+   dump_efivar_ops_field(fd, ptr, "urb_submit", delta);
 
-   ptr = stored_ptr + sizeof(void *);
-   arg = ptr;
-   err = ioctl(fd, IOCTL_READ_PTR, (int *)&arg);
-   if ( err )
-     printf("cannot read urb_submit_error at %p, err %d\n", stored_ptr + sizeof(void *), err);
-   else if ( arg )
-     dump_kptr((unsigned long)arg, "urb_submit_error", delta);
+   ptr += sizeof(void *);
+   dump_efivar_ops_field(fd, ptr, "urb_submit_error", delta);
  
-   ptr = stored_ptr + 2 * sizeof(void *);
-   arg = ptr;
-   err = ioctl(fd, IOCTL_READ_PTR, (int *)&arg);
-   if ( err )
-     printf("cannot read urb_submit_error at %p, err %d\n", stored_ptr + 2 * sizeof(void *), err);
-   else if ( arg )
-     dump_kptr((unsigned long)arg, "urb_complete", delta);
+   ptr += sizeof(void *);
+   dump_efivar_ops_field(fd, ptr, "urb_complete", delta);
 }
 
 static size_t calc_tp_size(size_t n)
@@ -1198,40 +1161,10 @@ void check_tracepoints(int fd, sa64 delta, addr_sym *tsyms, size_t tcount)
     printf(" %s at %p: enabled %d cnt %d\n", tsyms[i].name, (void *)addr, (int)ntfy[0], (int)ntfy[3]);
     // 1 - regfunc
     if ( ntfy[1] )
-    {
-      if ( is_inside_kernel(ntfy[1]) )
-      {
-        const char *fname = name_by_addr(ntfy[1] - delta);
-        if ( fname != NULL )
-          printf("  regfunc %p - kernel!%s\n", (void *)ntfy[1], fname);
-        else
-          printf("  regfunc %p - kernel\n", (void *)ntfy[1]);
-      } else {
-        const char *mname = find_kmod(ntfy[1]);
-        if ( mname )
-          printf("  regfunc %p - %s\n", (void *)ntfy[1], mname);
-        else
-          printf("  regfunc %p UNKNOWN\n", (void *)ntfy[1]);
-      }
-    }
+       dump_kptr(ntfy[1], " regfunc", delta);
     // 2 - unregfunc
     if ( ntfy[2] )
-    {
-      if ( is_inside_kernel(ntfy[2]) )
-      {
-        const char *fname = name_by_addr(ntfy[2] - delta);
-        if ( fname != NULL )
-          printf("  unregfunc %p - kernel!%s\n", (void *)ntfy[2], fname);
-        else
-          printf("  unregfunc %p - kernel\n", (void *)ntfy[2]);
-      } else {
-        const char *mname = find_kmod(ntfy[2]);
-        if ( mname )
-          printf("  unregfunc %p - %s\n", (void *)ntfy[2], mname);
-        else
-          printf("  unregfunc %p UNKNOWN\n", (void *)ntfy[2]);
-      }
-    }
+       dump_kptr(ntfy[2], " unregfunc", delta);
     if ( !ntfy[3] )
       continue;
     auto curr_cnt = ntfy[3];
