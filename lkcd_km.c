@@ -41,6 +41,7 @@
 #include <linux/netfilter.h>
 #include <linux/sock_diag.h>
 #include <net/protocol.h>
+#include <linux/lsm_hooks.h>
 #include "shared.h"
 
 MODULE_LICENSE("GPL");
@@ -2358,6 +2359,45 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
           kfree(buf);
         }
       break; /* IOCTL_GET_NETS */
+
+    case IOCTL_GET_LSM_HOOKS:
+        if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 2) > 0 )
+  	  return -EFAULT;
+  	// there is no sync - all numerous security_xxx just call call_xx_hook
+  	if ( !ptrbuf[1] )
+  	{
+          struct security_hook_list *shl;
+          struct hlist_head *head = (struct hlist_head *)ptrbuf[0];
+          ptrbuf[0] = 0;
+          hlist_for_each_entry(shl, head, list)
+            ptrbuf[0]++;
+          if (copy_to_user((void*)ioctl_param, (void*)ptrbuf, sizeof(ptrbuf[0])) > 0)
+            return -EFAULT;
+        } else {
+          unsigned long cnt = 0;
+          struct security_hook_list *shl;
+          struct hlist_head *head = (struct hlist_head *)ptrbuf[0];
+          size_t kbuf_size = sizeof(unsigned long) * (ptrbuf[1] + 1);
+          unsigned long *buf = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL);
+          if ( !buf )
+            return -ENOMEM;
+          hlist_for_each_entry(shl, head, list)
+          {
+            if ( cnt >= ptrbuf[1] )
+              break;
+            buf[1 + cnt] = *(unsigned long *)(&shl->hook);
+            cnt++;
+          }
+          buf[0] = cnt;
+          kbuf_size = sizeof(unsigned long) * (cnt + 1);
+          if (copy_to_user((void*)ioctl_param, (void*)buf, kbuf_size) > 0)
+          {
+            kfree(buf);
+            return -EFAULT;
+          }
+          kfree(buf);
+        }
+      break; /* IOCTL_GET_LSM_HOOKS */
 
     default:
      return -EBADRQC;
