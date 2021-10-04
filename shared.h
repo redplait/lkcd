@@ -427,6 +427,15 @@ struct one_protosw
 //   else long size + N * one_protosw
 #define IOCTL_GET_PROTOSW              _IOR(IOCTL_NUM, 0x26, int*)
 
+// read rtnl_af_ops
+// in params:
+//  0 - list addr (rtnl_af_ops)
+//  1 - count
+// out params:
+//   if count is zero - count of rtnl_af_ops
+//   else long size + N * void *
+#define IOCTL_GET_RTNL_AF_OPS          _IOR(IOCTL_NUM, 0x27, int*)
+
 // read lsm hooks
 // in params:
 //  0 - list addr
@@ -434,6 +443,6 @@ struct one_protosw
 // out params:
 //   if count is zero - count of lsm hooks
 //   else long size + N * security_hook_list->hook
-#define IOCTL_GET_LSM_HOOKS            _IOR(IOCTL_NUM, 0x27, int*)
+#define IOCTL_GET_LSM_HOOKS            _IOR(IOCTL_NUM, 0x28, int*)
 
 #endif /* LKCD_SHARED_H */

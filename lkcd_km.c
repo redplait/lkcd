@@ -39,6 +39,7 @@
 #include <net/sock.h>
 #include <linux/netdevice.h>
 #include <linux/netfilter.h>
+#include <net/rtnetlink.h>
 #include <linux/sock_diag.h>
 #include <net/protocol.h>
 #include <linux/lsm_hooks.h>
@@ -2359,6 +2360,50 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
           kfree(buf);
         }
       break; /* IOCTL_GET_NETS */
+
+    case IOCTL_GET_RTNL_AF_OPS:
+        if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 2) > 0 )
+  	  return -EFAULT;
+  	if ( !ptrbuf[1] )
+  	{
+          struct list_head *head = (struct list_head *)ptrbuf[0];
+          struct list_head *lh;
+          ptrbuf[0] = 0;
+          rtnl_lock();
+          list_for_each(lh, head)
+            ptrbuf[0]++;
+          rtnl_unlock();
+          if (copy_to_user((void*)ioctl_param, (void*)ptrbuf, sizeof(ptrbuf[0])) > 0)
+            return -EFAULT;
+        } else {
+          unsigned long cnt = 0;
+          struct rtnl_af_ops *ops;
+          struct list_head *head = (struct list_head *)ptrbuf[0];
+          struct list_head *lh;
+          size_t kbuf_size = sizeof(unsigned long) * (ptrbuf[1] + 1);
+          unsigned long *buf = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL);
+          if ( !buf )
+            return -ENOMEM;
+          rtnl_lock();
+          list_for_each(lh, head)
+          {
+            if ( cnt >= ptrbuf[1] )
+              break;
+            ops = list_entry(lh, struct rtnl_af_ops, list);
+            buf[1 + cnt] = (unsigned long)ops;
+            cnt++;
+          }
+          rtnl_unlock();
+          buf[0] = cnt;
+          kbuf_size = sizeof(unsigned long) * (cnt + 1);
+          if (copy_to_user((void*)ioctl_param, (void*)buf, kbuf_size) > 0)
+          {
+            kfree(buf);
+            return -EFAULT;
+          }
+          kfree(buf);
+        }
+      break; /* IOCTL_GET_RTNL_AF_OPS */
 
     case IOCTL_GET_LSM_HOOKS:
         if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 2) > 0 )
