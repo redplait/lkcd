@@ -147,7 +147,7 @@ int arm64_disasm::process_sl(lsm_hook &sl)
     {
       regs.ldar(get_reg(0), get_reg(1), m_dis.operands[2].op_imm.bits);
       a64 what = regs.get(get_reg(0));
-      if ( what && what >= m_security_hook_heads )
+      if ( what && is_sec_heads(what) )
       {
         sl.list = what;
         return 1;

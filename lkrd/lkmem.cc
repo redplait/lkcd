@@ -569,6 +569,51 @@ void dump_kptr(unsigned long l, const char *name, sa64 delta)
   }
 }
 
+void dump_lsm(int fd, sa64 delta)
+{
+  for ( auto &c: s_hooks )
+  {
+    if ( !c.list )
+      continue;
+    unsigned long args[2] = { c.list + delta, 0 };
+    if ( !is_inside_kernel(args[0]) )
+    {
+      printf("%s list has strange address %p\n", c.name.c_str(), (void *)args[0]);
+      continue;
+    }
+#ifdef _DEBUG
+    printf("%s at %p\n", c.name.c_str(), (void *)args[0]);
+#endif /* _DEBUG */
+    int err = ioctl(fd, IOCTL_GET_LSM_HOOKS, (int *)&args);
+    if ( err )
+    {
+      printf("IOCTL_GET_LSM_HOOKS for %s failed, error %d (%s)\n", c.name.c_str(), errno, strerror(errno));
+      continue;
+    }
+    if ( !args[0] )
+      continue;
+    printf("%s: %ld\n", c.name.c_str(), args[0]);
+    size_t size = (1 + args[0]) * sizeof(unsigned long);
+    unsigned long *buf = (unsigned long *)malloc(size);
+    if ( !buf )
+      continue;
+    // fill args
+    buf[0] = c.list + delta;
+    buf[1] = args[0];
+    err = err = ioctl(fd, IOCTL_GET_LSM_HOOKS, (int *)buf);
+    if ( err )
+    {
+      printf("IOCTL_GET_LSM_HOOKS for %s failed, error %d (%s)\n", c.name.c_str(), errno, strerror(errno));
+      free(buf);
+      continue;
+    }
+    size = buf[0];
+    for ( auto idx = 0; idx < size; idx++ )
+      dump_unnamed_kptr(buf[1 + idx], delta);
+    free(buf);
+  }
+}
+
 static size_t calc_uprobes_size(size_t n)
 {
   return n * sizeof(one_uprobe) + sizeof(unsigned long);
@@ -2076,14 +2121,19 @@ end:
                 res = bd->process_sl(s_hooks);
               if ( !res )
                 opt_S = 0;
-              else if ( g_opt_v )
+              else 
               {
-                for ( auto &sl: s_hooks )
+                if ( g_opt_v )
                 {
-                  if ( !sl.list )
-                    continue;
-                  printf("%s: %p\n", sl.name.c_str(), (void *)sl.list);
+                  for ( auto &sl: s_hooks )
+                  {
+                    if ( !sl.list )
+                      continue;
+                    printf("%s: %p\n", sl.name.c_str(), (void *)sl.list);
+                  }
                 }
+                if ( opt_c )
+                  dump_lsm(fd, delta);
               }
             }
           }

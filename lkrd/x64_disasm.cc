@@ -149,7 +149,7 @@ int x64_disasm::process_sl(lsm_hook &sl)
        )
     {
       a64 addr = ud_obj.pc + (sa64)ud_obj.operand[1].lval.sdword;
-      if ( addr >= m_security_hook_heads )
+      if ( is_sec_heads(addr) )
       {
         sl.list = addr;
         return 1;

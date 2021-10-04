@@ -70,6 +70,13 @@ class dis_base
     virtual int process(a64 addr, std::map<a64, a64> &, std::set<a64> &out_res) = 0;
     virtual int process_sl(lsm_hook &) = 0;
   protected:
+    // bcs of security_file_alloc where lsm_file_alloc first called
+    inline int is_sec_heads(a64 addr)
+    {
+      if ( !m_security_hook_heads )
+        return 0;
+      return (addr >= m_security_hook_heads) && (addr < (m_security_hook_heads + 0x1000));
+    }
     inline int in_text(const char *psp)
     {
       return (psp >= m_text) && (psp < m_text + m_text_size);
