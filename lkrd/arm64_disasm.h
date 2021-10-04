@@ -125,6 +125,7 @@ class arm64_disasm: public dis_base
     {
     }
     virtual int process(a64 addr, std::map<a64, a64> &, std::set<a64> &out_res);
+    virtual int process_sl(lsm_hook &);
     void add_noreturn(a64 addr)
     {
       m_noreturn.insert(addr);

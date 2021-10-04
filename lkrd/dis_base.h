@@ -1,7 +1,22 @@
 #pragma once
 #include <map>
 #include <set>
+#include <vector>
 #include "types.h"
+
+struct lsm_hook
+{
+  std::string name;
+  a64 addr;
+  a64 list;
+
+  lsm_hook(const char *f)
+   : name(f)
+  {
+    addr = 0;
+    list = 0;
+  }
+};
 
 class dis_base
 {
@@ -17,11 +32,16 @@ class dis_base
       m_bss_size = 0;
       m_this_cpu_off = 0;
       m_return_notifier_list = 0;
+      m_security_hook_heads = 0;
     }
     void set_bss(a64 addr, size_t size)
     {
       m_bss_base = addr;
       m_bss_size = size;
+    }
+    void set_shook(a64 val)
+    {
+      m_security_hook_heads = val;
     }
     virtual ~dis_base() = default;
     // getters
@@ -36,7 +56,19 @@ class dis_base
     {
       return 0;
     }
+    int process_sl(std::vector<lsm_hook> &arr)
+    {
+      int res = 0;
+      for ( auto &c: arr )
+      {
+        if ( !c.addr )
+          continue;
+        res += process_sl(c);
+      }
+      return res;
+    }
     virtual int process(a64 addr, std::map<a64, a64> &, std::set<a64> &out_res) = 0;
+    virtual int process_sl(lsm_hook &) = 0;
   protected:
     inline int in_text(const char *psp)
     {
@@ -59,4 +91,6 @@ class dis_base
     // some per_cpu var offsets
     unsigned long m_this_cpu_off;
     unsigned long m_return_notifier_list; // from fire_user_return_notifiers
+    // security_hook_heads
+    a64 m_security_hook_heads;
 };

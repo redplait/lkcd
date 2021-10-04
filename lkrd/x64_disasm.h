@@ -127,6 +127,7 @@ class x64_disasm: public dis_base
     virtual ~x64_disasm() = default;
     virtual int find_return_notifier_list(a64 addr);
     virtual int process(a64 addr, std::map<a64, a64> &, std::set<a64> &out_res);
+    virtual int process_sl(lsm_hook &);
   protected:
     int set(a64 addr)
     {
@@ -138,6 +139,7 @@ class x64_disasm: public dis_base
       ud_set_pc(&ud_obj, (uint64_t)addr);
       return 1;
     }
+    int is_end() const;
     int is_jmp() const;
     int is_jxx_jimm() const;
     int reg32to64(ud_type from, ud_type &res) const;

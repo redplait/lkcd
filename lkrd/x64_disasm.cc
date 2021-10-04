@@ -120,6 +120,45 @@ int x64_disasm::find_return_notifier_list(a64 addr)
   return 0;
 }
 
+int x64_disasm::is_end() const
+{
+  return (ud_obj.mnemonic == UD_Iint3) ||
+         (ud_obj.mnemonic == UD_Iret)  ||
+         (ud_obj.mnemonic == UD_Iretf) ||
+         (ud_obj.mnemonic == UD_Iud2)  ||
+         (ud_obj.mnemonic == UD_Ijmp)
+  ;
+}
+
+int x64_disasm::process_sl(lsm_hook &sl)
+{
+  if ( !set(sl.addr) )
+    return 0;
+  for ( ; ;  )
+  {
+    if ( !ud_disassemble(&ud_obj) )
+      break;
+    if ( is_end() )
+      break;
+    // mov reg, [mem + rip]
+    if ( (ud_obj.mnemonic == UD_Imov) &&
+         (ud_obj.operand[0].type == UD_OP_REG) &&
+         (ud_obj.operand[0].size == 64)        &&
+         (ud_obj.operand[1].type == UD_OP_MEM) && 
+         (ud_obj.operand[1].base == UD_R_RIP)
+       )
+    {
+      a64 addr = ud_obj.pc + (sa64)ud_obj.operand[1].lval.sdword;
+      if ( addr >= m_security_hook_heads )
+      {
+        sl.list = addr;
+        return 1;
+      }
+    }
+  }
+  return 0;
+}
+
 int x64_disasm::process(a64 addr, std::map<a64, a64> &skip, std::set<a64> &out_res)
 {
   using Regs = used_regs<a64>;
@@ -174,12 +213,7 @@ int x64_disasm::process(a64 addr, std::map<a64, a64> &skip, std::set<a64> &out_r
 #endif /* _DEBUG */
            cgraph.add(jaddr, iter->second);
          }
-         if ( (ud_obj.mnemonic == UD_Iint3) ||
-              (ud_obj.mnemonic == UD_Iret)  ||
-              (ud_obj.mnemonic == UD_Iretf) ||
-              (ud_obj.mnemonic == UD_Iud2)  ||
-              (ud_obj.mnemonic == UD_Ijmp)
-            )
+         if ( is_end() )
           break;
          // mov reg, [rip + xxx]
          if ( (ud_obj.mnemonic == UD_Imov) &&

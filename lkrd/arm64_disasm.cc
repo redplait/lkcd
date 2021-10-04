@@ -131,6 +131,32 @@ int arm64_disasm::disasm()
   return 1;  
 }
 
+int arm64_disasm::process_sl(lsm_hook &sl)
+{
+  PBYTE psp = uconv(sl.addr);
+  regs_pad regs;
+  if ( !setup(psp) )
+    return 0;
+  for ( size_t i = 0; i < 100 ; i++ )
+  {
+    if ( !disasm() || is_ret() )
+      break;
+    if ( is_adrp(regs) )
+      continue;
+    if ( is_ldr() )
+    {
+      regs.ldar(get_reg(0), get_reg(1), m_dis.operands[2].op_imm.bits);
+      a64 what = regs.get(get_reg(0));
+      if ( what && what >= m_security_hook_heads )
+      {
+        sl.list = what;
+        return 1;
+      }
+    }
+  }
+  return 0;
+}
+
 int arm64_disasm::process(a64 addr, std::map<a64, a64> &skip, std::set<a64> &out_res)
 {
   statefull_graph<PBYTE, regs_pad> cgraph;
