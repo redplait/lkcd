@@ -1,0 +1,23 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio 2012
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "lkjtab", "lkjtab.vcxproj", "{ACF407F7-C900-4E79-ADDE-023ECFFA32BB}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		64|Win32 = 64|Win32
+		Debug|Win32 = Debug|Win32
+		Release|Win32 = Release|Win32
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{ACF407F7-C900-4E79-ADDE-023ECFFA32BB}.64|Win32.ActiveCfg = 64|Win32
+		{ACF407F7-C900-4E79-ADDE-023ECFFA32BB}.64|Win32.Build.0 = 64|Win32
+		{ACF407F7-C900-4E79-ADDE-023ECFFA32BB}.Debug|Win32.ActiveCfg = Debug|Win32
+		{ACF407F7-C900-4E79-ADDE-023ECFFA32BB}.Debug|Win32.Build.0 = Debug|Win32
+		{ACF407F7-C900-4E79-ADDE-023ECFFA32BB}.Release|Win32.ActiveCfg = Release|Win32
+		{ACF407F7-C900-4E79-ADDE-023ECFFA32BB}.Release|Win32.Build.0 = Release|Win32
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+EndGlobal
