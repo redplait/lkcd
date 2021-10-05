@@ -758,6 +758,40 @@ void dump_protosw(int fd, a64 list, a64 lock, sa64 delta, const char *what)
   }
 }
 
+void dump_rtnl_af_ops(int fd, a64 nca, sa64 delta)
+{
+  unsigned long args[2] = { nca + delta, 0 };
+  int err = ioctl(fd, IOCTL_GET_RTNL_AF_OPS, (int *)args);
+  if ( err )
+  {
+    printf("IOCTL_GET_RTNL_AF_OPS failed, error %d (%s)\n", errno, strerror(errno));
+    return;
+  }
+  printf("\nrtnl_af_ops at %p: %ld\n", (void *)(nca + delta), args[0]);
+  if ( !args[0] )
+    return;
+  size_t m = args[0];
+  if ( m < 2 )
+    m = 2;
+  unsigned long *buf = (unsigned long *)malloc(m * sizeof(unsigned long));
+  if ( !buf )
+    return;
+  buf[0] = nca + delta;
+  buf[1] = args[0];
+  err = ioctl(fd, IOCTL_GET_RTNL_AF_OPS, (int *)buf);
+  if ( err )
+  {
+    printf("IOCTL_GET_RTNL_AF_OPS failed, error %d (%s)\n", errno, strerror(errno));
+    free(buf);
+    return;
+  }
+  for ( size_t j = 0; j < buf[0]; j++ )
+  {
+    dump_unnamed_kptr(buf[1 + j], delta);
+  }
+  free(buf);
+}
+
 void dump_link_ops(int fd, a64 nca, sa64 delta)
 {
   unsigned long args[2] = { nca + delta, 0 };
@@ -1057,6 +1091,12 @@ void dump_nets(int fd, sa64 delta)
     printf("cannot find link_ops");
   else
     dump_link_ops(fd, nca, delta);
+  // rtnl_af_ops
+  nca = get_addr("rtnl_af_ops");
+  if ( !nca )
+    printf("cannot find rtnl_af_ops");
+  else
+    dump_rtnl_af_ops(fd, nca, delta);
   // protosw
   nca = get_addr("inetsw");
   plock = get_addr("inetsw_lock");
