@@ -7,6 +7,8 @@
 #include <unistd.h>
 #include <errno.h>
 #include <net/if.h>
+#include <inttypes.h>
+#include <linux/netlink.h>
 #endif
 
 #include <iostream>
@@ -942,6 +944,125 @@ void dump_net_chains(int fd, a64 nca, size_t cnt, sa64 delta)
   free(buf);
 }
 
+union netlink_args
+{
+  unsigned long args[3];
+  struct one_nltab out;
+};
+
+static size_t calc_nl_sk_size(size_t n)
+{
+  return n * sizeof(one_nl_socket) + sizeof(unsigned long);
+}
+
+static const char *const nlk_names[MAX_LINKS] = {
+ "ROUTE",
+ NULL,
+ "USERSOCK",
+ "FIREWALL",
+ "SOCK_DIAG",
+ "NFLOG",
+ "XFRM",
+ "SELINUX",
+ "ISCSI",
+ "AUDIT",
+ "FIB_LOOKUP",
+ "CONNECTOR",
+ "NETFILTER",
+ "IP6_FW",
+ "DNRTMSG",
+ "KOBJECT_UEVENT",
+ "GENERIC",
+ NULL,
+ "SCSITRANSPORT",
+ "ECRYPTFS",
+ "RDMA",
+ "CRYPTO",
+ "SMC",
+ NULL,
+ NULL,
+ NULL,
+ NULL,
+ NULL,
+ NULL,
+ NULL,
+ NULL,
+ NULL,
+};
+
+void dump_netlinks(int fd, a64 nca, a64 lock, sa64 delta)
+{
+  netlink_args args;
+  if ( !nca )
+  {
+    printf("cannot get nl_table\n");
+    return;
+  }
+  if ( !lock )
+  {
+    printf("cannot get nl_table_lock\n");
+    return;
+  }
+  for ( int i = 0; i < MAX_LINKS; i++ )
+  {
+    args.args[0] = nca + delta;
+    args.args[1] = lock + delta;
+    args.args[2] = (unsigned long)i;
+    int err = ioctl(fd, IOCTL_GET_NLTAB, (int *)&args);
+    if ( err )
+    {
+      printf("IOCTL_GET_NLTAB index %d failed, error %d (%s)\n", i, errno, strerror(errno));
+      return;
+    }
+    if ( nlk_names[i] )
+      printf("nl_tab[%s] at %p registered %d sockets %ld\n", nlk_names[i], args.out.addr, args.out.registered, args.out.sk_count);
+    else
+      printf("nl_tab[%d] at %p registered %d sockets %ld\n", i, args.out.addr, args.out.registered, args.out.sk_count);
+    if ( args.out.bind )
+      dump_kptr((unsigned long)args.out.bind, "bind", delta);
+    if ( args.out.unbind )
+      dump_kptr((unsigned long)args.out.unbind, "unbind", delta);
+    if ( args.out.compare )
+      dump_kptr((unsigned long)args.out.compare, "compare", delta);
+    if ( !args.out.sk_count )
+      continue;
+    size_t buf_size = calc_nl_sk_size(args.out.sk_count);
+    unsigned long *buf = (unsigned long *)malloc(buf_size);
+    if ( !buf )
+      continue;
+    buf[0] = nca + delta;
+    buf[1] = lock + delta;
+    buf[2] = (unsigned long)i;
+    buf[3] = args.out.sk_count;
+    err = ioctl(fd, IOCTL_GET_NL_SK, (int *)buf);
+    if ( err )
+    {
+      printf("IOCTL_GET_NL_SK index %d failed, error %d (%s)\n", i, errno, strerror(errno));
+      free(buf);
+      continue;
+    }
+    buf_size = buf[0];
+    one_nl_socket *curr = (one_nl_socket *)(buf + 1);
+    for ( size_t j = 0; j < buf_size; j++, curr++ )
+    {
+      printf(" sock[%ld] at %p portid %d sk_type %d sk_protocol %d\n",
+       j, curr->addr, curr->portid, curr->sk_type, curr->sk_protocol
+      );
+      if ( curr->netlink_rcv )
+        dump_kptr((unsigned long)curr->netlink_rcv, " netlink_rcv", delta);
+      if ( curr->netlink_bind )
+        dump_kptr((unsigned long)curr->netlink_bind, " netlink_bind", delta);
+      if ( curr->netlink_unbind )
+        dump_kptr((unsigned long)curr->netlink_bind, " netlink_unbind", delta);
+      if ( curr->cb_dump )
+        dump_kptr((unsigned long)curr->cb_dump, " cb.dump", delta);
+      if ( curr->cb_done )
+        dump_kptr((unsigned long)curr->cb_done, " cb.done", delta);
+    }
+    free(buf);
+  }
+}
+
 static size_t calc_net_size(size_t n)
 {
   return n * sizeof(one_net) + sizeof(unsigned long);
@@ -1127,6 +1248,10 @@ void dump_nets(int fd, sa64 delta)
   nca = get_addr("inet6addr_validator_chain");
   if ( nca )
     dump_block_chain(fd, nca, delta, "inet6addr_validator_chain");
+  // dump netlinks
+  nca = get_addr("nl_table");
+  plock = get_addr("nl_table_lock");
+  dump_netlinks(fd, nca, plock, delta);
 }
 
 static size_t calc_super_size(size_t n)
