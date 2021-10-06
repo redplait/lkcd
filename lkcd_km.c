@@ -42,6 +42,8 @@
 #include <net/rtnetlink.h>
 #include <linux/sock_diag.h>
 #include <net/protocol.h>
+#include <linux/rhashtable.h>
+#include "netlink.h"
 #include <linux/lsm_hooks.h>
 #include "shared.h"
 
@@ -2404,6 +2406,121 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
           kfree(buf);
         }
       break; /* IOCTL_GET_RTNL_AF_OPS */
+
+    case IOCTL_GET_NLTAB:
+        if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 3) > 0 )
+  	  return -EFAULT;
+  	if ( ptrbuf[2] >= MAX_LINKS )
+  	  return -EFBIG;
+        else {
+          struct netlink_table *tab = *(struct netlink_table **)ptrbuf[0] + ptrbuf[2];
+          rwlock_t *lock = (rwlock_t *)ptrbuf[1];
+          struct one_nltab res;
+          struct rhashtable_iter iter;
+          int err = 0;
+          res.addr = (void *)tab;
+          res.bind = (void *)tab->bind;
+          res.unbind = (void *)tab->unbind;
+          res.compare = (void *)tab->compare;
+          res.registered = tab->registered;
+          res.sk_count = 0;
+          // lock
+          read_lock(lock);
+          // iterate
+          rhashtable_walk_enter(&tab->hash, &iter);
+          rhashtable_walk_start(&iter);
+          for (;;) {
+            struct netlink_sock *ns = rhashtable_walk_next(&iter);
+            if (IS_ERR(ns)) {
+	       if (PTR_ERR(ns) == -EAGAIN)
+	 	 continue;
+	       err = PTR_ERR(ns);
+	       break;
+            } else if (!ns)
+              break;
+            res.sk_count++;
+          }
+          rhashtable_walk_stop(&iter);
+          rhashtable_walk_exit(&iter);
+          // unlock
+          read_unlock(lock);
+          if ( err )
+            return err;
+          // copy to user
+          if (copy_to_user((void*)ioctl_param, (void*)&res, sizeof(res)) > 0)
+            return -EFAULT;
+        }
+      break; /* IOCTL_GET_NLTAB */
+
+    case IOCTL_GET_NL_SK:
+        if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 4) > 0 )
+  	  return -EFAULT;
+  	if ( !ptrbuf[3] )
+          return -EINVAL;
+  	if ( ptrbuf[2] >= MAX_LINKS )
+  	  return -EFBIG;
+        else {
+          struct netlink_table *tab = *(struct netlink_table **)ptrbuf[0] + ptrbuf[2];
+          rwlock_t *lock = (rwlock_t *)ptrbuf[1];
+          int err = 0;
+          unsigned long cnt = 0;
+          size_t kbuf_size = sizeof(unsigned long) + ptrbuf[3] * sizeof(struct one_nl_socket);
+          struct rhashtable_iter iter;
+          struct one_nl_socket *curr;
+          unsigned long *buf = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL);
+          if ( !buf )
+            return -ENOMEM;
+          curr = (struct one_nl_socket *)(buf + 1);
+          // lock
+          read_lock(lock);
+          // iterate
+          rhashtable_walk_enter(&tab->hash, &iter);
+          rhashtable_walk_start(&iter);
+          for (;;) {
+            struct netlink_sock *ns = rhashtable_walk_next(&iter);
+            if (IS_ERR(ns)) {
+	       if (PTR_ERR(ns) == -EAGAIN)
+	 	 continue;
+	       err = PTR_ERR(ns);
+	       break;
+            } else if (!ns)
+              break;
+            if ( cnt >= ptrbuf[3] )
+              break;
+            // copy fields
+            curr->addr = (void *)ns;
+            curr->portid = ns->portid;
+            curr->sk_type = ns->sk.sk_type;
+            curr->sk_protocol = ns->sk.sk_protocol;
+            curr->netlink_rcv = ns->netlink_rcv;
+            curr->netlink_bind = ns->netlink_bind;
+            curr->netlink_unbind = ns->netlink_unbind;
+            curr->cb_dump = ns->cb.dump;
+            curr->cb_done = ns->cb.done;
+            // for next iteration
+            cnt++;
+            curr++;
+          }
+          rhashtable_walk_stop(&iter);
+          rhashtable_walk_exit(&iter);
+          // unlock
+          read_unlock(lock);
+          if ( err )
+          {
+            kfree(buf);
+            return err;
+          }
+          // copy to user
+          buf[0] = cnt;
+          kbuf_size = sizeof(unsigned long) + cnt * sizeof(struct one_nl_socket);
+          if (copy_to_user((void*)ioctl_param, (void*)buf, kbuf_size) > 0)
+          {
+            kfree(buf);
+            return -EFAULT;
+          }
+          kfree(buf);          
+       }
+     break; /* IOCTL_GET_NL_SK */
 
     case IOCTL_GET_LSM_HOOKS:
         if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 2) > 0 )

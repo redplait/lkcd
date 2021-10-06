@@ -436,6 +436,48 @@ struct one_protosw
 //   else long size + N * void *
 #define IOCTL_GET_RTNL_AF_OPS          _IOR(IOCTL_NUM, 0x27, int*)
 
+struct one_nltab
+{
+  void *addr;
+  unsigned long sk_count; // count of sockets from netlink_table.hash
+  void *bind;
+  void *unbind;
+  void *compare;
+  int registered;
+};
+
+// read netlink table
+// in params:
+//  0 - table addr (nl_table)
+//  1 - nl_table_lock
+//  2 - index
+// out params
+//  struct one_nltab
+#define IOCTL_GET_NLTAB                _IOR(IOCTL_NUM, 0x28, int*)
+
+struct one_nl_socket
+{
+  void *addr;
+  unsigned int portid;
+  unsigned short sk_type;
+  unsigned short sk_protocol;
+  void *netlink_rcv;
+  void *netlink_bind;
+  void *netlink_unbind;
+  void *cb_dump; // netlink_callback.dump
+  void *cb_done; // netlink_callback.done  
+};
+
+// read netlink sockets
+// in params:
+//  0 - table addr (nl_table)
+//  1 - nl_table_lock
+//  2 - index
+//  3 - cnt
+// out params
+//  struct one_nl_socket
+#define IOCTL_GET_NL_SK                _IOR(IOCTL_NUM, 0x29, int*)
+
 // read lsm hooks
 // in params:
 //  0 - list addr
@@ -443,6 +485,6 @@ struct one_protosw
 // out params:
 //   if count is zero - count of lsm hooks
 //   else long size + N * security_hook_list->hook
-#define IOCTL_GET_LSM_HOOKS            _IOR(IOCTL_NUM, 0x28, int*)
+#define IOCTL_GET_LSM_HOOKS            _IOR(IOCTL_NUM, 0x2a, int*)
 
 #endif /* LKCD_SHARED_H */
