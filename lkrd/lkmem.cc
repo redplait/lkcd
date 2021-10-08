@@ -828,6 +828,69 @@ void dump_link_ops(int fd, a64 nca, sa64 delta)
   free(buf);
 }
 
+static size_t calc_tcp_ulp_ops_size(size_t n)
+{
+  return n * sizeof(one_tcp_ulp_ops) + sizeof(unsigned long);
+}
+
+void dump_ulps(int fd, a64 nca, a64 plock, sa64 delta)
+{
+  if ( !nca )
+  {
+    printf("cannot find tcp_ulp_list\n");
+    return;
+  }
+  if ( !plock )
+  {
+    printf("cannot find tcp_ulp_list_lock\n");
+    return;
+  }
+  unsigned long cbuf[3] = { nca + delta, plock + delta, 0 };
+  int err = ioctl(fd, IOCTL_GET_ULP_OPS, (int *)cbuf);
+  if ( err )
+  {
+    printf("IOCTL_GET_ULP_OPS count failed, error %d (%s)\n", errno, strerror(errno));
+    return;
+  }
+  printf("\ntcp_ulp_list at %p: %ld\n", (void *)(nca + delta), cbuf[0]);
+  if ( !cbuf[0] )
+    return;
+  size_t size = calc_tcp_ulp_ops_size(cbuf[0]);
+  unsigned long *buf = (unsigned long *)malloc(size);
+  if ( !buf )
+    return;
+  buf[0] = nca + delta;
+  buf[1] = plock + delta;
+  buf[2] = cbuf[0];
+  err = ioctl(fd, IOCTL_GET_ULP_OPS, (int *)buf);
+  if ( err )
+  {
+    printf("IOCTL_GET_ULP_OPS failed, error %d (%s)\n", errno, strerror(errno));
+    free(buf);
+    return;
+  }
+  size = buf[0];
+  one_tcp_ulp_ops *sb = (one_tcp_ulp_ops *)(buf + 1);
+  for ( size_t idx = 0; idx < size; idx++, sb++ )
+  {
+    printf(" [%ld] at %p %s", idx, sb->addr, sb->name);
+    dump_unnamed_kptr((unsigned long)sb->addr, delta);
+    if ( sb->init )
+     dump_kptr((unsigned long)sb->init, " init", delta);
+    if ( sb->update )
+     dump_kptr((unsigned long)sb->update, " update", delta);
+    if ( sb->release )
+     dump_kptr((unsigned long)sb->release, " release", delta);
+    if ( sb->get_info )
+     dump_kptr((unsigned long)sb->get_info, " get_info", delta);
+    if ( sb->get_info_size )
+     dump_kptr((unsigned long)sb->get_info_size, " get_info_size", delta);
+    if ( sb->clone )
+     dump_kptr((unsigned long)sb->clone, " clone", delta);
+  }
+  free(buf);
+}
+
 static size_t calc_one_pernet_ops_size(size_t n)
 {
   return n * sizeof(one_pernet_ops) + sizeof(unsigned long);
@@ -873,7 +936,8 @@ void dump_pernet_ops(int fd, a64 nca, a64 plock, sa64 delta)
   struct one_pernet_ops *sb = (struct one_pernet_ops *)(buf + 1);
   for ( size_t idx = 0; idx < size; idx++, sb++ )
   {
-    printf(" [%ld] at %p:\n", idx, sb);
+    printf(" [%ld] at %p", idx, sb->addr);
+    dump_unnamed_kptr((unsigned long)sb->addr, delta);
     if ( sb->init )
      dump_kptr((unsigned long)sb->init, " init", delta);
     if ( sb->exit )
@@ -1045,8 +1109,8 @@ void dump_netlinks(int fd, a64 nca, a64 lock, sa64 delta)
     one_nl_socket *curr = (one_nl_socket *)(buf + 1);
     for ( size_t j = 0; j < buf_size; j++, curr++ )
     {
-      printf(" sock[%ld] at %p portid %d sk_type %d sk_protocol %d\n",
-       j, curr->addr, curr->portid, curr->sk_type, curr->sk_protocol
+      printf(" sock[%ld] at %p portid %d sk_type %d sk_protocol %d flags %X subscriptions %d\n",
+       j, curr->addr, curr->portid, curr->sk_type, curr->sk_protocol, curr->flags, curr->subscriptions
       );
       if ( curr->netlink_rcv )
         dump_kptr((unsigned long)curr->netlink_rcv, " netlink_rcv", delta);
@@ -1061,6 +1125,58 @@ void dump_netlinks(int fd, a64 nca, a64 lock, sa64 delta)
     }
     free(buf);
   }
+}
+
+static size_t calc_proto_size(size_t n)
+{
+  if ( n < 2 )
+    n = 2;
+  return (n + 1) * sizeof(unsigned long);
+}
+
+void dump_protos(int fd, a64 nca, a64 lock, sa64 delta)
+{
+  if ( !nca )
+  {
+    printf("cannot find proto_list\n");
+    return;
+  }
+  if ( !lock )
+  {
+    printf("cannot find proto_list_mutex\n");
+    return;
+  }
+  unsigned long args[3] = { nca + delta, lock + delta, 0 };
+  int err = ioctl(fd, IOCTL_GET_PROTOS, (int *)args);
+  if ( err )
+  {
+    printf("IOCTL_GET_PROTOS count failed, error %d (%s)\n", errno, strerror(errno));
+    return;
+  }
+  printf("\nproto_list at %p: %ld\n", (void *)(nca + delta), args[0]);
+  if ( !args[0] )
+    return;
+  size_t size = calc_proto_size(args[0]);
+  unsigned long *buf = (unsigned long *)malloc(size);
+  if ( !buf )
+    return;
+  buf[0] = nca + delta;
+  buf[1] = lock + delta;
+  buf[2] = args[0];
+  err = ioctl(fd, IOCTL_GET_PROTOS, (int *)buf);
+  if ( err )
+  {
+    printf("IOCTL_GET_PROTOS failed, error %d (%s)\n", errno, strerror(errno));
+    free(buf);
+    return;
+  }
+  size = buf[0];
+  for ( size_t i = 0; i < size; i++ )
+  {
+    printf(" [%ld] ", i);
+    dump_unnamed_kptr(buf[1 + i], delta);
+  }
+  free(buf);
 }
 
 static size_t calc_net_size(size_t n)
@@ -1202,9 +1318,17 @@ void dump_nets(int fd, sa64 delta)
     }
   } else
     printf("cannot find netdev_chain");
+  // proto list
+  nca = get_addr("proto_list");
+  auto plock = get_addr("proto_list_mutex");
+  dump_protos(fd, nca, plock, delta);
+  // ulp ops
+  nca = get_addr("tcp_ulp_list"); 
+  plock = get_addr("tcp_ulp_list_lock");
+  dump_ulps(fd, nca, plock, delta);
   // pernet ops
   nca = get_addr("pernet_list");
-  auto plock = get_addr("pernet_ops_rwsem");
+  plock = get_addr("pernet_ops_rwsem");
   dump_pernet_ops(fd, nca, plock, delta);
   // link ops
   nca = get_addr("link_ops");
