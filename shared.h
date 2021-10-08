@@ -351,8 +351,8 @@ struct one_net_dev
 //  0 - net addr
 //  1 - count
 // out params:
-//   if count is zero - count of nets
-//   else long size + N * one_net_dev
+//  if count is zero - count of nets
+//  else long size + N * one_net_dev
 #define IOCTL_GET_NET_DEVS             _IOR(IOCTL_NUM, 0x21, int*)
 
 // sock_diag_handler *sock_diag_handlers[AF_MAX]
@@ -376,8 +376,8 @@ struct one_sock_diag
 //  0 - address of netdev_chain - struct raw_notifier_head *
 //  1 - count
 // out params:
-//   if count is zero - count of netdev ntfy
-//   else long size + N * void*
+//  if count is zero - count of netdev ntfy
+//  else long size + N * void*
 #define IOCTL_GET_NETDEV_CHAIN         _IOR(IOCTL_NUM, 0x23, int*)
 
 struct one_pernet_ops
@@ -394,8 +394,8 @@ struct one_pernet_ops
 //  1 - address of pernet_ops_rwsem
 //  2 - count
 // out params:
-//   if count is zero - count of registered pernet ops
-//   else long size + N * one_pernet_ops
+//  if count is zero - count of registered pernet ops
+//  else long size + N * one_pernet_ops
 #define IOCTL_GET_PERNET_OPS           _IOR(IOCTL_NUM, 0x24, int*)
 
 // read link ops
@@ -423,8 +423,8 @@ struct one_protosw
 //  2 - index
 //  3 - count
 // out params:
-//   if count is zero - count of inet_protosw
-//   else long size + N * one_protosw
+//  if count is zero - count of inet_protosw
+//  else long size + N * one_protosw
 #define IOCTL_GET_PROTOSW              _IOR(IOCTL_NUM, 0x26, int*)
 
 // read rtnl_af_ops
@@ -432,8 +432,8 @@ struct one_protosw
 //  0 - list addr (rtnl_af_ops)
 //  1 - count
 // out params:
-//   if count is zero - count of rtnl_af_ops
-//   else long size + N * void *
+//  if count is zero - count of rtnl_af_ops
+//  else long size + N * void *
 #define IOCTL_GET_RTNL_AF_OPS          _IOR(IOCTL_NUM, 0x27, int*)
 
 struct one_nltab
@@ -486,9 +486,32 @@ struct one_nl_socket
 //  1 - proto_list_mutex address
 //  3 - cnt
 // out params
-//   if count is zero - count of protos
-//   else long size + N * void *
+//  if count is zero - count of protos
+//  else long size + N * void *
 #define IOCTL_GET_PROTOS               _IOR(IOCTL_NUM, 0x2a, int*)
+
+struct one_tcp_ulp_ops
+{
+  void *addr;
+  void *init;
+  void *update;
+  void *release;
+  void *get_info;
+  void *get_info_size;
+  void *clone;
+  char name[16];
+};
+
+// read tcp_ulp_ops
+// in params:
+//  0 - tcp_ulp_list address
+//  1 - tcp_ulp_list_lock address
+//  3 - cnt
+// out params
+//  if count is zero - count of ops
+//  else long size + N * one_tcp_ulp_ops
+#define IOCTL_GET_ULP_OPS              _IOR(IOCTL_NUM, 0x2b, int*)
+
 
 // read lsm hooks
 // in params:
@@ -497,6 +520,6 @@ struct one_nl_socket
 // out params:
 //   if count is zero - count of lsm hooks
 //   else long size + N * security_hook_list->hook
-#define IOCTL_GET_LSM_HOOKS            _IOR(IOCTL_NUM, 0x2b, int*)
+#define IOCTL_GET_LSM_HOOKS            _IOR(IOCTL_NUM, 0x2c, int*)
 
 #endif /* LKCD_SHARED_H */

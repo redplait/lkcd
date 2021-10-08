@@ -40,6 +40,7 @@
 #include <linux/netdevice.h>
 #include <linux/netfilter.h>
 #include <net/rtnetlink.h>
+#include <net/tcp.h>
 #include <linux/sock_diag.h>
 #include <net/protocol.h>
 #include <linux/rhashtable.h>
@@ -2006,6 +2007,65 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
             return -EFAULT;
         }
        break; /* IOCTL_GET_SOCK_DIAG */
+
+     case IOCTL_GET_ULP_OPS:
+        if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 3) > 0 )
+  	  return -EFAULT;
+  	else {
+          struct list_head *list = (struct list_head *)ptrbuf[0];
+          spinlock_t *lock = (spinlock_t *)ptrbuf[1];
+          struct list_head *p;
+          unsigned long cnt = 0;
+          if ( !ptrbuf[2] )
+          {
+            // just calc count
+            spin_lock(lock);
+            list_for_each(p, list)
+              cnt++;
+	    // unlock
+            spin_unlock(lock);
+            // copy to user
+            if (copy_to_user((void*)ioctl_param, (void*)&cnt, sizeof(cnt)) > 0)
+              return -EFAULT;
+          } else {
+            size_t buf_size = sizeof(unsigned long) + ptrbuf[2] * sizeof(struct one_tcp_ulp_ops);
+            unsigned long *buf = (unsigned long *)kmalloc(buf_size, GFP_KERNEL);
+            struct one_tcp_ulp_ops *curr;
+            if ( !buf )
+              return -ENOMEM;
+            curr = (struct one_tcp_ulp_ops *)(buf + 1);
+            spin_lock(lock);
+            list_for_each(p, list)
+            {
+              struct tcp_ulp_ops *ulp = list_entry(p, struct tcp_ulp_ops, list);
+              if ( cnt >= ptrbuf[2] )
+                break;
+              curr->addr = (void *)ulp;
+              curr->init = (void *)ulp->init;
+              curr->update = (void *)ulp->update;
+              curr->release = (void *)ulp->release;
+              curr->get_info = (void *)ulp->get_info;
+              curr->get_info_size = (void *)ulp->get_info_size;
+              curr->clone = (void *)ulp->clone;
+              strlcpy(curr->name, ulp->name, 16);
+              // for next iteration
+              cnt++;
+              curr++;
+            }
+            // unlock
+            spin_unlock(lock);
+            buf[0] = cnt;
+            // copy to user
+            buf_size = sizeof(unsigned long) + cnt * sizeof(struct one_tcp_ulp_ops);
+            if (copy_to_user((void*)ioctl_param, (void*)buf, buf_size) > 0)
+            {
+              kfree(buf);
+              return -EFAULT;
+            }
+            kfree(buf);
+          }
+        }
+       break; /* IOCTL_GET_ULP_OPS */
 
      case IOCTL_GET_PROTOS:
         if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 3) > 0 )
