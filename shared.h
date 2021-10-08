@@ -459,6 +459,8 @@ struct one_nl_socket
 {
   void *addr;
   unsigned int portid;
+  unsigned int flags;
+  unsigned int subscriptions;
   unsigned short sk_type;
   unsigned short sk_protocol;
   void *netlink_rcv;
@@ -478,6 +480,16 @@ struct one_nl_socket
 //  struct one_nl_socket
 #define IOCTL_GET_NL_SK                _IOR(IOCTL_NUM, 0x29, int*)
 
+// read registered proto`s
+// in params:
+//  0 - proto_list address
+//  1 - proto_list_mutex address
+//  3 - cnt
+// out params
+//   if count is zero - count of protos
+//   else long size + N * void *
+#define IOCTL_GET_PROTOS               _IOR(IOCTL_NUM, 0x2a, int*)
+
 // read lsm hooks
 // in params:
 //  0 - list addr
@@ -485,6 +497,6 @@ struct one_nl_socket
 // out params:
 //   if count is zero - count of lsm hooks
 //   else long size + N * security_hook_list->hook
-#define IOCTL_GET_LSM_HOOKS            _IOR(IOCTL_NUM, 0x2a, int*)
+#define IOCTL_GET_LSM_HOOKS            _IOR(IOCTL_NUM, 0x2b, int*)
 
 #endif /* LKCD_SHARED_H */

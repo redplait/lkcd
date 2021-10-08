@@ -2007,6 +2007,54 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
         }
        break; /* IOCTL_GET_SOCK_DIAG */
 
+     case IOCTL_GET_PROTOS:
+        if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 3) > 0 )
+  	  return -EFAULT;
+  	else {
+          struct list_head *list = (struct list_head *)ptrbuf[0];
+          struct mutex *m = (struct mutex *)ptrbuf[1];
+          struct list_head *p;
+          unsigned long cnt = 0;
+          if ( !ptrbuf[2] )
+          {
+            // just calc count
+            mutex_lock(m);
+            list_for_each(p, list)
+              cnt++;
+	    // unlock
+            mutex_unlock(m);
+            // copy to user
+            if (copy_to_user((void*)ioctl_param, (void*)&cnt, sizeof(cnt)) > 0)
+              return -EFAULT;
+          } else {
+            size_t buf_size = sizeof(unsigned long) * (ptrbuf[2] + 1);
+            unsigned long *buf = (unsigned long *)kmalloc(buf_size, GFP_KERNEL);
+            if ( !buf )
+              return -ENOMEM;
+            mutex_lock(m);
+            list_for_each(p, list)
+            {
+              struct proto *prot = list_entry(p, struct proto, node);
+              if ( cnt >= ptrbuf[2] )
+                break;
+              buf[cnt+1] = (unsigned long)prot;
+              cnt++;
+            }
+	    // unlock
+            mutex_unlock(m);
+            buf[0] = cnt;
+            // copy to user
+            buf_size = sizeof(unsigned long) * (buf[0] + 1);
+            if (copy_to_user((void*)ioctl_param, (void*)buf, buf_size) > 0)
+            {
+              kfree(buf);
+              return -EFAULT;
+            }
+            kfree(buf);
+          }
+        }
+       break; /* IOCTL_GET_PROTOS */
+
      case IOCTL_GET_PROTOSW:
         // read count
         if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 4) > 0 )
@@ -2490,6 +2538,8 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
             // copy fields
             curr->addr = (void *)ns;
             curr->portid = ns->portid;
+            curr->flags  = ns->flags;
+            curr->subscriptions = ns->subscriptions;
             curr->sk_type = ns->sk.sk_type;
             curr->sk_protocol = ns->sk.sk_protocol;
             curr->netlink_rcv = ns->netlink_rcv;
