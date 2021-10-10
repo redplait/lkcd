@@ -128,6 +128,7 @@ class x64_disasm: public dis_base
     virtual int find_return_notifier_list(a64 addr);
     virtual int process(a64 addr, std::map<a64, a64> &, std::set<a64> &out_res);
     virtual int process_sl(lsm_hook &);
+    virtual a64 process_bpf_target(a64 addr, a64 mlock);
   protected:
     int set(a64 addr)
     {
@@ -139,6 +140,7 @@ class x64_disasm: public dis_base
       ud_set_pc(&ud_obj, (uint64_t)addr);
       return 1;
     }
+    int is_mrip(ud_mnemonic_code) const;
     int is_end() const;
     int is_jmp() const;
     int is_jxx_jimm() const;

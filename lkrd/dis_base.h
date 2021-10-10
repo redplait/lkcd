@@ -69,6 +69,7 @@ class dis_base
     }
     virtual int process(a64 addr, std::map<a64, a64> &, std::set<a64> &out_res) = 0;
     virtual int process_sl(lsm_hook &) = 0;
+    virtual a64 process_bpf_target(a64 addr, a64 mlock) = 0;
   protected:
     // bcs of security_file_alloc where lsm_file_alloc first called
     inline int is_sec_heads(a64 addr)

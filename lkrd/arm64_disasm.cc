@@ -103,6 +103,15 @@ int arm64_disasm::is_ldr_lsl() const
   ;
 }
 
+int arm64_disasm::is_ldr0() const
+{
+  return (m_dis.instr_id == AD_INSTR_LDR) && 
+         (m_dis.num_operands == 2) &&
+         (m_dis.operands[0].type == AD_OP_REG) &&
+         (m_dis.operands[1].type == AD_OP_REG)
+  ;
+}
+
 int arm64_disasm::is_ldr() const
 {
   return (m_dis.instr_id == AD_INSTR_LDR) && 
@@ -129,6 +138,46 @@ int arm64_disasm::disasm()
      )
     return 0;
   return 1;  
+}
+
+a64 arm64_disasm::process_bpf_target(a64 addr, a64 mlock)
+{
+  PBYTE psp = uconv(addr);
+  regs_pad regs;
+  int state = 0;
+  if ( !setup(psp) )
+    return 0;
+  for ( size_t i = 0; i < 100 ; i++ )
+  {
+    if ( !disasm() || is_ret() )
+      break;
+    if ( is_adrp(regs) )
+      continue;
+    if ( is_add() )
+    {
+      regs.add2(get_reg(0), get_reg(1), m_dis.operands[2].op_imm.bits);
+      continue;
+    }
+    // mov reg, reg
+    if ( is_mov_rr(regs) )
+      continue;
+    a64 tmp = 0;
+    if ( !state && is_bl_jimm(tmp) )
+    {
+      if ( tmp == mlock )
+        state++;
+      continue;
+    }
+    // ldr reg
+    if ( state && (is_ldr() || is_ldr0()) )
+    {
+      regs.ldar(get_reg(0), get_reg(1), m_dis.operands[2].op_imm.bits);
+      a64 what = regs.get(get_reg(0));
+      if ( what && in_data(what) )
+        return what;
+    }
+  }
+  return 0;
 }
 
 int arm64_disasm::process_sl(lsm_hook &sl)

@@ -571,6 +571,68 @@ void dump_kptr(unsigned long l, const char *name, sa64 delta)
   }
 }
 
+static size_t calc_bpf_reg_size(size_t n)
+{
+  return n * sizeof(one_bpf_reg) + sizeof(unsigned long);
+}
+
+void dump_bpf_targets(int fd, a64 list, a64 lock, sa64 delta)
+{
+  if ( !list )
+  {
+    printf("cannot find targets\n");
+    return;
+  }
+  if ( !lock )
+  {
+    printf("cannot find targets_mutex\n");
+    return;
+  }
+  unsigned long args[3] = { list + delta, lock + delta, 0 };
+  int err = ioctl(fd, IOCTL_GET_BPF_REGS, (int *)args);
+  if ( err )
+  {
+    printf("IOCTL_GET_BPF_REGS count failed, error %d (%s)\n", errno, strerror(errno));
+    return;
+  }
+  printf("\nbpf_iter_reg at %p: %ld\n", (void *)(list + delta), args[0]);
+  if ( !args[0] )
+    return;
+  size_t size = calc_bpf_reg_size(args[0]);
+  unsigned long *buf = (unsigned long *)malloc(size);
+  if ( !buf )
+  {
+    printf("cannot alloc buffer for bpf_regs, len %lX\n", size);
+    return;
+  }
+  buf[0] = list + delta;
+  buf[1] = lock + delta;
+  buf[2] = args[0];
+  err = ioctl(fd, IOCTL_GET_BPF_REGS, (int *)buf);
+  if ( err )
+  {
+    printf("IOCTL_GET_BPF_REGS failed, error %d (%s)\n", errno, strerror(errno));
+    free(buf);
+    return;
+  }
+  size = buf[0];
+  one_bpf_reg *curr = (one_bpf_reg *)(buf + 1);
+  for ( size_t idx = 0; idx < size; idx++, curr++ )
+  {
+    printf(" [%ld] feature %d at", idx, curr->feature);
+    dump_unnamed_kptr((unsigned long)curr->addr, delta);
+    if ( curr->attach_target )
+      dump_kptr((unsigned long)curr->attach_target, "  attach_target", delta);
+    if ( curr->detach_target )
+      dump_kptr((unsigned long)curr->detach_target, "  detach_target", delta);
+    if ( curr->show_fdinfo )
+      dump_kptr((unsigned long)curr->show_fdinfo, "  show_fdinfo", delta);
+    if ( curr->fill_link_info )
+      dump_kptr((unsigned long)curr->fill_link_info, "  fill_link_info", delta);
+  }
+  free(buf);
+}
+
 void dump_lsm(int fd, sa64 delta)
 {
   for ( auto &c: s_hooks )
@@ -651,42 +713,40 @@ void dump_uprobes(int fd, sa64 delta)
   if ( !params[0] )
     return;
   size_t size = calc_uprobes_size(params[0]);
-  char *buf = (char *)malloc(size);
+  unsigned long *buf = (unsigned long *)malloc(size);
   if ( !buf )
   {
     printf("cannot alloc buffer for uprobes, len %lX\n", size);
     return;
   }
-  unsigned long *palias = (unsigned long *)buf;
-  palias[0] = a1 + delta;
-  palias[1] = a2 + delta;
-  palias[2] = params[0];
-  err = ioctl(fd, IOCTL_UPROBES, (int *)palias);
+  buf[0] = a1 + delta;
+  buf[1] = a2 + delta;
+  buf[2] = params[0];
+  err = ioctl(fd, IOCTL_UPROBES, (int *)buf);
   if ( err )
   {
     printf("IOCTL_UPROBES failed, error %d (%s)\n", errno, strerror(errno));
   } else {
-    one_uprobe *up = (one_uprobe *)(buf + sizeof(unsigned long));
-    for ( auto cnt = 0; cnt < *palias; cnt++ )
+    one_uprobe *up = (one_uprobe *)(buf + 1);
+    for ( auto cnt = 0; cnt < buf[0]; cnt++ )
     {
       printf("[%d] addr %p inode %p ino %ld clnts %ld offset %lX flags %lX %s\n", 
         cnt, up[cnt].addr, up[cnt].inode, up[cnt].i_no, up[cnt].cons_cnt, up[cnt].offset, up[cnt].flags, up[cnt].name);
       if ( !up[cnt].cons_cnt )
         continue;
       size_t client_size = calc_uprobes_clnt_size(up[cnt].cons_cnt);
-      char *cbuf = (char *)malloc(client_size);
+      unsigned long *cbuf = (unsigned long *)malloc(client_size);
       if ( !cbuf )
       {
         printf("cannot alloc buffer for uprobe %p consumers, len %lX\n", up[cnt].addr, client_size);
         continue;
       }
       // form params for IOCTL_CNT_UPROBES
-      unsigned long *calias = (unsigned long *)cbuf;
-      calias[0] = a1 + delta;
-      calias[1] = a2 + delta;
-      calias[2] = (unsigned long)up[cnt].addr;
-      calias[3] = up[cnt].cons_cnt;
-      err = ioctl(fd, IOCTL_UPROBES_CONS, (int *)calias);
+      cbuf[0] = a1 + delta;
+      cbuf[1] = a2 + delta;
+      cbuf[2] = (unsigned long)up[cnt].addr;
+      cbuf[3] = up[cnt].cons_cnt;
+      err = ioctl(fd, IOCTL_UPROBES_CONS, (int *)cbuf);
       if ( err )
       {
         printf("IOCTL_UPROBES_CONS for %p failed, error %d (%s)\n", up[cnt].addr, errno, strerror(errno));
@@ -694,8 +754,8 @@ void dump_uprobes(int fd, sa64 delta)
         continue;
       }
       // dump consumers
-      one_uprobe_consumer *uc = (one_uprobe_consumer *)(cbuf + sizeof(unsigned long));
-      for ( auto cnt2 = 0; cnt2 < *calias; cnt2++ )
+      one_uprobe_consumer *uc = (one_uprobe_consumer *)(cbuf + 1);
+      for ( auto cnt2 = 0; cnt2 < cbuf[0]; cnt2++ )
       {
         printf(" consumer[%d] at %p\n", cnt2, uc[cnt2].addr);
         if ( uc[cnt2].handler )
@@ -2042,6 +2102,7 @@ int main(int argc, char **argv)
      optind++;
    }
    sa64 delta = 0;
+   a64 bpf_target = 0;
 #ifndef _MSC_VER
    // open driver
    if ( opt_c ) 
@@ -2388,6 +2449,21 @@ end:
             printf("no disasm for machine %d\n", reader.get_machine());
             break;
           }
+          if ( opt_t )
+          {
+            auto entry = get_addr("bpf_iter_reg_target");
+            auto mlock = get_addr("mutex_lock");
+            if ( !entry )
+              printf("cannot find bpf_iter_reg_target\n");
+            else if ( !mlock )
+              printf("cannot find mutex_lock\n");
+            else
+              bpf_target = bd->process_bpf_target(entry, mlock);
+#ifndef _MSC_VER
+            auto tgm = get_addr("targets_mutex");
+            dump_bpf_targets(fd, bpf_target, tgm, delta);
+#endif /* !_MSC_VER */
+          }
           if ( opt_S )
           {
             s_security_hook_heads = get_addr("security_hook_heads");
@@ -2421,8 +2497,10 @@ end:
                     printf("%s: %p\n", sl.name.c_str(), (void *)sl.list);
                   }
                 }
+#ifndef _MSC_VER
                 if ( opt_c )
                   dump_lsm(fd, delta);
+#endif /* !_MSC_VER */
               }
             }
           }

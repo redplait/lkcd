@@ -13,3 +13,6 @@ lkmem: lkmem.o minfo.o x64_disasm.o arm64_disasm.o ../test/ksyms.o ../test/lk.o 
 
 kdps: kdps.o ../test/ksyms.o ../test/lk.o ../test/kmods.o
 	g++ -lstdc++ -o kdps -I $(INCLUDE) $^
+
+clean:
+	rm *.o

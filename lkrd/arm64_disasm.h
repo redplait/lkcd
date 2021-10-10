@@ -16,6 +16,16 @@ struct arm_reg
 {
   reg64_t val;
   int ldr;
+
+  arm_reg()
+   : val(0),
+     ldr(0)
+   { }
+  void reset()
+  {
+    val = 0;
+    ldr = 0;
+  }
 };
 
 class regs_pad
@@ -51,12 +61,12 @@ class regs_pad
        return 0;
      if ( m_regs[reg1].ldr )
      {
-       m_regs[reg1] = { 0, 0 };
+       m_regs[reg1].reset();
        return 0;
      }
      m_regs[reg1].val = m_regs[reg2].val + val;
      if ( reg1 != reg2 )
-       m_regs[reg2] = { 0, 0 };
+       m_regs[reg2].reset();
      return m_regs[reg1].val;
    }
    reg64_t add2(int reg1, int reg2, reg64_t val)
@@ -100,7 +110,7 @@ class regs_pad
    {
      if ( reg >= AD_REG_SP ) // hm
        return;
-     m_regs[reg] = { 0, 0 };
+     m_regs[reg].reset();
    }
 #ifdef _DEBUG
    void dump() const
@@ -126,6 +136,7 @@ class arm64_disasm: public dis_base
     }
     virtual int process(a64 addr, std::map<a64, a64> &, std::set<a64> &out_res);
     virtual int process_sl(lsm_hook &);
+    virtual a64 process_bpf_target(a64 addr, a64 mlock);
     void add_noreturn(a64 addr)
     {
       m_noreturn.insert(addr);
@@ -178,7 +189,7 @@ class arm64_disasm: public dis_base
     // must be called after is_add
     inline int is_add_r() const
     {
-      return (m_dis.instr_id == AD_INSTR_ADD) &&  (m_dis.operands[0].type == AD_OP_REG);
+      return (m_dis.instr_id == AD_INSTR_ADD) && (m_dis.operands[0].type == AD_OP_REG);
     }
     inline int is_add_r(regs_pad &used_regs) const
     {
@@ -351,6 +362,7 @@ class arm64_disasm: public dis_base
     int is_tbz_jimm(PBYTE &addr) const;
     int is_tbnz_jimm(PBYTE &addr) const;
     int is_ldr() const;
+    int is_ldr0() const;
     int is_ldr_lsl() const;
     int setup(PBYTE psp)
     {

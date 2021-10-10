@@ -130,6 +130,50 @@ int x64_disasm::is_end() const
   ;
 }
 
+a64 x64_disasm::process_bpf_target(a64 addr, a64 mlock)
+{
+  int state = 0;
+  if ( !set(addr) )
+    return 0;
+  for ( ; ; )
+  {
+    if ( !ud_disassemble(&ud_obj) )
+      break;
+    if ( is_end() )
+      break;
+    // check for call mutex_lock
+    if ( !state && (ud_obj.mnemonic == UD_Icall) &&
+         (ud_obj.operand[0].type == UD_OP_JIMM)
+       )
+    {
+      a64 caddr = ud_obj.pc + ud_obj.operand[0].lval.sdword;
+      if ( caddr == mlock )
+        state = 1;
+      continue;
+    }
+    // mov reg, [rip + mem]
+    if ( state && is_mrip(UD_Imov) &&
+         (ud_obj.operand[0].type == UD_OP_REG) &&
+         (ud_obj.operand[0].size == 64)
+       )
+    {
+      a64 daddr = ud_obj.pc + (sa64)ud_obj.operand[1].lval.sdword;
+      if ( in_data(daddr) )
+        return daddr;
+      break;
+    }
+  }
+  return 0;
+}
+
+int x64_disasm::is_mrip(ud_mnemonic_code c) const
+{
+  return (ud_obj.mnemonic == c) &&
+         (ud_obj.operand[1].type == UD_OP_MEM) && 
+         (ud_obj.operand[1].base == UD_R_RIP)
+  ;
+}
+
 int x64_disasm::process_sl(lsm_hook &sl)
 {
   if ( !set(sl.addr) )
@@ -141,11 +185,9 @@ int x64_disasm::process_sl(lsm_hook &sl)
     if ( is_end() )
       break;
     // mov reg, [mem + rip]
-    if ( (ud_obj.mnemonic == UD_Imov) &&
+    if ( is_mrip(UD_Imov) &&
          (ud_obj.operand[0].type == UD_OP_REG) &&
-         (ud_obj.operand[0].size == 64)        &&
-         (ud_obj.operand[1].type == UD_OP_MEM) && 
-         (ud_obj.operand[1].base == UD_R_RIP)
+         (ud_obj.operand[0].size == 64)
        )
     {
       a64 addr = ud_obj.pc + (sa64)ud_obj.operand[1].lval.sdword;
