@@ -46,6 +46,8 @@
 #include <linux/rhashtable.h>
 #include "netlink.h"
 #include <linux/lsm_hooks.h>
+#include <linux/bpf.h>
+#include "bpf.h"
 #include "shared.h"
 
 MODULE_LICENSE("GPL");
@@ -2632,42 +2634,94 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
        }
      break; /* IOCTL_GET_NL_SK */
 
+    case IOCTL_GET_BPF_REGS:
+        if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 3) > 0 )
+  	  return -EFAULT;
+  	else {
+          struct list_head *head = (struct list_head *)ptrbuf[0];
+          struct mutex *m = (struct mutex *)ptrbuf[1];
+          unsigned long cnt = 0;
+          struct bpf_iter_target_info *ti;
+          if ( !ptrbuf[2] )
+          {
+            mutex_lock(m);
+            list_for_each_entry(ti, head, list)
+              cnt++;
+            mutex_unlock(m);
+            if (copy_to_user((void*)ioctl_param, (void*)&cnt, sizeof(cnt)) > 0)
+              return -EFAULT;
+          } else {
+            struct one_bpf_reg *curr;
+            size_t kbuf_size = sizeof(unsigned long) + sizeof(struct one_bpf_reg) * ptrbuf[2];
+            unsigned long *buf = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL);
+            if ( !buf )
+              return -ENOMEM;
+            curr = (struct one_bpf_reg *)(buf + 1);
+            mutex_lock(m);
+            list_for_each_entry(ti, head, list)
+            {
+              if ( cnt >= ptrbuf[2] )
+                break;
+              if ( !ti->reg_info )
+                continue;
+              curr->addr = (void *)ti->reg_info;
+              curr->attach_target   = (void *)ti->reg_info->attach_target;
+              curr->detach_target   = (void *)ti->reg_info->detach_target;
+              curr->show_fdinfo     = (void *)ti->reg_info->show_fdinfo;
+              curr->fill_link_info  = (void *)ti->reg_info->fill_link_info;
+              curr->feature         = ti->reg_info->feature;
+              curr++;
+              cnt++;
+            }
+            mutex_unlock(m);
+            buf[0] = cnt;
+            kbuf_size = sizeof(unsigned long) + sizeof(struct one_bpf_reg) * cnt;
+            if (copy_to_user((void*)ioctl_param, (void*)buf, kbuf_size) > 0)
+            {
+              kfree(buf);
+              return -EFAULT;
+            }
+            kfree(buf);
+          }
+        }
+     break; /* IOCTL_GET_BPF_REGS */
+
     case IOCTL_GET_LSM_HOOKS:
         if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 2) > 0 )
   	  return -EFAULT;
-  	// there is no sync - all numerous security_xxx just call call_xx_hook
-  	if ( !ptrbuf[1] )
-  	{
+  	else {
           struct security_hook_list *shl;
           struct hlist_head *head = (struct hlist_head *)ptrbuf[0];
-          ptrbuf[0] = 0;
-          hlist_for_each_entry(shl, head, list)
-            ptrbuf[0]++;
-          if (copy_to_user((void*)ioctl_param, (void*)ptrbuf, sizeof(ptrbuf[0])) > 0)
-            return -EFAULT;
-        } else {
-          unsigned long cnt = 0;
-          struct security_hook_list *shl;
-          struct hlist_head *head = (struct hlist_head *)ptrbuf[0];
-          size_t kbuf_size = sizeof(unsigned long) * (ptrbuf[1] + 1);
-          unsigned long *buf = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL);
-          if ( !buf )
-            return -ENOMEM;
-          hlist_for_each_entry(shl, head, list)
-          {
-            if ( cnt >= ptrbuf[1] )
-              break;
-            buf[1 + cnt] = *(unsigned long *)(&shl->hook);
-            cnt++;
-          }
-          buf[0] = cnt;
-          kbuf_size = sizeof(unsigned long) * (cnt + 1);
-          if (copy_to_user((void*)ioctl_param, (void*)buf, kbuf_size) > 0)
-          {
+  	  // there is no sync - all numerous security_xxx just call call_xx_hook
+    	  if ( !ptrbuf[1] )
+  	  {
+            ptrbuf[0] = 0;
+            hlist_for_each_entry(shl, head, list)
+              ptrbuf[0]++;
+            if (copy_to_user((void*)ioctl_param, (void*)ptrbuf, sizeof(ptrbuf[0])) > 0)
+              return -EFAULT;
+          } else {
+            unsigned long cnt = 0;
+            size_t kbuf_size = sizeof(unsigned long) * (ptrbuf[1] + 1);
+            unsigned long *buf = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL);
+            if ( !buf )
+              return -ENOMEM;
+            hlist_for_each_entry(shl, head, list)
+            {
+              if ( cnt >= ptrbuf[1] )
+                break;
+              buf[1 + cnt] = *(unsigned long *)(&shl->hook);
+              cnt++;
+            }
+            buf[0] = cnt;
+            kbuf_size = sizeof(unsigned long) * (cnt + 1);
+            if (copy_to_user((void*)ioctl_param, (void*)buf, kbuf_size) > 0)
+            {
+              kfree(buf);
+              return -EFAULT;
+            }
             kfree(buf);
-            return -EFAULT;
           }
-          kfree(buf);
         }
       break; /* IOCTL_GET_LSM_HOOKS */
 

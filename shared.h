@@ -484,7 +484,7 @@ struct one_nl_socket
 // in params:
 //  0 - proto_list address
 //  1 - proto_list_mutex address
-//  3 - cnt
+//  2 - cnt
 // out params
 //  if count is zero - count of protos
 //  else long size + N * void *
@@ -506,7 +506,7 @@ struct one_tcp_ulp_ops
 // in params:
 //  0 - tcp_ulp_list address
 //  1 - tcp_ulp_list_lock address
-//  3 - cnt
+//  2 - cnt
 // out params
 //  if count is zero - count of ops
 //  else long size + N * one_tcp_ulp_ops
@@ -521,5 +521,25 @@ struct one_tcp_ulp_ops
 //   if count is zero - count of lsm hooks
 //   else long size + N * security_hook_list->hook
 #define IOCTL_GET_LSM_HOOKS            _IOR(IOCTL_NUM, 0x2c, int*)
+
+struct one_bpf_reg
+{
+  void *addr;
+  void *attach_target;
+  void *detach_target;
+  void *show_fdinfo;
+  void *fill_link_info;
+  unsigned int feature;
+};
+
+// read registered bpf_iter_reg
+// in params:
+//  0 - list address (targets)
+//  1 - targets_mutex address
+//  2 - cnt
+// out params
+//  if count is zero - count of targets
+//  else long size + N * one_bpf_reg
+#define IOCTL_GET_BPF_REGS             _IOR(IOCTL_NUM, 0x2d, int*)
 
 #endif /* LKCD_SHARED_H */
