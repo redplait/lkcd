@@ -2669,6 +2669,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
               curr->detach_target   = (void *)ti->reg_info->detach_target;
               curr->show_fdinfo     = (void *)ti->reg_info->show_fdinfo;
               curr->fill_link_info  = (void *)ti->reg_info->fill_link_info;
+              curr->seq_info        = (void *)ti->reg_info->seq_info;
               curr->feature         = ti->reg_info->feature;
               curr++;
               cnt++;

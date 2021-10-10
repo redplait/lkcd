@@ -529,6 +529,7 @@ struct one_bpf_reg
   void *detach_target;
   void *show_fdinfo;
   void *fill_link_info;
+  void *seq_info;
   unsigned int feature;
 };
 
