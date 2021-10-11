@@ -543,4 +543,28 @@ struct one_bpf_reg
 //  else long size + N * one_bpf_reg
 #define IOCTL_GET_BPF_REGS             _IOR(IOCTL_NUM, 0x2d, int*)
 
+struct one_event_command
+{
+  void *addr;
+  void *func;
+  void *reg;
+  void *unreg;
+  void *unreg_all;
+  void *set_filter;
+  void *get_trigger_ops;
+  int trigger_type;
+  int flags;
+  char name[128];
+};
+
+// read registered event_commands
+// in params:
+//  0 - list address (trigger_commands)
+//  1 - trigger_cmd_mutex address
+//  2 - cnt
+// out params
+//  if count is zero - count of targets
+//  else long size + N * one_event_command
+#define IOCTL_GET_EVENT_CMDS           _IOR(IOCTL_NUM, 0x2e, int*)
+
 #endif /* LKCD_SHARED_H */

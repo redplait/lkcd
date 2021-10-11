@@ -1,5 +1,7 @@
 #pragma once
 
+// ripped from https://elixir.bootlin.com/linux/v5.11/source/fs/mount.h#L32
+
 struct mountpoint {
 	struct hlist_node m_hash;
 	struct dentry *m_dentry;

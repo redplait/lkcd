@@ -1,3 +1,7 @@
+#pragma once
+
+// ripped from https://elixir.bootlin.com/linux/v5.11/source/net/netlink/af_netlink.h#L23
+
 struct netlink_sock {
 	/* struct sock has to be the first member of netlink_sock */
 	struct sock		sk;

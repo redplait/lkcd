@@ -1,5 +1,7 @@
 #pragma once
 
+// ripped from https://elixir.bootlin.com/linux/v5.11/source/kernel/events/uprobes.c#L55
+
 struct und_uprobe {
 	struct rb_node		rb_node;	/* node in the rb tree */
 	refcount_t		ref;

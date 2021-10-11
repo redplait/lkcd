@@ -48,6 +48,7 @@
 #include <linux/lsm_hooks.h>
 #include <linux/bpf.h>
 #include "bpf.h"
+#include "event.h"
 #include "shared.h"
 
 MODULE_LICENSE("GPL");
@@ -2633,6 +2634,60 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
           kfree(buf);          
        }
      break; /* IOCTL_GET_NL_SK */
+
+    case IOCTL_GET_EVENT_CMDS:
+        if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 3) > 0 )
+  	  return -EFAULT;
+  	else {
+          struct list_head *head = (struct list_head *)ptrbuf[0];
+          struct mutex *m = (struct mutex *)ptrbuf[1];
+          unsigned long cnt = 0;
+          struct event_command *ti;
+          if ( !ptrbuf[2] )
+          {
+            mutex_lock(m);
+            list_for_each_entry(ti, head, list)
+              cnt++;
+            mutex_unlock(m);
+            if (copy_to_user((void*)ioctl_param, (void*)&cnt, sizeof(cnt)) > 0)
+              return -EFAULT;
+          } else {
+            struct one_event_command *curr;
+            size_t kbuf_size = sizeof(unsigned long) + sizeof(struct one_event_command) * ptrbuf[2];
+            unsigned long *buf = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL);
+            if ( !buf )
+              return -ENOMEM;
+            curr = (struct one_event_command *)(buf + 1);
+            mutex_lock(m);
+            list_for_each_entry(ti, head, list)
+            {
+              if ( cnt >= ptrbuf[2] )
+                break;
+              curr->addr = (void *)ti;
+              curr->func            = ti->func;
+              curr->reg             = ti->reg;
+              curr->unreg           = ti->unreg;
+              curr->unreg_all       = ti->unreg_all;
+              curr->set_filter      = ti->set_filter;
+              curr->get_trigger_ops = ti->get_trigger_ops;
+              curr->trigger_type    = (int)ti->trigger_type;
+              curr->flags           = ti->flags;
+              strlcpy(curr->name, ti->name, sizeof(curr->name));
+              curr++;
+              cnt++;
+            }
+            mutex_unlock(m);
+            buf[0] = cnt;
+            kbuf_size = sizeof(unsigned long) + sizeof(struct one_event_command) * cnt;
+            if (copy_to_user((void*)ioctl_param, (void*)buf, kbuf_size) > 0)
+            {
+              kfree(buf);
+              return -EFAULT;
+            }
+            kfree(buf);
+          }
+        }
+     break; /* IOCTL_GET_EVENT_CMDS */
 
     case IOCTL_GET_BPF_REGS:
         if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 3) > 0 )

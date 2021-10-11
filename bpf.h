@@ -1,3 +1,5 @@
+#pragma once
+
 // ripped from https://elixir.bootlin.com/linux/v5.11/source/kernel/bpf/bpf_iter.c#L9
 
 struct bpf_iter_target_info {
