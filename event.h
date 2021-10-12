@@ -22,3 +22,14 @@ struct ftrace_func_command {
 	char		*name;
 	void*		*func;
 };
+
+// ripped from https://elixir.bootlin.com/linux/v5.11/source/kernel/trace/trace_dynevent.h#L40
+
+struct dyn_event_operations {
+	struct list_head	list;
+	void *create;
+	void *show;
+	void *is_busy;
+	void *free;
+	void *match;
+};

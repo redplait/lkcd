@@ -601,5 +601,24 @@ struct one_tracefunc_cmd
 //  else long size + N * one_tracefunc_cmd
 #define IOCTL_GET_FTRACE_CMDS          _IOR(IOCTL_NUM, 0x30, int*)
 
+struct one_dyn_event_op
+{
+  void *addr;
+  void *create;
+  void *show;
+  void *is_busy;
+  void *free;
+  void *match;
+};
+
+// read registered dyn_event_operations
+// in params:
+//  0 - list address (dyn_event_ops_list)
+//  1 - dyn_event_ops_mutex address
+//  2 - cnt
+// out params
+//  if count is zero - count of ftrace_func_commands
+//  else long size + N * one_tracefunc_cmd
+#define IOCTL_GET_DYN_EVT_OPS          _IOR(IOCTL_NUM, 0x31, int*)
 
 #endif /* LKCD_SHARED_H */
