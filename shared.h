@@ -584,5 +584,22 @@ struct one_trace_export
 //  else long size + N * one_trace_export
 #define IOCTL_GET_TRACE_EXPORTS        _IOR(IOCTL_NUM, 0x2f, int*)
 
+struct one_tracefunc_cmd
+{
+  void *addr;
+  void *func;
+  char name[128];
+};
+
+// read ftrace_func_commands
+// in params:
+//  0 - list address (ftrace_commands)
+//  1 - ftrace_cmd_mutex address
+//  2 - cnt
+// out params
+//  if count is zero - count of ftrace_func_commands
+//  else long size + N * one_tracefunc_cmd
+#define IOCTL_GET_FTRACE_CMDS          _IOR(IOCTL_NUM, 0x30, int*)
+
 
 #endif /* LKCD_SHARED_H */
