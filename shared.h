@@ -567,4 +567,22 @@ struct one_event_command
 //  else long size + N * one_event_command
 #define IOCTL_GET_EVENT_CMDS           _IOR(IOCTL_NUM, 0x2e, int*)
 
+struct one_trace_export
+{
+  void *addr;
+  void *write;
+  int flags;
+};
+
+// read registered trace_exports
+// in params:
+//  0 - list address (ftrace_exports_list)
+//  1 - ftrace_export_lock address
+//  2 - cnt
+// out params
+//  if count is zero - count of trace_exports
+//  else long size + N * one_trace_export
+#define IOCTL_GET_TRACE_EXPORTS        _IOR(IOCTL_NUM, 0x2f, int*)
+
+
 #endif /* LKCD_SHARED_H */

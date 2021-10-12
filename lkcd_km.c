@@ -33,6 +33,7 @@
 #include <linux/mm.h>
 #include <linux/uaccess.h>
 #include <linux/vmalloc.h>
+#include <linux/trace.h>
 #include <linux/trace_events.h>
 #include <linux/tracepoint-defs.h>
 #include <net/net_namespace.h>
@@ -2634,6 +2635,57 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
           kfree(buf);          
        }
      break; /* IOCTL_GET_NL_SK */
+
+    case IOCTL_GET_TRACE_EXPORTS:
+        if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 3) > 0 )
+  	  return -EFAULT;
+  	else {
+          struct trace_export *te = *(struct trace_export **)ptrbuf[0];
+          struct mutex *m = (struct mutex *)ptrbuf[1];
+          unsigned long cnt = 0;
+          if ( !ptrbuf[2] )
+          {
+            mutex_lock(m);
+            while( te )
+            {
+              cnt++;
+              te = te->next;
+            }
+            mutex_unlock(m);
+            if (copy_to_user((void*)ioctl_param, (void*)&cnt, sizeof(cnt)) > 0)
+              return -EFAULT;
+          } else {
+            struct one_trace_export *curr;
+            size_t kbuf_size = sizeof(unsigned long) + sizeof(struct one_trace_export) * ptrbuf[2];
+            unsigned long *buf = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL);
+            if ( !buf )
+              return -ENOMEM;
+            curr = (struct one_trace_export *)(buf + 1);
+            mutex_lock(m);
+            while( te )
+            {
+              if ( cnt >= ptrbuf[2] )
+                break;
+              curr->addr  = (void *)te;
+              curr->write = (void *)te->write;
+              curr->flags = te->flags;
+              // next iteration
+              te = te->next;
+              curr++;
+              cnt++;
+            }
+            mutex_unlock(m);
+            buf[0] = cnt;
+            kbuf_size = sizeof(unsigned long) + sizeof(struct one_trace_export) * cnt;
+            if (copy_to_user((void*)ioctl_param, (void*)buf, kbuf_size) > 0)
+            {
+              kfree(buf);
+              return -EFAULT;
+            }
+            kfree(buf);
+          }
+        }
+     break; /* IOCTL_GET_TRACE_EXPORTS */
 
     case IOCTL_GET_EVENT_CMDS:
         if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 3) > 0 )
