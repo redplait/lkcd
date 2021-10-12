@@ -571,6 +571,184 @@ void dump_kptr(unsigned long l, const char *name, sa64 delta)
   }
 }
 
+static size_t calc_tracefunc_cmd_size(size_t n)
+{
+  return n * sizeof(one_tracefunc_cmd) + sizeof(unsigned long);
+}
+
+void dump_tracefunc_cmds(int fd, a64 list, a64 lock, sa64 delta)
+{
+  if ( !list )
+  {
+    printf("cannot find ftrace_commands\n");
+    return;
+  }
+  if ( !lock )
+  {
+    printf("cannot find ftrace_cmd_mutex\n");
+    return;
+  }
+  unsigned long args[3] = { list + delta, lock + delta, 0 };
+  int err = ioctl(fd, IOCTL_GET_FTRACE_CMDS, (int *)args);
+  if ( err )
+  {
+    printf("IOCTL_GET_FTRACE_CMDS count failed, error %d (%s)\n", errno, strerror(errno));
+    return;
+  }
+  printf("\nftrace_commands at %p: %ld\n", (void *)(list + delta), args[0]);
+  if ( !args[0] )
+    return;
+  size_t size = calc_tracefunc_cmd_size(args[0]);
+  unsigned long *buf = (unsigned long *)malloc(size);
+  if ( !buf )
+  {
+    printf("cannot alloc buffer for ftrace_func_commands, len %lX\n", size);
+    return;
+  }
+  buf[0] = list + delta;
+  buf[1] = lock + delta;
+  buf[2] = args[0];
+  err = ioctl(fd, IOCTL_GET_FTRACE_CMDS, (int *)buf);
+  if ( err )
+  {
+    printf("IOCTL_GET_FTRACE_CMDS failed, error %d (%s)\n", errno, strerror(errno));
+    free(buf);
+    return;
+  }
+  size = buf[0];
+  one_tracefunc_cmd *curr = (one_tracefunc_cmd *)(buf + 1);
+  for ( size_t idx = 0; idx < size; idx++, curr++ )
+  {
+    printf(" [%ld] %s at", idx, curr->name);
+    dump_unnamed_kptr((unsigned long)curr->addr, delta);
+    if ( curr->func )
+      dump_kptr((unsigned long)curr->func, "  func", delta);
+  }
+  free(buf);
+}
+
+static size_t calc_trace_exports_size(size_t n)
+{
+  return n * sizeof(one_trace_export) + sizeof(unsigned long);
+}
+
+void dump_trace_exports(int fd, a64 list, a64 lock, sa64 delta)
+{
+  if ( !list )
+  {
+    printf("cannot find ftrace_exports_list\n");
+    return;
+  }
+  if ( !lock )
+  {
+    printf("cannot find ftrace_export_lock\n");
+    return;
+  }
+  unsigned long args[3] = { list + delta, lock + delta, 0 };
+  int err = ioctl(fd, IOCTL_GET_TRACE_EXPORTS, (int *)args);
+  if ( err )
+  {
+    printf("IOCTL_GET_TRACE_EXPORTS count failed, error %d (%s)\n", errno, strerror(errno));
+    return;
+  }
+  printf("\ntrace_exports at %p: %ld\n", (void *)(list + delta), args[0]);
+  if ( !args[0] )
+    return;
+  size_t size = calc_trace_exports_size(args[0]);
+  unsigned long *buf = (unsigned long *)malloc(size);
+  if ( !buf )
+  {
+    printf("cannot alloc buffer for trace_exports, len %lX\n", size);
+    return;
+  }
+  buf[0] = list + delta;
+  buf[1] = lock + delta;
+  buf[2] = args[0];
+  err = ioctl(fd, IOCTL_GET_TRACE_EXPORTS, (int *)buf);
+  if ( err )
+  {
+    printf("IOCTL_GET_TRACE_EXPORTS failed, error %d (%s)\n", errno, strerror(errno));
+    free(buf);
+    return;
+  }
+  size = buf[0];
+  one_trace_export *curr = (one_trace_export *)(buf + 1);
+  for ( size_t idx = 0; idx < size; idx++, curr++ )
+  {
+    printf(" [%ld] flags %d at", idx, curr->flags);
+    dump_unnamed_kptr((unsigned long)curr->addr, delta);
+    if ( curr->write )
+      dump_kptr((unsigned long)curr->write, "  write", delta);
+  }
+  free(buf);
+}
+
+static size_t calc_evt_cmd_size(size_t n)
+{
+  return n * sizeof(one_event_command) + sizeof(unsigned long);
+}
+
+void dump_event_cmds(int fd, a64 list, a64 lock, sa64 delta)
+{
+  if ( !list )
+  {
+    printf("cannot find trigger_commands\n");
+    return;
+  }
+  if ( !lock )
+  {
+    printf("cannot find trigger_cmd_mutex\n");
+    return;
+  }
+  unsigned long args[3] = { list + delta, lock + delta, 0 };
+  int err = ioctl(fd, IOCTL_GET_EVENT_CMDS, (int *)args);
+  if ( err )
+  {
+    printf("IOCTL_GET_EVENT_CMDS count failed, error %d (%s)\n", errno, strerror(errno));
+    return;
+  }
+  printf("\ntrigger_commands at %p: %ld\n", (void *)(list + delta), args[0]);
+  if ( !args[0] )
+    return;
+  size_t size = calc_evt_cmd_size(args[0]);
+  unsigned long *buf = (unsigned long *)malloc(size);
+  if ( !buf )
+  {
+    printf("cannot alloc buffer for trigger_commands, len %lX\n", size);
+    return;
+  }
+  buf[0] = list + delta;
+  buf[1] = lock + delta;
+  buf[2] = args[0];
+  err = ioctl(fd, IOCTL_GET_EVENT_CMDS, (int *)buf);
+  if ( err )
+  {
+    printf("IOCTL_GET_EVENT_CMDS failed, error %d (%s)\n", errno, strerror(errno));
+    free(buf);
+    return;
+  }
+  size = buf[0];
+  one_event_command *curr = (one_event_command *)(buf + 1);
+  for ( size_t idx = 0; idx < size; idx++, curr++ )
+  {
+    printf(" [%ld] %s trigger_type %d flags %d at", idx, curr->name, curr->trigger_type, curr->flags);
+    dump_unnamed_kptr((unsigned long)curr->addr, delta);
+    if ( curr->func )
+      dump_kptr((unsigned long)curr->func, "  func", delta);
+    if ( curr->reg )
+      dump_kptr((unsigned long)curr->reg, "  reg", delta);
+    if ( curr->unreg )
+      dump_kptr((unsigned long)curr->unreg, "  unreg", delta);
+    if ( curr->unreg_all )
+      dump_kptr((unsigned long)curr->unreg_all, "  unreg_all", delta);
+    if ( curr->set_filter )
+      dump_kptr((unsigned long)curr->set_filter, "  set_filter", delta);
+    if ( curr->get_trigger_ops )
+      dump_kptr((unsigned long)curr->get_trigger_ops, "  get_trigger_ops", delta);
+  }
+  free(buf);
+}
+
 static size_t calc_bpf_reg_size(size_t n)
 {
   return n * sizeof(one_bpf_reg) + sizeof(unsigned long);
@@ -629,6 +807,8 @@ void dump_bpf_targets(int fd, a64 list, a64 lock, sa64 delta)
       dump_kptr((unsigned long)curr->show_fdinfo, "  show_fdinfo", delta);
     if ( curr->fill_link_info )
       dump_kptr((unsigned long)curr->fill_link_info, "  fill_link_info", delta);
+    if ( curr->seq_info )
+      dump_kptr((unsigned long)curr->seq_info, "  seq_info", delta);
   }
   free(buf);
 }
@@ -2372,6 +2552,20 @@ end:
 #endif /* _MSC_VER */
            free(tsyms);
          }
+#ifndef _MSC_VER
+         // event cmds
+         auto ecl = get_addr("trigger_commands");
+         auto ecm = get_addr("trigger_cmd_mutex");
+         dump_event_cmds(fd, ecl, ecm, delta);
+         // trace exports
+         ecl = get_addr("ftrace_exports_list");
+         ecm = get_addr("ftrace_export_lock");
+         dump_trace_exports(fd, ecl, ecm, delta);
+         // ftrace cmds
+         ecl = get_addr("ftrace_commands");
+         ecm = get_addr("ftrace_cmd_mutex");
+         dump_tracefunc_cmds(fd, ecl, ecm, delta);
+#endif /* _MSC_VER */
        }
        // under arm64 we need count relocs in .data section       
        if ( reader.get_machine() == 183 )
