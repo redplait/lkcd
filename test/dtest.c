@@ -9,6 +9,7 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include <errno.h>
+#include <net/if.h>
 #include "shared.h"
 #include "kmods.h"
 #include "kopts.h"
