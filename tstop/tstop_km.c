@@ -9,6 +9,7 @@
 #include <linux/profile.h>
 #include <linux/seq_file.h>
 #include <linux/debugfs.h>
+#include "sched.h"
 
 MODULE_LICENSE("GPL");
 // Char we show before each debug print
@@ -228,7 +229,17 @@ static rwlock_t hlock;
 static struct rhashtable *tracked_ht = 0;
 
 static struct sched_class *stop_sched = 0;
+static struct sched_class *fair_sched = 0;
+static struct sched_class my_hybrid_sched;
 struct dentry *pde = 0;
+
+void construct_hybrid(void)
+{
+  memcpy(&my_hybrid_sched, fair_sched, sizeof(my_hybrid_sched));
+  // borrow enqueue_task & dequeue_task from stop scheduler
+  my_hybrid_sched.enqueue_task = stop_sched->enqueue_task;
+  my_hybrid_sched.dequeue_task = stop_sched->dequeue_task;
+}
 
 void process_pid(int p_id, int is_remove)
 {
@@ -251,7 +262,7 @@ void process_pid(int p_id, int is_remove)
       {
         add->pid = p_id;
         add->old_sched = task->sched_class;
-        task->sched_class = stop_sched;
+        task->sched_class = &my_hybrid_sched;
         rhashtable_insert_fast(tracked_ht, &add->head, tracked_hash_params);
       }
     } else {
@@ -368,7 +379,6 @@ static const struct file_operations debug_ops = {
 	.release	= seq_release_private,
 };
 
-
 // init
 int __init
 init_module (void)
@@ -380,8 +390,15 @@ init_module (void)
     printk("Unable to find stop_sched\n");
     return -ENOENT;
   }
+  fair_sched = (struct sched_class *)lkcd_lookup_name("fair_sched_class");
+  if ( !fair_sched )
+  {
+    printk("Unable to find fair_sched\n");
+    return -ENOENT;
+  }
+  construct_hybrid();
   my_find_task_by_vpid = (und_find_task_by_vpid)lkcd_lookup_name("find_task_by_vpid");
-  if ( !stop_sched )
+  if ( !my_find_task_by_vpid )
   {
     printk("Unable to find find_task_by_vpid\n");
     return -ENOENT;
