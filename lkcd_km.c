@@ -41,6 +41,7 @@
 #include <linux/netdevice.h>
 #include <linux/netfilter.h>
 #include <net/rtnetlink.h>
+#include <net/genetlink.h>
 #include <net/tcp.h>
 #include <linux/sock_diag.h>
 #include <net/protocol.h>
@@ -2563,6 +2564,59 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
             return -EFAULT;
         }
       break; /* IOCTL_GET_NLTAB */
+
+    case IOCTL_GET_GENL_FAMILIES:
+        if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 2) > 0 )
+  	  return -EFAULT;
+  	else {
+          struct idr *genl = (struct idr *)ptrbuf[0];
+          unsigned long cnt = 0;
+          const struct genl_family *family;
+          unsigned int id;
+          if ( !ptrbuf[1] )
+          {
+            genl_lock();
+            idr_for_each_entry(genl, family, id)
+              cnt++;
+            genl_unlock();
+            if (copy_to_user((void*)ioctl_param, (void*)&cnt, sizeof(cnt)) > 0)
+              return -EFAULT;
+          } else {
+            size_t kbuf_size = sizeof(unsigned long) + ptrbuf[1] * sizeof(struct one_genl_family);
+            struct one_genl_family *curr;
+            unsigned long *buf = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL);
+            if ( !buf )
+              return -ENOMEM;
+            curr = (struct one_genl_family *)(buf + 1);
+            genl_lock();
+            idr_for_each_entry(genl, family, id)
+            {
+              if ( cnt >= ptrbuf[1] )
+                break;
+              curr->addr = (void *)family;
+              curr->id = family->id;
+              curr->pre_doit = (void *)family->pre_doit;
+              curr->post_doit = (void *)family->post_doit;
+              curr->ops = (void *)family->ops;
+              curr->small_ops = (void *)family->small_ops;
+              strlcpy(curr->name, family->name, GENL_NAMSIZ);
+              // next iteration
+              cnt++;
+              curr++;
+            }
+            genl_unlock();
+            // copy to usermode
+            buf[0] = cnt;
+            kbuf_size = sizeof(unsigned long) + cnt * sizeof(struct one_genl_family);
+            if (copy_to_user((void*)ioctl_param, (void*)buf, kbuf_size) > 0)
+            {
+              kfree(buf);
+              return -EFAULT;
+            }
+            kfree(buf);          
+          }
+        }
+      break; /* IOCTL_GET_GENL_FAMILIES */
 
     case IOCTL_GET_NL_SK:
         if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 4) > 0 )

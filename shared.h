@@ -621,4 +621,24 @@ struct one_dyn_event_op
 //  else long size + N * one_tracefunc_cmd
 #define IOCTL_GET_DYN_EVT_OPS          _IOR(IOCTL_NUM, 0x31, int*)
 
+struct one_genl_family
+{
+  void *addr;
+  int id;
+  char name[GENL_NAMSIZ];
+  void *pre_doit;
+  void *post_doit;
+  void *ops;
+  void *small_ops;
+};
+
+// read registered genl_family
+// in params:
+//  0 - irb address (genl_fam_idr). lock functions are exported genl_lock & genl_unlock
+//  1 - cnt
+// out params
+//  if count is zero - count of genl_families
+//  else long size + N * one_genl_family
+#define IOCTL_GET_GENL_FAMILIES        _IOR(IOCTL_NUM, 0x32, int*)
+
 #endif /* LKCD_SHARED_H */
