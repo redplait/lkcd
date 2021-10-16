@@ -9,6 +9,7 @@
 #include <net/if.h>
 #include <inttypes.h>
 #include <linux/netlink.h>
+#include <linux/genetlink.h>
 #endif
 
 #include <iostream>
@@ -571,6 +572,70 @@ void dump_kptr(unsigned long l, const char *name, sa64 delta)
   }
 }
 
+static size_t calc_dynevents_ops_size(size_t n)
+{
+  return n * sizeof(one_dyn_event_op) + sizeof(unsigned long);
+}
+
+void dump_dynevents_ops(int fd, a64 list, a64 lock, sa64 delta)
+{
+  if ( !list )
+  {
+    printf("cannot find dyn_event_ops_list\n");
+    return;
+  }
+  if ( !lock )
+  {
+    printf("cannot find dyn_event_ops_mutex\n");
+    return;
+  }
+  unsigned long args[3] = { list + delta, lock + delta, 0 };
+  int err = ioctl(fd, IOCTL_GET_DYN_EVT_OPS, (int *)args);
+  if ( err )
+  {
+    printf("IOCTL_GET_DYN_EVT_OPS count failed, error %d (%s)\n", errno, strerror(errno));
+    return;
+  }
+  printf("\ndyn_event_ops_list at %p: %ld\n", (void *)(list + delta), args[0]);
+  if ( !args[0] )
+    return;
+  size_t size = calc_dynevents_ops_size(args[0]);
+  unsigned long *buf = (unsigned long *)malloc(size);
+  if ( !buf )
+  {
+    printf("cannot alloc buffer for dynevents_ops, len %lX\n", size);
+    return;
+  }
+  buf[0] = list + delta;
+  buf[1] = lock + delta;
+  buf[2] = args[0];
+  err = ioctl(fd, IOCTL_GET_DYN_EVT_OPS, (int *)buf);
+  if ( err )
+  {
+    printf("IOCTL_GET_DYN_EVT_OPS failed, error %d (%s)\n", errno, strerror(errno));
+    free(buf);
+    return;
+  }
+  size = buf[0];
+  one_dyn_event_op *curr = (one_dyn_event_op *)(buf + 1);
+  for ( size_t idx = 0; idx < size; idx++, curr++ )
+  {
+    printf(" [%ld] at", idx);
+    dump_unnamed_kptr((unsigned long)curr->addr, delta);
+    if ( curr->create )
+      dump_kptr((unsigned long)curr->create, "  create", delta);
+    if ( curr->show )
+      dump_kptr((unsigned long)curr->show, "  show", delta);
+    if ( curr->is_busy )
+      dump_kptr((unsigned long)curr->is_busy, "  is_busy", delta);
+    if ( curr->free )
+      dump_kptr((unsigned long)curr->free, "  free", delta);
+    if ( curr->match )
+      dump_kptr((unsigned long)curr->match, "  match", delta);
+  }
+  free(buf);
+}
+
 static size_t calc_tracefunc_cmd_size(size_t n)
 {
   return n * sizeof(one_tracefunc_cmd) + sizeof(unsigned long);
@@ -745,6 +810,81 @@ void dump_event_cmds(int fd, a64 list, a64 lock, sa64 delta)
       dump_kptr((unsigned long)curr->set_filter, "  set_filter", delta);
     if ( curr->get_trigger_ops )
       dump_kptr((unsigned long)curr->get_trigger_ops, "  get_trigger_ops", delta);
+  }
+  free(buf);
+}
+
+static size_t calc_bpf_link_size(size_t n)
+{
+  return n * sizeof(one_bpf_links) + sizeof(unsigned long);
+}
+
+void dump_bpf_links(int fd, a64 list, a64 lock, sa64 delta)
+{
+  if ( !list )
+  {
+    printf("cannot find link_idr\n");
+    return;
+  }
+  if ( !lock )
+  {
+    printf("cannot find link_idr_lock\n");
+    return;
+  }
+  unsigned long args[3] = { list + delta, lock + delta, 0 };
+  int err = ioctl(fd, IOCTL_GET_BPF_LINKS, (int *)args);
+  if ( err )
+  {
+    printf("IOCTL_GET_BPF_LINKS count failed, error %d (%s)\n", errno, strerror(errno));
+    return;
+  }
+  printf("\nlink_idr at %p: %ld\n", (void *)(list + delta), args[0]);
+  if ( !args[0] )
+    return;
+  size_t size = calc_bpf_link_size(args[0]);
+  unsigned long *buf = (unsigned long *)malloc(size);
+  if ( !buf )
+  {
+    printf("cannot alloc buffer for bpf_links, len %lX\n", size);
+    return;
+  }
+  buf[0] = list + delta;
+  buf[1] = lock + delta;
+  buf[2] = args[0];
+  err = ioctl(fd, IOCTL_GET_BPF_LINKS, (int *)buf);
+  if ( err )
+  {
+    printf("IOCTL_GET_BPF_LINKS failed, error %d (%s)\n", errno, strerror(errno));
+    free(buf);
+    return;
+  }
+  size = buf[0];
+  one_bpf_links *curr = (one_bpf_links *)(buf + 1);
+  for ( size_t idx = 0; idx < size; idx++, curr++ )
+  {
+    printf(" [%ld] at %p id %d type %d\n", idx, curr->addr, curr->id, curr->type);
+    if ( curr->ops )
+    {
+      dump_kptr((unsigned long)curr->ops, " ops", delta);
+      if ( curr->release )
+        dump_kptr((unsigned long)curr->release, "  release", delta);
+      if ( curr->dealloc )
+        dump_kptr((unsigned long)curr->dealloc, "  dealloc", delta);
+      if ( curr->detach )
+        dump_kptr((unsigned long)curr->detach, "  detach", delta);
+      if ( curr->update_prog )
+        dump_kptr((unsigned long)curr->update_prog, "  update_prog", delta);
+      if ( curr->show_fdinfo )
+        dump_kptr((unsigned long)curr->show_fdinfo, "  show_fdinfo", delta);
+      if ( curr->fill_link_info )
+        dump_kptr((unsigned long)curr->fill_link_info, "  fill_link_info", delta);
+    }
+    if ( curr->prog )
+    {
+      printf("  prog %p type %d len %d jited_len %d\n", curr->prog, curr->prog_type, curr->len, curr->jited_len);
+      if ( curr->bpf_func )
+        dump_kptr((unsigned long)curr->bpf_func, "  bpf_func", delta);     
+    }
   }
   free(buf);
 }
@@ -1248,6 +1388,59 @@ void dump_net_chains(int fd, a64 nca, size_t cnt, sa64 delta)
   free(buf);
 }
 
+static size_t calc_genl_size(size_t n)
+{
+  return n * sizeof(one_genl_family) + sizeof(unsigned long);
+}
+
+void dump_genl(int fd, a64 addr, sa64 delta)
+{
+  if ( !addr )
+  {
+    printf("cannot find genl_fam_idr\n");
+    return;
+  }
+  unsigned long args[2] = { addr + delta, 0 };
+  int err = ioctl(fd, IOCTL_GET_GENL_FAMILIES, (int *)args);
+  if ( err )
+  {
+    printf("IOCTL_GET_GENL_FAMILIES count failed, error %d (%s)\n", errno, strerror(errno));
+    return;
+  }
+  printf("\ngenl_fam_idr at %p: %ld\n", (void *)(addr + delta), args[0]);
+  if ( !args[0] )
+    return;
+  size_t size = calc_genl_size(args[0]);
+  unsigned long *buf = (unsigned long *)malloc(size);
+  if ( !buf )
+    return;
+  buf[0] = addr + delta;
+  buf[1] = args[0];
+  err = ioctl(fd, IOCTL_GET_GENL_FAMILIES, (int *)buf);
+  if ( err )
+  {
+    printf("IOCTL_GET_GENL_FAMILIES failed, error %d (%s)\n", errno, strerror(errno));
+    free(buf);
+    return;
+  }
+  size = buf[0];
+  one_genl_family *curr = (one_genl_family *)(buf + 1);
+  for ( size_t j = 0; j < size; j++, curr++ )
+  {
+    printf(" [%ld] at %p id %d %s", j, curr->addr, curr->id, curr->name);
+    dump_unnamed_kptr((unsigned long)curr->addr, delta);
+    if ( curr->pre_doit )
+      dump_kptr((unsigned long)curr->pre_doit, " pre_doit", delta);
+    if ( curr->post_doit )
+      dump_kptr((unsigned long)curr->post_doit, " post_doit", delta);
+    if ( curr->ops )
+      dump_kptr((unsigned long)curr->ops, " ops", delta);
+    if ( curr->small_ops )
+      dump_kptr((unsigned long)curr->small_ops, " small_ops", delta);
+  }
+  free(buf);
+}
+
 union netlink_args
 {
   unsigned long args[3];
@@ -1616,6 +1809,8 @@ void dump_nets(int fd, sa64 delta)
   nca = get_addr("nl_table");
   plock = get_addr("nl_table_lock");
   dump_netlinks(fd, nca, plock, delta);
+  nca = get_addr("genl_fam_idr");
+  dump_genl(fd, nca, delta);
 }
 
 static size_t calc_super_size(size_t n)
@@ -2140,7 +2335,9 @@ void check_tracepoints(int fd, sa64 delta, addr_sym *tsyms, size_t tcount)
     size = ntfy[0];
     for ( j = 0; j < size; j++ )
     {
-      if ( is_inside_kernel(ntfy[1 + j]) )
+      printf("  [%ld]", j);
+      dump_unnamed_kptr(ntfy[1 + j], delta);
+/*      if ( is_inside_kernel(ntfy[1 + j]) )
         printf("  [%ld] %p - kernel\n", j, (void *)ntfy[1 + j]);
       else {
         const char *mname = find_kmod(ntfy[1 + j]);
@@ -2148,7 +2345,7 @@ void check_tracepoints(int fd, sa64 delta, addr_sym *tsyms, size_t tcount)
           printf("  [%ld] %p - %s\n", j, (void *)ntfy[1 + j], mname);
         else
           printf("  [%ld] %p UNKNOWN\n", j, (void *)ntfy[1 + j]);
-      }
+      } */
     }
   }
   free(ntfy);
@@ -2565,6 +2762,10 @@ end:
          ecl = get_addr("ftrace_commands");
          ecm = get_addr("ftrace_cmd_mutex");
          dump_tracefunc_cmds(fd, ecl, ecm, delta);
+         // dynamic events ops
+         ecl = get_addr("dyn_event_ops_list");
+         ecm = get_addr("dyn_event_ops_mutex");
+         dump_dynevents_ops(fd, ecl, ecm, delta);
 #endif /* _MSC_VER */
        }
        // under arm64 we need count relocs in .data section       
@@ -2656,6 +2857,9 @@ end:
 #ifndef _MSC_VER
             auto tgm = get_addr("targets_mutex");
             dump_bpf_targets(fd, bpf_target, tgm, delta);
+            entry = get_addr("link_idr");
+            tgm = get_addr("link_idr_lock");
+            dump_bpf_links(fd, entry, tgm, delta);
 #endif /* !_MSC_VER */
           }
           if ( opt_S )
