@@ -49,6 +49,7 @@
 #include "netlink.h"
 #include <linux/lsm_hooks.h>
 #include <linux/bpf.h>
+#include <linux/filter.h>
 #include "bpf.h"
 #include "event.h"
 #include "shared.h"
@@ -2689,6 +2690,74 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
           kfree(buf);          
        }
      break; /* IOCTL_GET_NL_SK */
+
+    case IOCTL_GET_BPF_LINKS:
+       if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 3) > 0 )
+         return -EFAULT;
+       else {
+         struct idr *links = (struct idr *)ptrbuf[0];
+         spinlock_t *lock = (spinlock_t *)ptrbuf[1];
+         unsigned long cnt = 0;
+         struct bpf_link *link;
+         unsigned int id;
+         if ( !ptrbuf[2] )
+         {
+            spin_lock_bh(lock);
+            idr_for_each_entry(links, link, id)
+              cnt++;
+            spin_unlock_bh(lock);
+            if (copy_to_user((void*)ioctl_param, (void*)&cnt, sizeof(cnt)) > 0)
+              return -EFAULT;
+         } else {
+            size_t kbuf_size = sizeof(unsigned long) + ptrbuf[2] * sizeof(struct one_bpf_links);
+            struct one_bpf_links *curr;
+            unsigned long *buf = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL | __GFP_ZERO);
+            if ( !buf )
+              return -ENOMEM;
+            curr = (struct one_bpf_links *)(buf + 1);
+            spin_lock_bh(lock);
+            idr_for_each_entry(links, link, id)
+            {
+              if ( cnt >= ptrbuf[1] )
+                break;
+              curr->addr = (void *)link;
+              curr->id = link->id;
+              curr->type = (int)link->type;
+              curr->ops = (void *)link->ops;
+              if ( link->ops )
+              {
+                curr->release = (void *)link->ops->release;
+                curr->dealloc = (void *)link->ops->dealloc;
+                curr->detach  = (void *)link->ops->detach;
+                curr->update_prog = (void *)link->ops->update_prog;
+                curr->show_fdinfo = (void *)link->ops->show_fdinfo;
+                curr->fill_link_info = (void *)link->ops->fill_link_info;
+              }
+              curr->prog = (void *)link->prog;
+              if ( link->prog )
+              {
+                curr->prog_type = (int)link->prog->type;
+                curr->len = link->prog->len;
+                curr->jited_len = link->prog->jited_len;
+                curr->bpf_func = (void *)link->prog->bpf_func;
+              }
+              // next iteration
+              cnt++;
+              curr++;
+            }
+            spin_unlock_bh(lock);
+            // copy to usermode
+            buf[0] = cnt;
+            kbuf_size = sizeof(unsigned long) + cnt * sizeof(struct one_bpf_links);
+            if (copy_to_user((void*)ioctl_param, (void*)buf, kbuf_size) > 0)
+            {
+              kfree(buf);
+              return -EFAULT;
+            }
+            kfree(buf);          
+         }
+       }
+     break; /* IOCTL_GET_BPF_LINKS */
 
     case IOCTL_GET_TRACE_EXPORTS:
         if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 3) > 0 )

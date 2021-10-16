@@ -634,11 +634,42 @@ struct one_genl_family
 
 // read registered genl_family
 // in params:
-//  0 - irb address (genl_fam_idr). lock functions are exported genl_lock & genl_unlock
+//  0 - idr address (genl_fam_idr). lock functions are exported genl_lock & genl_unlock
 //  1 - cnt
 // out params
 //  if count is zero - count of genl_families
 //  else long size + N * one_genl_family
 #define IOCTL_GET_GENL_FAMILIES        _IOR(IOCTL_NUM, 0x32, int*)
+
+struct one_bpf_links
+{
+  void *addr;
+  unsigned int id;
+  int type;
+  void *ops;
+  // bpf_link_ops
+  void *release;
+  void *dealloc;
+  void *detach;
+  void *update_prog;
+  void *show_fdinfo;
+  void *fill_link_info;
+  // prog
+  void *prog;
+  int prog_type;
+  unsigned int len;
+  unsigned int jited_len;
+  void *bpf_func;
+};
+
+// read bpf links
+// in params:
+//  0 - idr address (link_idr)
+//  1 - link_idr_lock spinlock_t
+//  2 - cnt
+// out params
+//  if count is zero - count of bpf_links
+//  else long size + N * one_bpf_links
+#define IOCTL_GET_BPF_LINKS            _IOR(IOCTL_NUM, 0x33, int*)
 
 #endif /* LKCD_SHARED_H */
