@@ -141,6 +141,7 @@ class x64_disasm: public dis_base
       ud_set_pc(&ud_obj, (uint64_t)addr);
       return 1;
     }
+    int is_rmem(ud_mnemonic_code) const;
     int is_mrip(ud_mnemonic_code) const;
     int is_end() const;
     int is_jmp() const;

@@ -87,12 +87,7 @@ int x64_disasm::find_return_notifier_list(a64 addr)
       ud_obj.operand[1].type, ud_obj.operand[1].size
     );
 #endif /* _DEBUG */
-    if ( (ud_obj.mnemonic == UD_Iint3) ||
-         (ud_obj.mnemonic == UD_Iret)  ||
-         (ud_obj.mnemonic == UD_Iretf) ||
-         (ud_obj.mnemonic == UD_Iud2)  ||
-         (ud_obj.mnemonic == UD_Ijmp)
-       )
+    if ( is_end() )
       break;
     // mov reg, imm
     if ( (ud_obj.mnemonic == UD_Imov) &&
@@ -104,9 +99,7 @@ int x64_disasm::find_return_notifier_list(a64 addr)
       continue;
     }
     // add reg, [gs:xxx]
-    if ( (ud_obj.mnemonic == UD_Iadd) &&
-         (ud_obj.operand[0].type == UD_OP_REG) &&
-         (ud_obj.operand[1].type == UD_OP_MEM) &&
+    if ( is_rmem(UD_Iadd) &&
          (ud_obj.pfx_seg == UD_R_GS)
        )
     {
@@ -164,6 +157,14 @@ a64 x64_disasm::process_bpf_target(a64 addr, a64 mlock)
     }
   }
   return 0;
+}
+
+int x64_disasm::is_rmem(ud_mnemonic_code c) const
+{
+  return (ud_obj.mnemonic == c) &&
+         (ud_obj.operand[0].type == UD_OP_REG) &&
+         (ud_obj.operand[1].type == UD_OP_MEM)
+  ;
 }
 
 int x64_disasm::is_mrip(ud_mnemonic_code c) const
@@ -266,10 +267,8 @@ int x64_disasm::process_trace_remove_event_call(a64 addr, a64 free_event_filter)
             continue;
          }
          // mov reg, [mem]
-         if ( (ud_obj.mnemonic == UD_Imov) &&
-              (ud_obj.operand[0].type == UD_OP_REG) &&
-              (ud_obj.operand[0].size == 64)        &&
-              (ud_obj.operand[1].type == UD_OP_MEM) && 
+         if ( is_rmem(UD_Imov) &&
+              (ud_obj.operand[0].size == 64) &&
               (ud_obj.operand[1].base != UD_R_RIP)
             )
          {
@@ -344,10 +343,8 @@ int x64_disasm::process(a64 addr, std::map<a64, a64> &skip, std::set<a64> &out_r
          if ( is_end() )
           break;
          // mov reg, [rip + xxx]
-         if ( (ud_obj.mnemonic == UD_Imov) &&
-              (ud_obj.operand[0].type == UD_OP_REG) &&
-              (ud_obj.operand[0].size == 64)        &&
-              (ud_obj.operand[1].type == UD_OP_MEM) && 
+         if ( is_rmem(UD_Imov) &&
+              (ud_obj.operand[0].size == 64) &&
               (ud_obj.operand[1].base == UD_R_RIP)
             )
          {
