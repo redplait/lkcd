@@ -129,6 +129,7 @@ class x64_disasm: public dis_base
     virtual int process(a64 addr, std::map<a64, a64> &, std::set<a64> &out_res);
     virtual int process_sl(lsm_hook &);
     virtual a64 process_bpf_target(a64 addr, a64 mlock);
+    virtual int process_trace_remove_event_call(a64 addr, a64 free_event_filter);
   protected:
     int set(a64 addr)
     {

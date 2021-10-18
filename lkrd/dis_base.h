@@ -69,7 +69,10 @@ class dis_base
     }
     virtual int process(a64 addr, std::map<a64, a64> &, std::set<a64> &out_res) = 0;
     virtual int process_sl(lsm_hook &) = 0;
+    // find address of bpf target list from bpf_iter_reg_target
     virtual a64 process_bpf_target(a64 addr, a64 mlock) = 0;
+    // find offset of trace_event_call.filter from trace_remove_event_call
+    virtual int process_trace_remove_event_call(a64 addr, a64 free_event_filter) = 0;
   protected:
     // bcs of security_file_alloc where lsm_file_alloc first called
     inline int is_sec_heads(a64 addr)

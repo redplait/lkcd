@@ -27,6 +27,7 @@
 #endif
 
 int g_opt_v = 0;
+int g_event_foff = 0;
 
 using namespace ELFIO;
 
@@ -2854,6 +2855,15 @@ end:
               printf("cannot find mutex_lock\n");
             else
               bpf_target = bd->process_bpf_target(entry, mlock);
+            // find trace_event_call.filter offset
+            entry = get_addr("trace_remove_event_call");
+            auto free_evt = get_addr("free_event_filter");
+            if ( !entry )
+              printf("cannot find trace_remove_event_call\n");
+            else if ( !free_evt )
+              printf("cannot find trace_remove_event_call\n");
+            else
+              g_event_foff = bd->process_trace_remove_event_call(entry, free_evt);
 #ifndef _MSC_VER
             auto tgm = get_addr("targets_mutex");
             dump_bpf_targets(fd, bpf_target, tgm, delta);

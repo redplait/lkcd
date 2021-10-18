@@ -206,6 +206,56 @@ int arm64_disasm::process_sl(lsm_hook &sl)
   return 0;
 }
 
+int arm64_disasm::process_trace_remove_event_call(a64 addr, a64 free_event_filter)
+{
+  cf_graph<PBYTE> cgraph;
+  std::list<PBYTE> addr_list;
+  PBYTE psp = uconv(addr);
+  addr_list.push_back(psp);
+  int edge_gen = 0;
+  int edge_n = 0;
+  while( edge_gen < 100 )
+  {
+     for ( auto iter = addr_list.begin(); iter != addr_list.end(); ++iter )
+     {
+       psp = *iter;
+       if ( cgraph.in_ranges(psp) )
+          continue;
+       if ( !setup(psp) )
+         continue;
+       regs_pad regs;
+#ifdef _DEBUG
+       printf("%d - branch %p\n", edge_gen, (void *)psp);
+#endif /* _DEBUG */
+       for ( ; ;  )
+       {
+         if ( !disasm() || is_ret() )
+            break;
+         if ( check_jmps_stateless(cgraph) )
+            continue;
+         if ( is_ldr_off() )
+         {
+           regs.adrp(get_reg(0), m_dis.operands[2].op_imm.bits);
+           continue;
+         }
+         // check call jimm
+         a64 tmp = 0;
+         if ( is_bl_jimm(tmp) && (tmp == free_event_filter))
+         {
+           a64 what = regs.get(AD_REG_X0);
+           return (int)what;
+         }
+       }
+       cgraph.add_range(psp, m_psp - psp);
+     }
+     // prepare for next edge generation
+     edge_gen++;
+     if ( !cgraph.delete_ranges(&cgraph.ranges, &addr_list) )
+       break;
+  }
+  return 0;
+}
+
 int arm64_disasm::process(a64 addr, std::map<a64, a64> &skip, std::set<a64> &out_res)
 {
   statefull_graph<PBYTE, regs_pad> cgraph;

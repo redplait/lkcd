@@ -201,6 +201,92 @@ int x64_disasm::process_sl(lsm_hook &sl)
   return 0;
 }
 
+int x64_disasm::process_trace_remove_event_call(a64 addr, a64 free_event_filter)
+{
+  cf_graph<a64> cgraph;
+  std::list<a64> addr_list;
+  addr_list.push_back(addr);
+  int edge_gen = 0;
+  int edge_n = 0;
+  while( edge_gen < 100 )
+  {
+     for ( auto iter = addr_list.begin(); iter != addr_list.end(); ++iter )
+     {
+       a64 psp = *iter;
+       if ( cgraph.in_ranges(psp) )
+          continue;
+       if ( !set(psp) )
+         continue;
+       used_regs<int> regs;
+#ifdef _DEBUG
+       printf("%d - branch %p\n", edge_gen, (void *)psp);
+#endif /* _DEBUG */
+       for ( ; ;  )
+       {
+         if ( !ud_disassemble(&ud_obj) )
+           break;
+#ifdef _DEBUG
+         printf("%p %s (I: %d size %d, II: %d size %d)\n", (void *)ud_insn_off(&ud_obj), ud_insn_asm(&ud_obj),
+          ud_obj.operand[0].type, ud_obj.operand[0].size,
+          ud_obj.operand[1].type, ud_obj.operand[1].size
+         );
+#endif /* _DEBUG */
+         // check jmp
+         if ( is_jxx_jimm() )
+         {
+           a64 jaddr = ud_obj.pc;
+           switch (ud_obj.operand[0].size)
+           {
+             case 8: jaddr += ud_obj.operand[0].lval.sbyte;
+              break;
+             case 16: jaddr += ud_obj.operand[0].lval.sword;
+              break;
+             case 32: jaddr += ud_obj.operand[0].lval.sdword;
+              break;
+           }
+#ifdef _DEBUG
+           printf("add branch at %p\n", (void *)jaddr);
+#endif /* _DEBUG */
+           cgraph.add(jaddr);
+         }
+         if ( is_end() )
+          break;
+         // check call jimm
+         if ( (ud_obj.mnemonic == UD_Icall) &&
+              (ud_obj.operand[0].type == UD_OP_JIMM)
+            )
+         {
+            a64 addr = ud_obj.pc + ud_obj.operand[0].lval.sdword;
+            if ( addr == free_event_filter )
+            {
+              int res = 0;
+              regs.asgn(UD_R_RDI, res);
+              return res;
+            }
+            continue;
+         }
+         // mov reg, [mem]
+         if ( (ud_obj.mnemonic == UD_Imov) &&
+              (ud_obj.operand[0].type == UD_OP_REG) &&
+              (ud_obj.operand[0].size == 64)        &&
+              (ud_obj.operand[1].type == UD_OP_MEM) && 
+              (ud_obj.operand[1].base != UD_R_RIP)
+            )
+         {
+           regs.add(ud_obj.operand[0].base, ud_obj.operand[1].lval.sdword);
+           continue;
+         }
+       }
+       cgraph.add_range(psp, ud_obj.pc - psp);
+     }
+     // prepare for next edge generation
+     edge_gen++;
+     if ( !cgraph.delete_ranges(&cgraph.ranges, &addr_list) )
+       break;
+  }
+  return 0;
+}
+
 int x64_disasm::process(a64 addr, std::map<a64, a64> &skip, std::set<a64> &out_res)
 {
   using Regs = used_regs<a64>;

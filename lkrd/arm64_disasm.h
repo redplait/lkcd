@@ -137,6 +137,7 @@ class arm64_disasm: public dis_base
     virtual int process(a64 addr, std::map<a64, a64> &, std::set<a64> &out_res);
     virtual int process_sl(lsm_hook &);
     virtual a64 process_bpf_target(a64 addr, a64 mlock);
+    virtual int process_trace_remove_event_call(a64 addr, a64 free_event_filter);
     void add_noreturn(a64 addr)
     {
       m_noreturn.insert(addr);
@@ -144,6 +145,37 @@ class arm64_disasm: public dis_base
     virtual ~arm64_disasm() = default;
   protected:
     int disasm();
+    template <typename T>
+    int check_jmps_stateless(T &graph)
+    {
+      PBYTE addr = NULL;
+      if ( is_cbnz_jimm(addr) )
+      {
+        graph.add(addr);
+        return 1;
+      }
+      if ( is_cbz_jimm(addr) )
+      {
+        graph.add(addr);
+        return 1;
+      }
+      if ( is_tbz_jimm(addr) )
+      {
+        graph.add(addr);
+        return 1;
+      }
+      if ( is_tbnz_jimm(addr) )
+      {
+        graph.add(addr);
+        return 1;
+      }
+      if ( is_bxx_jimm(addr) )
+      {
+        graph.add(addr);
+        return 1;
+      }
+      return 0;
+    }
     template <typename T, typename S>
     int check_jmps(T &graph, S state)
     {
@@ -327,10 +359,21 @@ class arm64_disasm: public dis_base
       }
       return 0;
     }
+    inline int is_ldr_off() const
+    {
+      return ( (m_dis.instr_id == AD_INSTR_LDRAA || m_dis.instr_id == AD_INSTR_LDR)
+               && m_dis.num_operands == 3 && m_dis.operands[0].type == AD_OP_REG && m_dis.operands[1].type == AD_OP_REG 
+             );
+    }
+    inline int is_ldraa() const
+    {
+      return ( (m_dis.instr_id == AD_INSTR_LDRAA || m_dis.instr_id == AD_INSTR_LDR)
+               && m_dis.num_operands == 2 && m_dis.operands[0].type == AD_OP_REG && m_dis.operands[1].type == AD_OP_REG 
+             );
+    }
     inline int is_ldraa(regs_pad &used_regs) const
     {
-      if ( (m_dis.instr_id == AD_INSTR_LDRAA || m_dis.instr_id == AD_INSTR_LDR)
-             && m_dis.num_operands == 2 && m_dis.operands[0].type == AD_OP_REG && m_dis.operands[1].type == AD_OP_REG )
+      if ( is_ldraa() )
       {
         used_regs.zero(get_reg(0));
         used_regs.zero(get_reg(1));
