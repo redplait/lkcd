@@ -362,7 +362,8 @@ const char *find_addr(const elfio& reader, a64 addr)
   return s->get_data() + (addr - s->get_address());
 }
 
-void dump_arm64_fraces(const elfio& reader, a64 start, a64 end)
+template <typename F>
+void dump_arm64_ftraces(const elfio& reader, a64 start, a64 end, F func)
 {
   Elf_Half n = reader.sections.size();
   if ( !n )
@@ -385,11 +386,7 @@ void dump_arm64_fraces(const elfio& reader, a64 start, a64 end)
            continue;
          if ( type != R_AARCH64_RELATIVE )
            continue;
-         const char *name = lower_name_by_addr(addend);
-         if ( name != NULL )
-           printf("%p # %s\n", (void *)addend, name);
-         else
-           printf("%p\n", (void *)addend);
+         func(addend);
       }
     }
   }
@@ -745,6 +742,58 @@ void dump_trace_exports(int fd, a64 list, a64 lock, sa64 delta)
     dump_unnamed_kptr((unsigned long)curr->addr, delta);
     if ( curr->write )
       dump_kptr((unsigned long)curr->write, "  write", delta);
+  }
+  free(buf);
+}
+
+static size_t calc_trace_events_size(size_t n)
+{
+  return n * sizeof(one_trace_event_call) + sizeof(unsigned long);
+}
+
+void dump_registered_trace_event_calls(int fd, sa64 delta)
+{
+  unsigned long args[2] = { 0, 0 };
+  int err = ioctl(fd, IOCTL_GET_EVT_CALLS, (int *)args);
+  if ( err )
+  {
+    printf("IOCTL_GET_EVT_CALLS count failed, error %d (%s)\n", errno, strerror(errno));
+    return;
+  }
+  printf("\nregistered trace_event_calls: %ld\n", args[0]);
+  if ( !args[0] )
+    return;
+  size_t size = calc_trace_events_size(args[0]);
+  unsigned long *buf = (unsigned long *)malloc(size);
+  if ( !buf )
+  {
+    printf("cannot alloc buffer for trace_event_calls, len %lX\n", size);
+    return;
+  }
+  buf[0] = 0;
+  buf[1] = args[0];
+  err = ioctl(fd, IOCTL_GET_EVT_CALLS, (int *)buf);
+  if ( err )
+  {
+    printf("IOCTL_GET_EVT_CALLS failed, error %d (%s)\n", errno, strerror(errno));
+    free(buf);
+    return;
+  }
+  size = buf[0];
+  one_trace_event_call *curr = (one_trace_event_call *)(buf + 1);
+  for ( size_t idx = 0; idx < size; idx++, curr++ )
+  {
+    if ( curr->bpf_prog )
+      printf(" [%ld] flags %X filter %p bpf_prog %p at", idx, curr->flags, curr->filter, curr->bpf_prog);
+    else
+      printf(" [%ld] flags %X filter %p at", idx, curr->flags, curr->filter);
+    dump_unnamed_kptr((unsigned long)curr->addr, delta);
+    if ( curr->evt_class )
+      dump_kptr((unsigned long)curr->evt_class, "  evt_class", delta);
+    if ( curr->tp )
+      dump_kptr((unsigned long)curr->tp, "  tp", delta);
+    if ( curr->perf_perm )
+      dump_kptr((unsigned long)curr->perf_perm, "  perf_perm", delta);
   }
   free(buf);
 }
@@ -2374,6 +2423,15 @@ int is_nop(unsigned char *body)
   return 0;
 }
 
+void dump_addr_name(a64 addr)
+{
+   const char *name = lower_name_by_addr(addr);
+   if ( name != NULL )
+      printf("%p # %s\n", (void *)addr, name);
+   else
+      printf("%p\n", (void *)addr);
+}
+
 int main(int argc, char **argv)
 {
    // read options
@@ -2626,7 +2684,11 @@ end:
      {
        // under arm64 we need process relocs
        if ( reader.get_machine() == 183 )
-         dump_arm64_fraces(reader, a1, a2);
+         dump_arm64_ftraces(reader, a1, a2, [](Elf_Sxword addend) 
+          { 
+            dump_addr_name(addend);
+          }
+         );
        else {
          const a64 *data = (const a64 *)find_addr(reader, a1);
          if ( data != NULL )
@@ -2634,11 +2696,7 @@ end:
            for ( a64 i = a1; i < a2; i += sizeof(a64) )
            {
              a64 addr = *data;
-             const char *name = lower_name_by_addr(addr);
-             if ( name != NULL )
-               printf("%p # %s\n", (void *)addr, name);
-             else
-               printf("%p\n", (void *)addr);
+             dump_addr_name(addr);
              data++;
 #ifndef _MSC_VER
              if ( opt_c )
@@ -2750,23 +2808,59 @@ end:
 #endif /* _MSC_VER */
            free(tsyms);
          }
+         auto ev_start = get_addr("__start_ftrace_events");
+         auto ev_stop  = get_addr("__stop_ftrace_events");
+         if ( !ev_start )
+           printf("cannot find __start_ftrace_events\n");
+         else if ( !ev_stop )
+           printf("cannot find __stop_ftrace_events\n");
+         else {
+           printf("__start_ftrace_events: %p\n", (void *)ev_start);
+           printf("__stop_ftrace_events: %p\n", (void *)ev_stop);
+           std::set<a64> events;
+           if ( reader.get_machine() == 183 )
+           {
+             dump_arm64_ftraces(reader, ev_start, ev_stop, [&events](Elf_Sxword addend) 
+              {
+               if ( g_opt_v )
+                 dump_addr_name(addend);
+               events.insert((a64)addend);
+              }
+             );
+           } else {
+             const a64 *data = (const a64 *)find_addr(reader, ev_start);
+             if ( data != NULL )
+               for ( a64 i = ev_start; i < ev_stop; i += sizeof(a64) )
+               {
+                 if ( g_opt_v )
+                   dump_addr_name(*data);
+                 events.insert(*data);
+                 data++;
+               }
+           }
+         }
 #ifndef _MSC_VER
-         // event cmds
-         auto ecl = get_addr("trigger_commands");
-         auto ecm = get_addr("trigger_cmd_mutex");
-         dump_event_cmds(fd, ecl, ecm, delta);
-         // trace exports
-         ecl = get_addr("ftrace_exports_list");
-         ecm = get_addr("ftrace_export_lock");
-         dump_trace_exports(fd, ecl, ecm, delta);
-         // ftrace cmds
-         ecl = get_addr("ftrace_commands");
-         ecm = get_addr("ftrace_cmd_mutex");
-         dump_tracefunc_cmds(fd, ecl, ecm, delta);
-         // dynamic events ops
-         ecl = get_addr("dyn_event_ops_list");
-         ecm = get_addr("dyn_event_ops_mutex");
-         dump_dynevents_ops(fd, ecl, ecm, delta);
+         if ( opt_c )
+         {
+           // registered trace_event_calls
+           dump_registered_trace_event_calls(fd, delta);
+           // event cmds
+           auto ecl = get_addr("trigger_commands");
+           auto ecm = get_addr("trigger_cmd_mutex");
+           dump_event_cmds(fd, ecl, ecm, delta);
+           // trace exports
+           ecl = get_addr("ftrace_exports_list");
+           ecm = get_addr("ftrace_export_lock");
+           dump_trace_exports(fd, ecl, ecm, delta);
+           // ftrace cmds
+           ecl = get_addr("ftrace_commands");
+           ecm = get_addr("ftrace_cmd_mutex");
+           dump_tracefunc_cmds(fd, ecl, ecm, delta);
+           // dynamic events ops
+           ecl = get_addr("dyn_event_ops_list");
+           ecm = get_addr("dyn_event_ops_mutex");
+           dump_dynevents_ops(fd, ecl, ecm, delta);
+         }
 #endif /* _MSC_VER */
        }
        // under arm64 we need count relocs in .data section       
