@@ -751,6 +751,11 @@ static size_t calc_trace_events_size(size_t n)
   return n * sizeof(one_trace_event_call) + sizeof(unsigned long);
 }
 
+static size_t calc_bpf_progs_size(size_t n)
+{
+  return n * sizeof(one_bpf_prog) + sizeof(unsigned long);
+}
+
 void dump_registered_trace_event_calls(int fd, sa64 delta)
 {
   unsigned long args[2] = { 0, 0 };
@@ -784,16 +789,40 @@ void dump_registered_trace_event_calls(int fd, sa64 delta)
   for ( size_t idx = 0; idx < size; idx++, curr++ )
   {
     if ( curr->bpf_prog )
-      printf(" [%ld] flags %X filter %p bpf_prog %p at", idx, curr->flags, curr->filter, curr->bpf_prog);
+      printf(" [%ld] flags %X filter %p bpf_cnt %d at", idx, curr->flags, curr->filter, curr->bpf_cnt);
     else
       printf(" [%ld] flags %X filter %p at", idx, curr->flags, curr->filter);
     dump_unnamed_kptr((unsigned long)curr->addr, delta);
     if ( curr->evt_class )
       dump_kptr((unsigned long)curr->evt_class, "  evt_class", delta);
-    if ( curr->tp )
+    if ( curr->tp && (curr->flags & 0x10) )
       dump_kptr((unsigned long)curr->tp, "  tp", delta);
     if ( curr->perf_perm )
       dump_kptr((unsigned long)curr->perf_perm, "  perf_perm", delta);
+    if ( !curr->bpf_cnt )
+      continue;
+    size_t bpf_size = calc_bpf_progs_size(curr->bpf_cnt);
+    unsigned long *bpf_buf = (unsigned long *)malloc(bpf_size);
+    if ( !bpf_buf )
+      continue;
+    bpf_buf[0] = (unsigned long)curr->addr;
+    bpf_buf[1] = curr->bpf_cnt;
+    err = ioctl(fd, IOCTL_GET_EVT_CALLS, (int *)bpf_buf);
+    if ( err )
+    {
+      printf("IOCTL_GET_EVT_CALLS for bpf_progs failed, error %d (%s)\n", errno, strerror(errno));
+      free(bpf_buf);
+      continue;
+    }
+    bpf_size = bpf_buf[0];
+    one_bpf_prog *curr2 = (one_bpf_prog *)(bpf_buf + 1);
+    for ( size_t j = 0; j < bpf_size; j++, curr2++ )
+    {
+      printf("  [%ld] prog %p type %d len %d jited_len %d\n", j, curr2->prog, curr2->prog_type, curr2->len, curr2->jited_len);
+      if ( curr2->bpf_func )
+        dump_kptr((unsigned long)curr2->bpf_func, "  bpf_func", delta);         
+    }
+    free(bpf_buf);
   }
   free(buf);
 }
