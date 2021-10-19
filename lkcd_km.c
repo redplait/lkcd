@@ -296,6 +296,7 @@ inline void unlock_mount_hash(void)
 struct rw_semaphore *s_trace_event_sem = 0;
 struct mutex *s_event_mutex = 0;
 struct list_head *s_ftrace_events = 0;
+struct mutex *s_bpf_event_mutex = 0;
 typedef int (*und_bpf_prog_array_length)(struct bpf_prog_array *progs);
 und_bpf_prog_array_length bpf_prog_array_length_ptr = 0;
 
@@ -799,8 +800,11 @@ static void copy_trace_event_call(const struct trace_event_call *c, struct one_t
   out_data->perf_perm = (void *)c->perf_perm;
   if ( c->prog_array )
   {
+    mutex_lock(s_bpf_event_mutex);
     out_data->bpf_prog = (void *)c->prog_array->items[0].prog;
-    out_data->bpf_cnt = bpf_prog_array_length_ptr(c->prog_array);
+    if ( bpf_prog_array_length_ptr )
+      out_data->bpf_cnt = bpf_prog_array_length_ptr(c->prog_array);
+    mutex_unlock(s_bpf_event_mutex);
   }
 #endif
 }
@@ -2932,7 +2936,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
      break; /* IOCTL_GET_DYN_EVT_OPS */
 
     case IOCTL_GET_EVT_CALLS:
-        if ( !s_trace_event_sem || !s_event_mutex || !s_ftrace_events )
+        if ( !s_trace_event_sem || !s_event_mutex || !s_ftrace_events || !s_bpf_event_mutex )
           return -ENOCSI;
         if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 2) > 0 )
   	  return -EFAULT;
@@ -2977,6 +2981,55 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
             }
             kfree(buf);
           }
+        } else {
+          // copy bpf_progs for some event
+          unsigned long cnt;
+          struct one_bpf_prog *curr;
+          int found = 0;
+          size_t kbuf_size = sizeof(unsigned long) + sizeof(struct one_bpf_prog) * ptrbuf[1];
+          unsigned long *buf = (unsigned long *)kzalloc(kbuf_size, GFP_KERNEL | __GFP_ZERO);
+          struct trace_event_call *call, *p;
+          if ( !buf )
+            return -ENOMEM;
+          curr = (struct one_bpf_prog *)(buf + 1);
+          down_read(s_trace_event_sem);
+          list_for_each_entry_safe(call, p, s_ftrace_events, list)
+          {
+             int total;
+             if ( (unsigned long)call != ptrbuf[0] )
+               continue;
+             if ( !call->prog_array )
+               break;
+             mutex_lock(s_bpf_event_mutex);
+             total = bpf_prog_array_length_ptr(call->prog_array);
+             for ( cnt = 0; cnt < total && cnt < ptrbuf[1]; cnt++, curr++ )
+             {
+               curr->prog = call->prog_array->items[cnt].prog;
+               if ( !curr->prog )
+                 break;
+               curr->prog_type = call->prog_array->items[cnt].prog->type;
+               curr->len = call->prog_array->items[cnt].prog->len;
+               curr->jited_len = call->prog_array->items[cnt].prog->jited_len;
+               curr->bpf_func = (void *)call->prog_array->items[cnt].prog->bpf_func;
+             }
+             mutex_unlock(s_bpf_event_mutex);
+             found++;
+             break;
+          }
+          up_read(s_trace_event_sem);
+          if ( !found )
+          {
+             kfree(buf);
+             return -ENOENT;
+          }
+          buf[0] = cnt;
+          kbuf_size = sizeof(unsigned long) + sizeof(struct one_bpf_prog) * cnt;
+          if (copy_to_user((void*)ioctl_param, (void*)buf, kbuf_size) > 0)
+          {
+            kfree(buf);
+            return -EFAULT;
+          }
+          kfree(buf);
         }
      break; /* IOCTL_GET_EVT_CALLS */
 
@@ -3315,6 +3368,9 @@ init_module (void)
   s_ftrace_events = (struct list_head *)lkcd_lookup_name("ftrace_events");
   if ( !s_ftrace_events )
     printk("cannot find ftrace_events\n");
+  s_bpf_event_mutex = (struct mutex *)lkcd_lookup_name("bpf_event_mutex");
+  if ( !s_bpf_event_mutex )
+    printk("cannot find bpf_event_mutex\n");
   bpf_prog_array_length_ptr = (und_bpf_prog_array_length)lkcd_lookup_name("bpf_prog_array_length");
   if ( !bpf_prog_array_length_ptr )
     printk("cannot find bpf_prog_array_length\n");

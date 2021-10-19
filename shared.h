@@ -684,19 +684,31 @@ struct one_trace_event_call
   void *bpf_prog;  // prog_array->bpf_prog
 };
 
+struct one_bpf_prog
+{
+  void *prog;
+  int prog_type;
+  unsigned int len;
+  unsigned int jited_len;
+  void *bpf_func;
+};
+
 // read registered trace_event_calls
-// trace_event_call can be known and located in kernel (gathered between __start_ftrace_events and __stop_ftrace_events)
-// in such case cnt must be 0 (and we need only lock trace_event_sem)
-// else this is trace_event_call from some module - cnt must be 1 (and we need to traverse over ftrace_events with event_mutex)
 // if address is 0
 //  if cnt is 0 - return count of registered in ftrace_events trace_event_calls
 //  if cnt is not 0 - copy trace_event_call for all registered trace_event_calls
-// so in params:
+// in params:
 //  0 - address
 //  1 - cnt
 // output
 //  if (!cnt && !address) - cnt of registered in ftrace_events trace_event_calls
-//  else one_trace_event_call
+//  else long size + N * one_trace_event_call
+// if address is not 0 - read bpf_progs for some trace_event_call
+// in params:
+//  0 - address
+//  1 - bpf_cnt
+// output
+//  long size + N * one_bpf_prog
 #define IOCTL_GET_EVT_CALLS            _IOR(IOCTL_NUM, 0x34, int*)
 
 #endif /* LKCD_SHARED_H */
