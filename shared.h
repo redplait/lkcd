@@ -679,6 +679,7 @@ struct one_trace_event_call
   void *tp;        // tracepoint
   void *filter;    // event_filter
   int flags;
+  int bpf_cnt;
   void *perf_perm;
   void *bpf_prog;  // prog_array->bpf_prog
 };

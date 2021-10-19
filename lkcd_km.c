@@ -296,6 +296,8 @@ inline void unlock_mount_hash(void)
 struct rw_semaphore *s_trace_event_sem = 0;
 struct mutex *s_event_mutex = 0;
 struct list_head *s_ftrace_events = 0;
+typedef int (*und_bpf_prog_array_length)(struct bpf_prog_array *progs);
+und_bpf_prog_array_length bpf_prog_array_length_ptr = 0;
 
 #ifdef CONFIG_FSNOTIFY
 typedef struct fsnotify_mark *(*und_fsnotify_first_mark)(struct fsnotify_mark_connector **connp);
@@ -796,7 +798,10 @@ static void copy_trace_event_call(const struct trace_event_call *c, struct one_t
 #ifdef CONFIG_PERF_EVENTS
   out_data->perf_perm = (void *)c->perf_perm;
   if ( c->prog_array )
+  {
     out_data->bpf_prog = (void *)c->prog_array->items[0].prog;
+    out_data->bpf_cnt = bpf_prog_array_length_ptr(c->prog_array);
+  }
 #endif
 }
 
@@ -3310,6 +3315,9 @@ init_module (void)
   s_ftrace_events = (struct list_head *)lkcd_lookup_name("ftrace_events");
   if ( !s_ftrace_events )
     printk("cannot find ftrace_events\n");
+  bpf_prog_array_length_ptr = (und_bpf_prog_array_length)lkcd_lookup_name("bpf_prog_array_length");
+  if ( !bpf_prog_array_length_ptr )
+    printk("cannot find bpf_prog_array_length\n");
 #ifdef CONFIG_FSNOTIFY
   fsnotify_mark_srcu_ptr = (struct srcu_struct *)lkcd_lookup_name("fsnotify_mark_srcu");
   fsnotify_first_mark_ptr = (und_fsnotify_first_mark)lkcd_lookup_name("fsnotify_first_mark");
