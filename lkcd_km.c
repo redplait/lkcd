@@ -292,6 +292,11 @@ inline void unlock_mount_hash(void)
   write_sequnlock(mount_lock);
 }
 
+// trace events list and semaphore
+struct rw_semaphore *s_trace_event_sem = 0;
+struct mutex *s_event_mutex = 0;
+struct list_head *s_ftrace_events = 0;
+
 #ifdef CONFIG_FSNOTIFY
 typedef struct fsnotify_mark *(*und_fsnotify_first_mark)(struct fsnotify_mark_connector **connp);
 typedef struct fsnotify_mark *(*und_fsnotify_next_mark)(struct fsnotify_mark *mark);
@@ -780,6 +785,20 @@ static void count_lrn(void *info)
   }
 }
 #endif /* __x86_64__ */
+
+static void copy_trace_event_call(const struct trace_event_call *c, struct one_trace_event_call *out_data)
+{
+  out_data->addr = (void *)c;
+  out_data->evt_class = (void *)c->class; // nice to use c++ keyword
+  out_data->tp = (void *)c->tp;
+  out_data->filter = (void *)c->filter;
+  out_data->flags = c->flags;
+#ifdef CONFIG_PERF_EVENTS
+  out_data->perf_perm = (void *)c->perf_perm;
+  if ( c->prog_array )
+    out_data->bpf_prog = (void *)c->prog_array->items[0].prog;
+#endif
+}
 
 static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long ioctl_param)
 {
@@ -2907,6 +2926,55 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
         }
      break; /* IOCTL_GET_DYN_EVT_OPS */
 
+    case IOCTL_GET_EVT_CALLS:
+        if ( !s_trace_event_sem || !s_event_mutex || !s_ftrace_events )
+          return -ENOCSI;
+        if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 2) > 0 )
+  	  return -EFAULT;
+  	if ( !ptrbuf[0] )
+        {
+          unsigned long cnt = 0;
+          struct trace_event_call *call, *p;
+          if ( !ptrbuf[1] )
+          {
+            // just count of registered events
+            down_read(s_trace_event_sem);
+            list_for_each_entry_safe(call, p, s_ftrace_events, list)
+              cnt++;
+            up_read(s_trace_event_sem);
+            // copy to usermode
+            if (copy_to_user((void*)ioctl_param, (void*)&cnt, sizeof(cnt)) > 0)
+              return -EFAULT;
+          } else {
+            struct one_trace_event_call *curr;
+            size_t kbuf_size = sizeof(unsigned long) + sizeof(struct one_trace_event_call) * ptrbuf[1];
+            unsigned long *buf = (unsigned long *)kzalloc(kbuf_size, GFP_KERNEL | __GFP_ZERO);
+            if ( !buf )
+              return -ENOMEM;
+            curr = (struct one_trace_event_call *)(buf + 1);
+            down_read(s_trace_event_sem);
+            list_for_each_entry_safe(call, p, s_ftrace_events, list)
+            {
+              if ( cnt >= ptrbuf[1] )
+                break;
+              copy_trace_event_call(call, curr);
+              // for next iteration
+              cnt++;
+              curr++;
+            }
+            up_read(s_trace_event_sem);
+            buf[0] = cnt;
+            kbuf_size = sizeof(unsigned long) + sizeof(struct one_trace_event_call) * cnt;
+            if (copy_to_user((void*)ioctl_param, (void*)buf, kbuf_size) > 0)
+            {
+              kfree(buf);
+              return -EFAULT;
+            }
+            kfree(buf);
+          }
+        }
+     break; /* IOCTL_GET_EVT_CALLS */
+
     case IOCTL_GET_EVENT_CMDS:
         if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 3) > 0 )
   	  return -EFAULT;
@@ -3232,6 +3300,16 @@ init_module (void)
   s_sock_diag_table_mutex = (struct mutex *)lkcd_lookup_name("sock_diag_table_mutex");
   if ( !s_sock_diag_table_mutex )
     printk("cannot find sock_diag_table_mutex\n");
+  // trace events data
+  s_trace_event_sem = (struct rw_semaphore *)lkcd_lookup_name("trace_event_sem");
+  if ( !s_trace_event_sem )
+    printk("cannot find trace_event_sem\n");
+  s_event_mutex = (struct mutex *)lkcd_lookup_name("event_mutex");
+  if ( !s_event_mutex )
+    printk("cannot find event_mutex\n");
+  s_ftrace_events = (struct list_head *)lkcd_lookup_name("ftrace_events");
+  if ( !s_ftrace_events )
+    printk("cannot find ftrace_events\n");
 #ifdef CONFIG_FSNOTIFY
   fsnotify_mark_srcu_ptr = (struct srcu_struct *)lkcd_lookup_name("fsnotify_mark_srcu");
   fsnotify_first_mark_ptr = (und_fsnotify_first_mark)lkcd_lookup_name("fsnotify_first_mark");
