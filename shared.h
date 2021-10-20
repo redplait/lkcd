@@ -688,8 +688,11 @@ struct one_bpf_prog
 {
   void *prog;
   int prog_type;
+  int expected_attach_type;
   unsigned int len;
   unsigned int jited_len;
+  unsigned int aux_id;
+  void *aux;  
   void *bpf_func;
 };
 
