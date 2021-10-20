@@ -711,4 +711,15 @@ struct one_bpf_prog
 //  long size + N * one_bpf_prog
 #define IOCTL_GET_EVT_CALLS            _IOR(IOCTL_NUM, 0x34, int*)
 
+// read bpf progs
+// in params:
+//  0 - idr address (prog_idr)
+//  1 - prog_idr_lock spinlock_t
+//  2 - cnt
+// out params
+//  if count is zero - count of bpf_progs
+//  else long size + N * one_bpf_prog
+#define IOCTL_GET_BPF_PROGS            _IOR(IOCTL_NUM, 0x35, int*)
+
+
 #endif /* LKCD_SHARED_H */

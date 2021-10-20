@@ -2719,6 +2719,58 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
        }
      break; /* IOCTL_GET_NL_SK */
 
+    case IOCTL_GET_BPF_PROGS:
+       if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 3) > 0 )
+         return -EFAULT;
+       else {
+         struct idr *links = (struct idr *)ptrbuf[0];
+         spinlock_t *lock = (spinlock_t *)ptrbuf[1];
+         unsigned long cnt = 0;
+         struct bpf_prog *prog;
+         unsigned int id;
+         if ( !ptrbuf[2] )
+         {
+            spin_lock_bh(lock);
+            idr_for_each_entry(links, prog, id)
+              cnt++;
+            spin_unlock_bh(lock);
+            if (copy_to_user((void*)ioctl_param, (void*)&cnt, sizeof(cnt)) > 0)
+              return -EFAULT;
+         } else {
+            size_t kbuf_size = sizeof(unsigned long) + ptrbuf[2] * sizeof(struct one_bpf_prog);
+            struct one_bpf_prog *curr;
+            unsigned long *buf = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL | __GFP_ZERO);
+            if ( !buf )
+              return -ENOMEM;
+            curr = (struct one_bpf_prog *)(buf + 1);
+            spin_lock_bh(lock);
+            idr_for_each_entry(links, prog, id)
+            {
+              if ( cnt >= ptrbuf[1] )
+                break;
+              curr->prog = (void *)prog;
+              curr->prog_type = (int)prog->type;
+              curr->len = prog->len;
+              curr->jited_len = prog->jited_len;
+              curr->bpf_func = (void *)prog->bpf_func;
+              // next iteration
+              cnt++;
+              curr++;
+            }
+            spin_unlock_bh(lock);
+            // copy to usermode
+            buf[0] = cnt;
+            kbuf_size = sizeof(unsigned long) + cnt * sizeof(struct one_bpf_prog);
+            if (copy_to_user((void*)ioctl_param, (void*)buf, kbuf_size) > 0)
+            {
+              kfree(buf);
+              return -EFAULT;
+            }
+            kfree(buf);          
+         }
+       }
+     break; /* IOCTL_GET_BPF_PROGS */
+
     case IOCTL_GET_BPF_LINKS:
        if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 3) > 0 )
          return -EFAULT;
