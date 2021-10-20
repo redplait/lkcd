@@ -641,6 +641,18 @@ struct one_genl_family
 //  else long size + N * one_genl_family
 #define IOCTL_GET_GENL_FAMILIES        _IOR(IOCTL_NUM, 0x32, int*)
 
+struct one_bpf_prog
+{
+  void *prog;
+  int prog_type;
+  int expected_attach_type;
+  unsigned int len;
+  unsigned int jited_len;
+  unsigned int aux_id;
+  void *aux;  
+  void *bpf_func;
+};
+
 struct one_bpf_links
 {
   void *addr;
@@ -655,11 +667,7 @@ struct one_bpf_links
   void *show_fdinfo;
   void *fill_link_info;
   // prog
-  void *prog;
-  int prog_type;
-  unsigned int len;
-  unsigned int jited_len;
-  void *bpf_func;
+  struct one_bpf_prog prog;
 };
 
 // read bpf links
@@ -682,18 +690,6 @@ struct one_trace_event_call
   int bpf_cnt;
   void *perf_perm;
   void *bpf_prog;  // prog_array->bpf_prog
-};
-
-struct one_bpf_prog
-{
-  void *prog;
-  int prog_type;
-  int expected_attach_type;
-  unsigned int len;
-  unsigned int jited_len;
-  unsigned int aux_id;
-  void *aux;  
-  void *bpf_func;
 };
 
 // read registered trace_event_calls

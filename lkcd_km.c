@@ -2817,13 +2817,16 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
                 curr->show_fdinfo = (void *)link->ops->show_fdinfo;
                 curr->fill_link_info = (void *)link->ops->fill_link_info;
               }
-              curr->prog = (void *)link->prog;
+              curr->prog.prog = (void *)link->prog;
               if ( link->prog )
               {
-                curr->prog_type = (int)link->prog->type;
-                curr->len = link->prog->len;
-                curr->jited_len = link->prog->jited_len;
-                curr->bpf_func = (void *)link->prog->bpf_func;
+                curr->prog.prog_type = (int)link->prog->type;
+                curr->prog.len = link->prog->len;
+                curr->prog.jited_len = link->prog->jited_len;
+                curr->prog.bpf_func = (void *)link->prog->bpf_func;
+                curr->prog.aux = (void *)link->prog->aux;
+                if ( link->prog->aux )
+                  curr->prog.aux_id = link->prog->aux->id;
               }
               // next iteration
               cnt++;
