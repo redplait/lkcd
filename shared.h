@@ -52,10 +52,18 @@ struct one_trace_event
 //  3 - funcs count
 #define IOCTL_TRACEPOINT_INFO          _IOR(IOCTL_NUM, 0xb, int*)
 
+struct one_tracepoint_func
+{
+  unsigned long addr;
+  unsigned long data;
+};
+
 // read tracepoint funcs
 // in params:
 //  0 - address of tracepoint
-//  1 - size
+//  1 - cnt
+// out params:
+//  size + N * one_tracepoint_func
 #define IOCTL_TRACEPOINT_FUNCS         _IOR(IOCTL_NUM, 0xc, int*)
 
 // get kernfs_node for some file in /sys

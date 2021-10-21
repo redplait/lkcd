@@ -297,6 +297,7 @@ struct rw_semaphore *s_trace_event_sem = 0;
 struct mutex *s_event_mutex = 0;
 struct list_head *s_ftrace_events = 0;
 struct mutex *s_bpf_event_mutex = 0;
+struct mutex *s_tracepoints_mutex = 0;
 typedef int (*und_bpf_prog_array_length)(struct bpf_prog_array *progs);
 und_bpf_prog_array_length bpf_prog_array_length_ptr = 0;
 
@@ -1221,14 +1222,20 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
        ptrbuf[2] = (unsigned long)tp->unregfunc;
        ptrbuf[3] = 0;
        // lock
-       rcu_read_lock();
+       if ( s_tracepoints_mutex )
+         mutex_lock(s_tracepoints_mutex);
+       else
+         rcu_read_lock();
        func = tp->funcs;
        if ( func )
         do {
           ptrbuf[3]++;
         } while((++func)->func);
        // unlock
-       rcu_read_unlock();
+       if ( s_tracepoints_mutex )
+         mutex_unlock(s_tracepoints_mutex);
+       else
+         rcu_read_unlock();
        // copy to usermode
        if (copy_to_user((void*)ioctl_param, (void*)ptrbuf, sizeof(ptrbuf[0]) * 4) > 0)
  	 return -EFAULT;
@@ -1241,6 +1248,8 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
        struct tracepoint_func *func;
        unsigned long cnt, res = 0;
        unsigned long *kbuf = NULL;
+       size_t ksize;
+       struct one_tracepoint_func *curr;
 
        if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 2) > 0 )
  	 return -EFAULT;
@@ -1249,35 +1258,41 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
        if ( !tp || !cnt )
          return -EINVAL;
 
-       kbuf = (unsigned long *)kmalloc_array(cnt, sizeof(unsigned long), GFP_KERNEL);
+       ksize = sizeof(unsigned long) + cnt * sizeof(struct one_tracepoint_func);
+       kbuf = (unsigned long *)kmalloc(ksize, GFP_KERNEL);
        if ( !kbuf )
          return -ENOMEM;
+       curr = (struct one_tracepoint_func *)(kbuf + 1);
 
        // lock
-       rcu_read_lock();
+       if ( s_tracepoints_mutex )
+         mutex_lock(s_tracepoints_mutex);
+       else
+         rcu_read_lock();
        func = tp->funcs;
        if ( func )
         do {
-          kbuf[res++] = (unsigned long)func->func;
           if ( res >= cnt )
             break;
+          curr->addr = (unsigned long)func->func;
+          curr->data = (unsigned long)func->data;
+          // for next iteration
+          res++;
+          curr++;
         } while((++func)->func);
        // unlock
-       rcu_read_unlock();
+       if ( s_tracepoints_mutex )
+         mutex_unlock(s_tracepoints_mutex);
+       else
+         rcu_read_unlock();
 
+       kbuf[0] = res;
+       ksize = sizeof(unsigned long) + res * sizeof(struct one_tracepoint_func);
        // copy to usermode
-       if ( copy_to_user((void*)ioctl_param, (void*)&res, sizeof(res)) > 0 )
+       if ( copy_to_user((void*)ioctl_param, (void*)kbuf, ksize) > 0 )
        {
           kfree(kbuf);
           return -EFAULT;
-       }
-       if ( res )
-       {
-          if ( copy_to_user((void*)(ioctl_param + sizeof(res)), (void*)kbuf, sizeof(unsigned long) * res) > 0 )
-          {
-            kfree(kbuf);
-            return -EFAULT;
-          }
        }
        // cleanup
        kfree(kbuf);
@@ -3434,6 +3449,9 @@ init_module (void)
   s_bpf_event_mutex = (struct mutex *)lkcd_lookup_name("bpf_event_mutex");
   if ( !s_bpf_event_mutex )
     printk("cannot find bpf_event_mutex\n");
+  s_tracepoints_mutex = (struct mutex *)lkcd_lookup_name("tracepoints_mutex");
+  if ( !s_tracepoints_mutex )
+    printk("cannot find tracepoints_mutex\n");
   bpf_prog_array_length_ptr = (und_bpf_prog_array_length)lkcd_lookup_name("bpf_prog_array_length");
   if ( !bpf_prog_array_length_ptr )
     printk("cannot find bpf_prog_array_length\n");
