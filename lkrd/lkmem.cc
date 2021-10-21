@@ -570,6 +570,25 @@ void dump_kptr(unsigned long l, const char *name, sa64 delta)
   }
 }
 
+void dump_kptr2(unsigned long l, const char *name, sa64 delta)
+{
+  if (is_inside_kernel(l))
+  {
+    const char *sname = name_by_addr(l - delta);
+    if (sname != NULL)
+      printf(" %s: %p - kernel!%s\n", name, (void *)l, sname);
+    else
+      printf(" %s: %p - kernel\n", name, (void *)l);
+  }
+  else {
+    const char *mname = find_kmod(l);
+    if (mname)
+      printf(" %s: %p - %s\n", name, (void *)l, mname);
+    else
+      printf(" %s: %p\n", name, (void *)l);
+  }
+}
+
 static size_t calc_dynevents_ops_size(size_t n)
 {
   return n * sizeof(one_dyn_event_op) + sizeof(unsigned long);
@@ -746,6 +765,97 @@ void dump_trace_exports(int fd, a64 list, a64 lock, sa64 delta)
   free(buf);
 }
 
+// ripped from https://elixir.bootlin.com/linux/v5.11/source/include/uapi/linux/bpf.h#L171
+static const char *const bpf_prog_type_names[] = {
+ "BPF_PROG_TYPE_UNSPEC",
+ "BPF_PROG_TYPE_SOCKET_FILTER",
+ "BPF_PROG_TYPE_KPROBE",
+ "BPF_PROG_TYPE_SCHED_CLS",
+ "BPF_PROG_TYPE_SCHED_ACT",
+ "BPF_PROG_TYPE_TRACEPOINT",
+ "BPF_PROG_TYPE_XDP",
+ "BPF_PROG_TYPE_PERF_EVENT",
+ "BPF_PROG_TYPE_CGROUP_SKB",
+ "BPF_PROG_TYPE_CGROUP_SOCK",
+ "BPF_PROG_TYPE_LWT_IN",
+ "BPF_PROG_TYPE_LWT_OUT",
+ "BPF_PROG_TYPE_LWT_XMIT",
+ "BPF_PROG_TYPE_SOCK_OPS",
+ "BPF_PROG_TYPE_SK_SKB",
+ "BPF_PROG_TYPE_CGROUP_DEVICE",
+ "BPF_PROG_TYPE_SK_MSG",
+ "BPF_PROG_TYPE_RAW_TRACEPOINT",
+ "BPF_PROG_TYPE_CGROUP_SOCK_ADDR",
+ "BPF_PROG_TYPE_LWT_SEG6LOCAL",
+ "BPF_PROG_TYPE_LIRC_MODE2",
+ "BPF_PROG_TYPE_SK_REUSEPORT",
+ "BPF_PROG_TYPE_FLOW_DISSECTOR",
+ "BPF_PROG_TYPE_CGROUP_SYSCTL",
+ "BPF_PROG_TYPE_RAW_TRACEPOINT_WRITABLE",
+ "BPF_PROG_TYPE_CGROUP_SOCKOPT",
+ "BPF_PROG_TYPE_TRACING",
+ "BPF_PROG_TYPE_STRUCT_OPS",
+ "BPF_PROG_TYPE_EXT",
+ "BPF_PROG_TYPE_LSM",
+ "BPF_PROG_TYPE_SK_LOOKUP",
+};
+
+static const char *get_bpf_prog_type_name(int idx)
+{
+  if ( idx >= sizeof(bpf_prog_type_names) / sizeof(bpf_prog_type_names[0]) )
+    return "";
+  return bpf_prog_type_names[idx];
+}
+
+// ripped from https://elixir.bootlin.com/linux/v5.11/source/include/uapi/linux/bpf.h#L205
+static const char *const bpf_attach_type_names[] = {
+ "BPF_CGROUP_INET_INGRESS",
+ "BPF_CGROUP_INET_EGRESS",
+ "BPF_CGROUP_INET_SOCK_CREATE",
+ "BPF_CGROUP_SOCK_OPS",
+ "BPF_SK_SKB_STREAM_PARSER",
+ "BPF_SK_SKB_STREAM_VERDICT",
+ "BPF_CGROUP_DEVICE",
+ "BPF_SK_MSG_VERDICT",
+ "BPF_CGROUP_INET4_BIND",
+ "BPF_CGROUP_INET6_BIND",
+ "BPF_CGROUP_INET4_CONNECT",
+ "BPF_CGROUP_INET6_CONNECT",
+ "BPF_CGROUP_INET4_POST_BIND",
+ "BPF_CGROUP_INET6_POST_BIND",
+ "BPF_CGROUP_UDP4_SENDMSG",
+ "BPF_CGROUP_UDP6_SENDMSG",
+ "BPF_LIRC_MODE2",
+ "BPF_FLOW_DISSECTOR",
+ "BPF_CGROUP_SYSCTL",
+ "BPF_CGROUP_UDP4_RECVMSG",
+ "BPF_CGROUP_UDP6_RECVMSG",
+ "BPF_CGROUP_GETSOCKOPT",
+ "BPF_CGROUP_SETSOCKOPT",
+ "BPF_TRACE_RAW_TP",
+ "BPF_TRACE_FENTRY",
+ "BPF_TRACE_FEXIT",
+ "BPF_MODIFY_RETURN",
+ "BPF_LSM_MAC",
+ "BPF_TRACE_ITER",
+ "BPF_CGROUP_INET4_GETPEERNAME",
+ "BPF_CGROUP_INET6_GETPEERNAME",
+ "BPF_CGROUP_INET4_GETSOCKNAME",
+ "BPF_CGROUP_INET6_GETSOCKNAME",
+ "BPF_XDP_DEVMAP",
+ "BPF_CGROUP_INET_SOCK_RELEASE",
+ "BPF_XDP_CPUMAP",
+ "BPF_SK_LOOKUP",
+ "BPF_XDP",
+};
+
+static const char *get_bpf_attach_type_name(int idx)
+{
+  if ( idx >= sizeof(bpf_attach_type_names) / sizeof(bpf_attach_type_names[0]) )
+    return "";
+  return bpf_attach_type_names[idx];
+}
+
 static size_t calc_trace_events_size(size_t n)
 {
   return n * sizeof(one_trace_event_call) + sizeof(unsigned long);
@@ -818,9 +928,9 @@ void dump_registered_trace_event_calls(int fd, sa64 delta)
     one_bpf_prog *curr2 = (one_bpf_prog *)(bpf_buf + 1);
     for ( size_t j = 0; j < bpf_size; j++, curr2++ )
     {
-      printf("  [%ld] prog %p type %d len %d jited_len %d\n", j, curr2->prog, curr2->prog_type, curr2->len, curr2->jited_len);
+      printf("  [%ld] prog %p id %d type %d len %d jited_len %d\n", j, curr2->prog, curr2->aux_id, curr2->prog_type, curr2->len, curr2->jited_len);
       if ( curr2->bpf_func )
-        dump_kptr((unsigned long)curr2->bpf_func, "  bpf_func", delta);         
+        dump_kptr2((unsigned long)curr2->bpf_func, "  bpf_func", delta);         
     }
     free(bpf_buf);
   }
@@ -893,6 +1003,76 @@ void dump_event_cmds(int fd, a64 list, a64 lock, sa64 delta)
   free(buf);
 }
 
+void dump_bpf_progs(int fd, a64 list, a64 lock, sa64 delta)
+{
+  if ( !list )
+  {
+    printf("cannot find prog_idr\n");
+    return;
+  }
+  if ( !lock )
+  {
+    printf("cannot find prog_idr_lock\n");
+    return;
+  }
+  unsigned long args[3] = { list + delta, lock + delta, 0 };
+  int err = ioctl(fd, IOCTL_GET_BPF_PROGS, (int *)args);
+  if ( err )
+  {
+    printf("IOCTL_GET_BPF_PROGS count failed, error %d (%s)\n", errno, strerror(errno));
+    return;
+  }
+  printf("\nprog_idr at %p: %ld\n", (void *)(list + delta), args[0]);
+  if ( !args[0] )
+    return;
+  size_t size = calc_bpf_progs_size(args[0]);
+  unsigned long *buf = (unsigned long *)malloc(size);
+  if ( !buf )
+  {
+    printf("cannot alloc buffer for bpf_progs, len %lX\n", size);
+    return;
+  }
+  buf[0] = list + delta;
+  buf[1] = lock + delta;
+  buf[2] = args[0];
+  err = ioctl(fd, IOCTL_GET_BPF_PROGS, (int *)buf);
+  if ( err )
+  {
+    printf("IOCTL_GET_BPF_PROGS failed, error %d (%s)\n", errno, strerror(errno));
+    free(buf);
+    return;
+  }
+  size = buf[0];
+  one_bpf_prog *curr = (one_bpf_prog *)(buf + 1);
+  for ( size_t idx = 0; idx < size; idx++, curr++ )
+  {
+    printf(" [%ld] prog %p id %d len %d jited_len %d\n", idx, curr->prog, curr->aux_id, curr->len, curr->jited_len);
+    printf("  type: %d %s\n", curr->prog_type, get_bpf_prog_type_name(curr->prog_type));
+    printf("  expected_attach_type: %d %s\n", curr->expected_attach_type, get_bpf_attach_type_name(curr->expected_attach_type));
+    if ( curr->bpf_func )
+      dump_kptr2((unsigned long)curr->bpf_func, "  bpf_func", delta);     
+  }
+  free(buf);
+}
+
+// ripped from https://elixir.bootlin.com/linux/v5.11/source/include/uapi/linux/bpf.h#L249
+static const char *const bpf_link_type_names[] = {
+ "BPF_LINK_TYPE_UNSPEC",
+ "BPF_LINK_TYPE_RAW_TRACEPOINT",
+ "BPF_LINK_TYPE_TRACING",
+ "BPF_LINK_TYPE_CGROUP",
+ "BPF_LINK_TYPE_ITER",
+ "BPF_LINK_TYPE_NETNS",
+ "BPF_LINK_TYPE_XDP",
+};
+
+static const char *get_bpf_link_type_name(int idx)
+{
+  if ( idx >= sizeof(bpf_link_type_names) / sizeof(bpf_link_type_names[0]) )
+    return "";
+  return bpf_link_type_names[idx];
+}
+
 static size_t calc_bpf_link_size(size_t n)
 {
   return n * sizeof(one_bpf_links) + sizeof(unsigned long);
@@ -941,7 +1121,8 @@ void dump_bpf_links(int fd, a64 list, a64 lock, sa64 delta)
   one_bpf_links *curr = (one_bpf_links *)(buf + 1);
   for ( size_t idx = 0; idx < size; idx++, curr++ )
   {
-    printf(" [%ld] at %p id %d type %d\n", idx, curr->addr, curr->id, curr->type);
+    printf(" [%ld] at %p id %d\n", idx, curr->addr, curr->id);
+    printf("  type: %d %s\n", curr->type, get_bpf_link_type_name(curr->type));
     if ( curr->ops )
     {
       dump_kptr((unsigned long)curr->ops, " ops", delta);
@@ -958,11 +1139,11 @@ void dump_bpf_links(int fd, a64 list, a64 lock, sa64 delta)
       if ( curr->fill_link_info )
         dump_kptr((unsigned long)curr->fill_link_info, "  fill_link_info", delta);
     }
-    if ( curr->prog )
+    if ( curr->prog.prog )
     {
-      printf("  prog %p type %d len %d jited_len %d\n", curr->prog, curr->prog_type, curr->len, curr->jited_len);
-      if ( curr->bpf_func )
-        dump_kptr((unsigned long)curr->bpf_func, "  bpf_func", delta);     
+      printf("  prog %p id %d type %d len %d jited_len %d\n", curr->prog.prog, curr->prog.aux_id, curr->prog.prog_type, curr->prog.len, curr->prog.jited_len);
+      if ( curr->prog.bpf_func )
+        dump_kptr2((unsigned long)curr->prog.bpf_func, "  bpf_func", delta);     
     }
   }
   free(buf);
@@ -2360,7 +2541,7 @@ void dump_usb_mon(int fd, a64 saddr, sa64 delta)
 
 static size_t calc_tp_size(size_t n)
 {
-  return (n + 1) * sizeof(unsigned long);
+  return sizeof(unsigned long) + n * sizeof(one_tracepoint_func);
 }
 
 void check_tracepoints(int fd, sa64 delta, addr_sym *tsyms, size_t tcount)
@@ -2412,19 +2593,11 @@ void check_tracepoints(int fd, sa64 delta, addr_sym *tsyms, size_t tcount)
       continue;
     }
     size = ntfy[0];
-    for ( j = 0; j < size; j++ )
+    one_tracepoint_func *curr = (one_tracepoint_func *)(ntfy + 1);
+    for ( j = 0; j < size; j++ , curr++ )
     {
-      printf("  [%ld]", j);
-      dump_unnamed_kptr(ntfy[1 + j], delta);
-/*      if ( is_inside_kernel(ntfy[1 + j]) )
-        printf("  [%ld] %p - kernel\n", j, (void *)ntfy[1 + j]);
-      else {
-        const char *mname = find_kmod(ntfy[1 + j]);
-        if ( mname )
-          printf("  [%ld] %p - %s\n", j, (void *)ntfy[1 + j], mname);
-        else
-          printf("  [%ld] %p UNKNOWN\n", j, (void *)ntfy[1 + j]);
-      } */
+      printf("  [%ld] data %p", j, (void *)curr->data);
+      dump_unnamed_kptr(curr->addr, delta);
     }
   }
   free(ntfy);
@@ -2990,6 +3163,9 @@ end:
 #ifndef _MSC_VER
             auto tgm = get_addr("targets_mutex");
             dump_bpf_targets(fd, bpf_target, tgm, delta);
+            entry = get_addr("prog_idr");
+            tgm = get_addr("prog_idr_lock");
+            dump_bpf_progs(fd, entry, tgm, delta);
             entry = get_addr("link_idr");
             tgm = get_addr("link_idr_lock");
             dump_bpf_links(fd, entry, tgm, delta);
