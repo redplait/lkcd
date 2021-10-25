@@ -340,6 +340,8 @@ struct one_net_dev
   void *ndisc_ops;   // if CONFIG_IPV6
   void *xfrmdev_ops; // if CONFIG_XFRM_OFFLOAD
   void *tlsdev_ops;  // if CONFIG_TLS_DEVICE
+  void *dcbnl_ops;   // if CONFIG_DCB
+  void *macsec_ops;  // if CONFIG_MACSEC
   unsigned int 		flags;
   unsigned int		mtu;
   unsigned int		min_mtu;
@@ -352,6 +354,9 @@ struct one_net_dev
   void *nf_hooks_ingress;
   unsigned long num_hook_entries; // nf_hooks_ingress->num_hook_entries
   unsigned long netdev_chain_cnt; // count of net_notifier_list
+  // xdp_state
+  void *bpf_prog[3];
+  void *bpf_link[3];
 };
 
 // read netdevs

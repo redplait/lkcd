@@ -2254,12 +2254,13 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
           if (copy_to_user((void*)ioctl_param, (void*)&count, sizeof(count)) > 0)
             return -EFAULT;
         } else {
+          int xdp;
           struct net *net;
           struct net_device *dev;
           struct one_net_dev *curr;
           int found = 0;
           size_t kbuf_size = sizeof(unsigned long) + ptrbuf[1] * sizeof(struct one_net_dev);
-          unsigned long *buf = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL);
+          unsigned long *buf = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL | __GFP_ZERO);
           if ( !buf )
             return -ENOMEM;
           curr = (struct one_net_dev *)(buf + 1);
@@ -2306,6 +2307,20 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
 #ifdef CONFIG_TLS_DEVICE
               curr->tlsdev_ops = (void *)dev->tlsdev_ops;
 #endif
+#ifdef CONFIG_DCB
+              curr->dcbnl_ops = (void *)dev->dcbnl_ops;
+#endif
+#ifdef CONFIG_MACSEC
+              curr->macsec_ops = (void *)dev->macsec_ops;
+#endif
+              // copy xdp_state
+              rtnl_lock();
+              for ( xdp = 0; xdp < 3; xdp++ )
+              {
+                curr->bpf_prog[xdp] = (void *)dev->xdp_state[xdp].prog;
+                curr->bpf_link[xdp] = (void *)dev->xdp_state[xdp].link;
+              }
+              rtnl_unlock();
               if ( dev->net_notifier_list.next != NULL )
               {
                 struct netdev_net_notifier *nn;
@@ -2836,6 +2851,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
               if ( link->prog )
               {
                 curr->prog.prog_type = (int)link->prog->type;
+                curr->prog.expected_attach_type = (int)link->prog->expected_attach_type;
                 curr->prog.len = link->prog->len;
                 curr->prog.jited_len = link->prog->jited_len;
                 curr->prog.bpf_func = (void *)link->prog->bpf_func;
