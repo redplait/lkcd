@@ -589,9 +589,37 @@ void dump_kptr2(unsigned long l, const char *name, sa64 delta)
   }
 }
 
-static size_t calc_dynevents_ops_size(size_t n)
+// some template magic
+template <typename T>
+class dumb_free
 {
-  return n * sizeof(one_dyn_event_op) + sizeof(unsigned long);
+  public:
+   dumb_free()
+   {
+     m_ptr = NULL;
+   }
+   dumb_free(T *ptr)
+    : m_ptr(ptr)
+   { }
+   ~dumb_free()
+   {
+     if ( m_ptr )
+       free(m_ptr);
+   }
+   void operator=(T *arg)
+   {
+     if ( (m_ptr != NULL) && (m_ptr != arg) )
+       free(m_ptr);
+     m_ptr = arg;
+   }
+  protected:
+   void *m_ptr;
+};
+
+template <typename T>
+size_t calc_data_size(size_t n)
+{
+  return n * sizeof(T) + sizeof(unsigned long);
 }
 
 void dump_dynevents_ops(int fd, a64 list, a64 lock, sa64 delta)
@@ -616,13 +644,14 @@ void dump_dynevents_ops(int fd, a64 list, a64 lock, sa64 delta)
   printf("\ndyn_event_ops_list at %p: %ld\n", (void *)(list + delta), args[0]);
   if ( !args[0] )
     return;
-  size_t size = calc_dynevents_ops_size(args[0]);
+  size_t size = calc_data_size<one_dyn_event_op>(args[0]);
   unsigned long *buf = (unsigned long *)malloc(size);
   if ( !buf )
   {
     printf("cannot alloc buffer for dynevents_ops, len %lX\n", size);
     return;
   }
+  dumb_free<unsigned long> tmp(buf);
   buf[0] = list + delta;
   buf[1] = lock + delta;
   buf[2] = args[0];
@@ -630,7 +659,6 @@ void dump_dynevents_ops(int fd, a64 list, a64 lock, sa64 delta)
   if ( err )
   {
     printf("IOCTL_GET_DYN_EVT_OPS failed, error %d (%s)\n", errno, strerror(errno));
-    free(buf);
     return;
   }
   size = buf[0];
@@ -650,12 +678,6 @@ void dump_dynevents_ops(int fd, a64 list, a64 lock, sa64 delta)
     if ( curr->match )
       dump_kptr((unsigned long)curr->match, "  match", delta);
   }
-  free(buf);
-}
-
-static size_t calc_tracefunc_cmd_size(size_t n)
-{
-  return n * sizeof(one_tracefunc_cmd) + sizeof(unsigned long);
 }
 
 void dump_tracefunc_cmds(int fd, a64 list, a64 lock, sa64 delta)
@@ -680,13 +702,14 @@ void dump_tracefunc_cmds(int fd, a64 list, a64 lock, sa64 delta)
   printf("\nftrace_commands at %p: %ld\n", (void *)(list + delta), args[0]);
   if ( !args[0] )
     return;
-  size_t size = calc_tracefunc_cmd_size(args[0]);
+  size_t size = calc_data_size<one_tracefunc_cmd>(args[0]);
   unsigned long *buf = (unsigned long *)malloc(size);
   if ( !buf )
   {
     printf("cannot alloc buffer for ftrace_func_commands, len %lX\n", size);
     return;
   }
+  dumb_free<unsigned long> tmp(buf);
   buf[0] = list + delta;
   buf[1] = lock + delta;
   buf[2] = args[0];
@@ -694,7 +717,6 @@ void dump_tracefunc_cmds(int fd, a64 list, a64 lock, sa64 delta)
   if ( err )
   {
     printf("IOCTL_GET_FTRACE_CMDS failed, error %d (%s)\n", errno, strerror(errno));
-    free(buf);
     return;
   }
   size = buf[0];
@@ -706,12 +728,6 @@ void dump_tracefunc_cmds(int fd, a64 list, a64 lock, sa64 delta)
     if ( curr->func )
       dump_kptr((unsigned long)curr->func, "  func", delta);
   }
-  free(buf);
-}
-
-static size_t calc_trace_exports_size(size_t n)
-{
-  return n * sizeof(one_trace_export) + sizeof(unsigned long);
 }
 
 void dump_trace_exports(int fd, a64 list, a64 lock, sa64 delta)
@@ -736,13 +752,14 @@ void dump_trace_exports(int fd, a64 list, a64 lock, sa64 delta)
   printf("\ntrace_exports at %p: %ld\n", (void *)(list + delta), args[0]);
   if ( !args[0] )
     return;
-  size_t size = calc_trace_exports_size(args[0]);
+  size_t size = calc_data_size<one_trace_export>(args[0]);
   unsigned long *buf = (unsigned long *)malloc(size);
   if ( !buf )
   {
     printf("cannot alloc buffer for trace_exports, len %lX\n", size);
     return;
   }
+  dumb_free<unsigned long> tmp(buf);
   buf[0] = list + delta;
   buf[1] = lock + delta;
   buf[2] = args[0];
@@ -750,7 +767,6 @@ void dump_trace_exports(int fd, a64 list, a64 lock, sa64 delta)
   if ( err )
   {
     printf("IOCTL_GET_TRACE_EXPORTS failed, error %d (%s)\n", errno, strerror(errno));
-    free(buf);
     return;
   }
   size = buf[0];
@@ -762,7 +778,6 @@ void dump_trace_exports(int fd, a64 list, a64 lock, sa64 delta)
     if ( curr->write )
       dump_kptr((unsigned long)curr->write, "  write", delta);
   }
-  free(buf);
 }
 
 // ripped from https://elixir.bootlin.com/linux/v5.11/source/include/uapi/linux/bpf.h#L171
@@ -861,11 +876,6 @@ static size_t calc_trace_events_size(size_t n)
   return n * sizeof(one_trace_event_call) + sizeof(unsigned long);
 }
 
-static size_t calc_bpf_progs_size(size_t n)
-{
-  return n * sizeof(one_bpf_prog) + sizeof(unsigned long);
-}
-
 void dump_registered_trace_event_calls(int fd, sa64 delta)
 {
   unsigned long args[2] = { 0, 0 };
@@ -885,13 +895,13 @@ void dump_registered_trace_event_calls(int fd, sa64 delta)
     printf("cannot alloc buffer for trace_event_calls, len %lX\n", size);
     return;
   }
+  dumb_free<unsigned long> tmp(buf);
   buf[0] = 0;
   buf[1] = args[0];
   err = ioctl(fd, IOCTL_GET_EVT_CALLS, (int *)buf);
   if ( err )
   {
     printf("IOCTL_GET_EVT_CALLS failed, error %d (%s)\n", errno, strerror(errno));
-    free(buf);
     return;
   }
   size = buf[0];
@@ -911,17 +921,17 @@ void dump_registered_trace_event_calls(int fd, sa64 delta)
       dump_kptr((unsigned long)curr->perf_perm, "  perf_perm", delta);
     if ( !curr->bpf_cnt )
       continue;
-    size_t bpf_size = calc_bpf_progs_size(curr->bpf_cnt);
+    size_t bpf_size = calc_data_size<one_bpf_prog>(curr->bpf_cnt);
     unsigned long *bpf_buf = (unsigned long *)malloc(bpf_size);
     if ( !bpf_buf )
       continue;
+    dumb_free<unsigned long> tmp2(bpf_buf);
     bpf_buf[0] = (unsigned long)curr->addr;
     bpf_buf[1] = curr->bpf_cnt;
     err = ioctl(fd, IOCTL_GET_EVT_CALLS, (int *)bpf_buf);
     if ( err )
     {
       printf("IOCTL_GET_EVT_CALLS for bpf_progs failed, error %d (%s)\n", errno, strerror(errno));
-      free(bpf_buf);
       continue;
     }
     bpf_size = bpf_buf[0];
@@ -932,14 +942,7 @@ void dump_registered_trace_event_calls(int fd, sa64 delta)
       if ( curr2->bpf_func )
         dump_kptr2((unsigned long)curr2->bpf_func, "  bpf_func", delta);         
     }
-    free(bpf_buf);
   }
-  free(buf);
-}
-
-static size_t calc_evt_cmd_size(size_t n)
-{
-  return n * sizeof(one_event_command) + sizeof(unsigned long);
 }
 
 void dump_event_cmds(int fd, a64 list, a64 lock, sa64 delta)
@@ -964,13 +967,14 @@ void dump_event_cmds(int fd, a64 list, a64 lock, sa64 delta)
   printf("\ntrigger_commands at %p: %ld\n", (void *)(list + delta), args[0]);
   if ( !args[0] )
     return;
-  size_t size = calc_evt_cmd_size(args[0]);
+  size_t size = calc_data_size<one_event_command>(args[0]);
   unsigned long *buf = (unsigned long *)malloc(size);
   if ( !buf )
   {
     printf("cannot alloc buffer for trigger_commands, len %lX\n", size);
     return;
   }
+  dumb_free<unsigned long> tmp(buf);
   buf[0] = list + delta;
   buf[1] = lock + delta;
   buf[2] = args[0];
@@ -978,7 +982,6 @@ void dump_event_cmds(int fd, a64 list, a64 lock, sa64 delta)
   if ( err )
   {
     printf("IOCTL_GET_EVENT_CMDS failed, error %d (%s)\n", errno, strerror(errno));
-    free(buf);
     return;
   }
   size = buf[0];
@@ -1000,7 +1003,6 @@ void dump_event_cmds(int fd, a64 list, a64 lock, sa64 delta)
     if ( curr->get_trigger_ops )
       dump_kptr((unsigned long)curr->get_trigger_ops, "  get_trigger_ops", delta);
   }
-  free(buf);
 }
 
 void dump_bpf_progs(int fd, a64 list, a64 lock, sa64 delta)
@@ -1025,13 +1027,14 @@ void dump_bpf_progs(int fd, a64 list, a64 lock, sa64 delta)
   printf("\nprog_idr at %p: %ld\n", (void *)(list + delta), args[0]);
   if ( !args[0] )
     return;
-  size_t size = calc_bpf_progs_size(args[0]);
+  size_t size = calc_data_size<one_bpf_prog>(args[0]);
   unsigned long *buf = (unsigned long *)malloc(size);
   if ( !buf )
   {
     printf("cannot alloc buffer for bpf_progs, len %lX\n", size);
     return;
   }
+  dumb_free<unsigned long> tmp(buf);
   buf[0] = list + delta;
   buf[1] = lock + delta;
   buf[2] = args[0];
@@ -1039,7 +1042,6 @@ void dump_bpf_progs(int fd, a64 list, a64 lock, sa64 delta)
   if ( err )
   {
     printf("IOCTL_GET_BPF_PROGS failed, error %d (%s)\n", errno, strerror(errno));
-    free(buf);
     return;
   }
   size = buf[0];
@@ -1052,7 +1054,6 @@ void dump_bpf_progs(int fd, a64 list, a64 lock, sa64 delta)
     if ( curr->bpf_func )
       dump_kptr2((unsigned long)curr->bpf_func, "  bpf_func", delta);     
   }
-  free(buf);
 }
 
 // ripped from https://elixir.bootlin.com/linux/v5.11/source/include/uapi/linux/bpf.h#L249
@@ -1071,11 +1072,6 @@ static const char *get_bpf_link_type_name(int idx)
   if ( idx >= sizeof(bpf_link_type_names) / sizeof(bpf_link_type_names[0]) )
     return "";
   return bpf_link_type_names[idx];
-}
-
-static size_t calc_bpf_link_size(size_t n)
-{
-  return n * sizeof(one_bpf_links) + sizeof(unsigned long);
 }
 
 void dump_bpf_links(int fd, a64 list, a64 lock, sa64 delta)
@@ -1100,13 +1096,14 @@ void dump_bpf_links(int fd, a64 list, a64 lock, sa64 delta)
   printf("\nlink_idr at %p: %ld\n", (void *)(list + delta), args[0]);
   if ( !args[0] )
     return;
-  size_t size = calc_bpf_link_size(args[0]);
+  size_t size = calc_data_size<one_bpf_links>(args[0]);
   unsigned long *buf = (unsigned long *)malloc(size);
   if ( !buf )
   {
     printf("cannot alloc buffer for bpf_links, len %lX\n", size);
     return;
   }
+  dumb_free<unsigned long> tmp(buf);
   buf[0] = list + delta;
   buf[1] = lock + delta;
   buf[2] = args[0];
@@ -1114,7 +1111,6 @@ void dump_bpf_links(int fd, a64 list, a64 lock, sa64 delta)
   if ( err )
   {
     printf("IOCTL_GET_BPF_LINKS failed, error %d (%s)\n", errno, strerror(errno));
-    free(buf);
     return;
   }
   size = buf[0];
@@ -1146,12 +1142,6 @@ void dump_bpf_links(int fd, a64 list, a64 lock, sa64 delta)
         dump_kptr2((unsigned long)curr->prog.bpf_func, "  bpf_func", delta);     
     }
   }
-  free(buf);
-}
-
-static size_t calc_bpf_reg_size(size_t n)
-{
-  return n * sizeof(one_bpf_reg) + sizeof(unsigned long);
 }
 
 void dump_bpf_targets(int fd, a64 list, a64 lock, sa64 delta)
@@ -1176,13 +1166,14 @@ void dump_bpf_targets(int fd, a64 list, a64 lock, sa64 delta)
   printf("\nbpf_iter_reg at %p: %ld\n", (void *)(list + delta), args[0]);
   if ( !args[0] )
     return;
-  size_t size = calc_bpf_reg_size(args[0]);
+  size_t size = calc_data_size<one_bpf_reg>(args[0]);
   unsigned long *buf = (unsigned long *)malloc(size);
   if ( !buf )
   {
     printf("cannot alloc buffer for bpf_regs, len %lX\n", size);
     return;
   }
+  dumb_free<unsigned long> tmp(buf);
   buf[0] = list + delta;
   buf[1] = lock + delta;
   buf[2] = args[0];
@@ -1190,7 +1181,6 @@ void dump_bpf_targets(int fd, a64 list, a64 lock, sa64 delta)
   if ( err )
   {
     printf("IOCTL_GET_BPF_REGS failed, error %d (%s)\n", errno, strerror(errno));
-    free(buf);
     return;
   }
   size = buf[0];
@@ -1210,7 +1200,6 @@ void dump_bpf_targets(int fd, a64 list, a64 lock, sa64 delta)
     if ( curr->seq_info )
       dump_kptr((unsigned long)curr->seq_info, "  seq_info", delta);
   }
-  free(buf);
 }
 
 void dump_lsm(int fd, sa64 delta)
@@ -1241,6 +1230,7 @@ void dump_lsm(int fd, sa64 delta)
     unsigned long *buf = (unsigned long *)malloc(size);
     if ( !buf )
       continue;
+    dumb_free<unsigned long> tmp(buf);
     // fill args
     buf[0] = c.list + delta;
     buf[1] = args[0];
@@ -1248,19 +1238,12 @@ void dump_lsm(int fd, sa64 delta)
     if ( err )
     {
       printf("IOCTL_GET_LSM_HOOKS for %s failed, error %d (%s)\n", c.name.c_str(), errno, strerror(errno));
-      free(buf);
       continue;
     }
     size = buf[0];
     for ( auto idx = 0; idx < size; idx++ )
       dump_unnamed_kptr(buf[1 + idx], delta);
-    free(buf);
   }
-}
-
-static size_t calc_uprobes_size(size_t n)
-{
-  return n * sizeof(one_uprobe) + sizeof(unsigned long);
 }
 
 static size_t calc_uprobes_clnt_size(size_t n)
@@ -1292,13 +1275,14 @@ void dump_uprobes(int fd, sa64 delta)
   printf("uprobes: %ld\n", params[0]);
   if ( !params[0] )
     return;
-  size_t size = calc_uprobes_size(params[0]);
+  size_t size = calc_data_size<one_uprobe>(params[0]);
   unsigned long *buf = (unsigned long *)malloc(size);
   if ( !buf )
   {
     printf("cannot alloc buffer for uprobes, len %lX\n", size);
     return;
   }
+  dumb_free<unsigned long> tmp(buf);
   buf[0] = a1 + delta;
   buf[1] = a2 + delta;
   buf[2] = params[0];
@@ -1348,12 +1332,6 @@ void dump_uprobes(int fd, sa64 delta)
       free(cbuf);
     }
   }
-  free(buf);
-}
-
-static size_t calc_protosw_size(size_t n)
-{
-  return n * sizeof(one_protosw) + sizeof(unsigned long);
 }
 
 void dump_protosw(int fd, a64 list, a64 lock, sa64 delta, const char *what)
@@ -1370,10 +1348,11 @@ void dump_protosw(int fd, a64 list, a64 lock, sa64 delta, const char *what)
     }
     if ( !args[0] )
       continue;
-    size_t size = calc_protosw_size(args[0]);
+    size_t size = calc_data_size<one_protosw>(args[0]);
     unsigned long *buf = (unsigned long *)malloc(size);
     if ( !buf )
       continue;
+    dumb_free<unsigned long> tmp(buf);
     buf[0] = list + delta;
     buf[1] = lock + delta;
     buf[2] = i;
@@ -1382,7 +1361,6 @@ void dump_protosw(int fd, a64 list, a64 lock, sa64 delta, const char *what)
     if ( err )
     {
       printf("IOCTL_GET_PROTOSW for %d failed, error %d (%s)\n", i, errno, strerror(errno));
-      free(buf);
       continue;
     }
     size = buf[0];
@@ -1396,7 +1374,6 @@ void dump_protosw(int fd, a64 list, a64 lock, sa64 delta, const char *what)
       if ( sb->ops )
         dump_kptr((unsigned long)sb->ops, " ops", delta);
     }
-    free(buf);
   }
 }
 
@@ -1406,7 +1383,7 @@ void dump_rtnl_af_ops(int fd, a64 nca, sa64 delta)
   int err = ioctl(fd, IOCTL_GET_RTNL_AF_OPS, (int *)args);
   if ( err )
   {
-    printf("IOCTL_GET_RTNL_AF_OPS failed, error %d (%s)\n", errno, strerror(errno));
+    printf("IOCTL_GET_RTNL_AF_OPS count failed, error %d (%s)\n", errno, strerror(errno));
     return;
   }
   printf("\nrtnl_af_ops at %p: %ld\n", (void *)(nca + delta), args[0]);
@@ -1418,20 +1395,19 @@ void dump_rtnl_af_ops(int fd, a64 nca, sa64 delta)
   unsigned long *buf = (unsigned long *)malloc(m * sizeof(unsigned long));
   if ( !buf )
     return;
+  dumb_free<unsigned long> tmp(buf);
   buf[0] = nca + delta;
   buf[1] = args[0];
   err = ioctl(fd, IOCTL_GET_RTNL_AF_OPS, (int *)buf);
   if ( err )
   {
     printf("IOCTL_GET_RTNL_AF_OPS failed, error %d (%s)\n", errno, strerror(errno));
-    free(buf);
     return;
   }
   for ( size_t j = 0; j < buf[0]; j++ )
   {
     dump_unnamed_kptr(buf[1 + j], delta);
   }
-  free(buf);
 }
 
 void dump_link_ops(int fd, a64 nca, sa64 delta)
@@ -1440,7 +1416,7 @@ void dump_link_ops(int fd, a64 nca, sa64 delta)
   int err = ioctl(fd, IOCTL_GET_LINKS_OPS, (int *)args);
   if ( err )
   {
-    printf("IOCTL_GET_LINKS_OPS failed, error %d (%s)\n", errno, strerror(errno));
+    printf("IOCTL_GET_LINKS_OPS count failed, error %d (%s)\n", errno, strerror(errno));
     return;
   }
   printf("\nlink_ops at %p: %ld\n", (void *)(nca + delta), args[0]);
@@ -1452,25 +1428,19 @@ void dump_link_ops(int fd, a64 nca, sa64 delta)
   unsigned long *buf = (unsigned long *)malloc(m * sizeof(unsigned long));
   if ( !buf )
     return;
+  dumb_free<unsigned long> tmp(buf);
   buf[0] = nca + delta;
   buf[1] = args[0];
   err = ioctl(fd, IOCTL_GET_LINKS_OPS, (int *)buf);
   if ( err )
   {
     printf("IOCTL_GET_LINKS_OPS failed, error %d (%s)\n", errno, strerror(errno));
-    free(buf);
     return;
   }
   for ( size_t j = 0; j < buf[0]; j++ )
   {
     dump_unnamed_kptr(buf[1 + j], delta);
   }
-  free(buf);
-}
-
-static size_t calc_tcp_ulp_ops_size(size_t n)
-{
-  return n * sizeof(one_tcp_ulp_ops) + sizeof(unsigned long);
 }
 
 void dump_ulps(int fd, a64 nca, a64 plock, sa64 delta)
@@ -1495,10 +1465,11 @@ void dump_ulps(int fd, a64 nca, a64 plock, sa64 delta)
   printf("\ntcp_ulp_list at %p: %ld\n", (void *)(nca + delta), cbuf[0]);
   if ( !cbuf[0] )
     return;
-  size_t size = calc_tcp_ulp_ops_size(cbuf[0]);
+  size_t size = calc_data_size<one_tcp_ulp_ops>(cbuf[0]);
   unsigned long *buf = (unsigned long *)malloc(size);
   if ( !buf )
     return;
+  dumb_free<unsigned long> tmp(buf);
   buf[0] = nca + delta;
   buf[1] = plock + delta;
   buf[2] = cbuf[0];
@@ -1506,7 +1477,6 @@ void dump_ulps(int fd, a64 nca, a64 plock, sa64 delta)
   if ( err )
   {
     printf("IOCTL_GET_ULP_OPS failed, error %d (%s)\n", errno, strerror(errno));
-    free(buf);
     return;
   }
   size = buf[0];
@@ -1528,12 +1498,6 @@ void dump_ulps(int fd, a64 nca, a64 plock, sa64 delta)
     if ( sb->clone )
      dump_kptr((unsigned long)sb->clone, " clone", delta);
   }
-  free(buf);
-}
-
-static size_t calc_one_pernet_ops_size(size_t n)
-{
-  return n * sizeof(one_pernet_ops) + sizeof(unsigned long);
 }
 
 void dump_pernet_ops(int fd, a64 nca, a64 plock, sa64 delta)
@@ -1552,16 +1516,17 @@ void dump_pernet_ops(int fd, a64 nca, a64 plock, sa64 delta)
   int err = ioctl(fd, IOCTL_GET_PERNET_OPS, (int *)cbuf);
   if ( err )
   {
-    printf("IOCTL_GET_PERNET_OPS failed, error %d (%s)\n", errno, strerror(errno));
+    printf("IOCTL_GET_PERNET_OPS count failed, error %d (%s)\n", errno, strerror(errno));
     return;
   }
   printf("\npernet_ops: %ld\n", cbuf[0]);
   if ( !cbuf[0] )
     return;
-  size_t size = calc_one_pernet_ops_size(cbuf[0]);
+  size_t size = calc_data_size<one_pernet_ops>(cbuf[0]);
   unsigned long *buf = (unsigned long *)malloc(size);
   if ( !buf )
     return;
+  dumb_free<unsigned long> tmp(buf);
   buf[0] = nca + delta;
   buf[1] = plock + delta;
   buf[2] = cbuf[0];
@@ -1569,7 +1534,6 @@ void dump_pernet_ops(int fd, a64 nca, a64 plock, sa64 delta)
   if ( err )
   {
     printf("IOCTL_GET_PERNET_OPS failed, error %d (%s)\n", errno, strerror(errno));
-    free(buf);
     return;
   }
   size = buf[0];
@@ -1585,7 +1549,6 @@ void dump_pernet_ops(int fd, a64 nca, a64 plock, sa64 delta)
     if ( sb->exit_batch )
      dump_kptr((unsigned long)sb->exit_batch, " exit_batch", delta);
   }
-  free(buf);
 }
 
 static size_t calc_net_chains_size(size_t n)
@@ -1609,13 +1572,13 @@ void dump_block_chain(int fd, a64 nca, sa64 delta, const char *name)
   unsigned long *buf = (unsigned long *)malloc(size);
   if ( !buf )
     return;
+  dumb_free<unsigned long> tmp(buf);
   buf[0] = nca + delta;
   buf[1] = val;
   err = ioctl(fd, IOCTL_ENUMNTFYCHAIN, (int *)buf);
   if ( err )
   {
     printf("IOCTL_ENUMNTFYCHAIN for %s failed, error %d (%s)\n", name, errno, strerror(errno));
-    free(buf);
     return;
   }
   for ( size_t i = 0; i < buf[0]; i++ )
@@ -1631,13 +1594,13 @@ void dump_net_chains(int fd, a64 nca, size_t cnt, sa64 delta)
   unsigned long *buf = (unsigned long *)malloc(size);
   if ( !buf )
     return;
+  dumb_free<unsigned long> tmp(buf);
   buf[0] = nca + delta;
   buf[1] = cnt;
   int err = ioctl(fd, IOCTL_GET_NETDEV_CHAIN, (int *)buf);
   if ( err )
   {
     printf("IOCTL_GET_NETDEV_CHAIN failed, error %d (%s)\n", errno, strerror(errno));
-    free(buf);
     return;
   }
   size = buf[0];
@@ -1645,12 +1608,6 @@ void dump_net_chains(int fd, a64 nca, size_t cnt, sa64 delta)
   {
     dump_unnamed_kptr(buf[1 + j], delta);
   }
-  free(buf);
-}
-
-static size_t calc_genl_size(size_t n)
-{
-  return n * sizeof(one_genl_family) + sizeof(unsigned long);
 }
 
 void dump_genl(int fd, a64 addr, sa64 delta)
@@ -1670,17 +1627,17 @@ void dump_genl(int fd, a64 addr, sa64 delta)
   printf("\ngenl_fam_idr at %p: %ld\n", (void *)(addr + delta), args[0]);
   if ( !args[0] )
     return;
-  size_t size = calc_genl_size(args[0]);
+  size_t size = calc_data_size<one_genl_family>(args[0]);
   unsigned long *buf = (unsigned long *)malloc(size);
   if ( !buf )
     return;
+  dumb_free<unsigned long> tmp(buf);
   buf[0] = addr + delta;
   buf[1] = args[0];
   err = ioctl(fd, IOCTL_GET_GENL_FAMILIES, (int *)buf);
   if ( err )
   {
     printf("IOCTL_GET_GENL_FAMILIES failed, error %d (%s)\n", errno, strerror(errno));
-    free(buf);
     return;
   }
   size = buf[0];
@@ -1698,7 +1655,6 @@ void dump_genl(int fd, a64 addr, sa64 delta)
     if ( curr->small_ops )
       dump_kptr((unsigned long)curr->small_ops, " small_ops", delta);
   }
-  free(buf);
 }
 
 union netlink_args
@@ -1787,6 +1743,7 @@ void dump_netlinks(int fd, a64 nca, a64 lock, sa64 delta)
     unsigned long *buf = (unsigned long *)malloc(buf_size);
     if ( !buf )
       continue;
+    dumb_free<unsigned long> tmp(buf);
     buf[0] = nca + delta;
     buf[1] = lock + delta;
     buf[2] = (unsigned long)i;
@@ -1795,7 +1752,6 @@ void dump_netlinks(int fd, a64 nca, a64 lock, sa64 delta)
     if ( err )
     {
       printf("IOCTL_GET_NL_SK index %d failed, error %d (%s)\n", i, errno, strerror(errno));
-      free(buf);
       continue;
     }
     buf_size = buf[0];
@@ -1816,7 +1772,6 @@ void dump_netlinks(int fd, a64 nca, a64 lock, sa64 delta)
       if ( curr->cb_done )
         dump_kptr((unsigned long)curr->cb_done, " cb.done", delta);
     }
-    free(buf);
   }
 }
 
@@ -1853,6 +1808,7 @@ void dump_protos(int fd, a64 nca, a64 lock, sa64 delta)
   unsigned long *buf = (unsigned long *)malloc(size);
   if ( !buf )
     return;
+  dumb_free<unsigned long> tmp(buf);
   buf[0] = nca + delta;
   buf[1] = lock + delta;
   buf[2] = args[0];
@@ -1860,7 +1816,6 @@ void dump_protos(int fd, a64 nca, a64 lock, sa64 delta)
   if ( err )
   {
     printf("IOCTL_GET_PROTOS failed, error %d (%s)\n", errno, strerror(errno));
-    free(buf);
     return;
   }
   size = buf[0];
@@ -1869,7 +1824,6 @@ void dump_protos(int fd, a64 nca, a64 lock, sa64 delta)
     printf(" [%ld] ", i);
     dump_unnamed_kptr(buf[1 + i], delta);
   }
-  free(buf);
 }
 
 static size_t calc_net_size(size_t n)
@@ -1967,8 +1921,19 @@ void dump_nets(int fd, sa64 delta)
         dump_kptr((unsigned long)nd->rx_handler, " rx_handler", delta);
       if ( nd->rtnl_link_ops )
         dump_kptr((unsigned long)nd->rtnl_link_ops, " rtnl_link_ops", delta);
+      if ( nd->dcbnl_ops )
+        dump_kptr((unsigned long)nd->dcbnl_ops, " dcbnl_ops", delta);
+      if ( nd->macsec_ops )
+        dump_kptr((unsigned long)nd->macsec_ops, " macsec_ops", delta);
       if ( nd->num_hook_entries )
         printf("num_hook_entries: %ld\n", nd->num_hook_entries);
+      // dump xdp_state
+      for ( int xdp = 0; xdp < 3; xdp++ )
+      {
+        if ( !nd->bpf_prog[xdp] && !nd->bpf_link[xdp] )
+          continue;
+        printf("  xdp_state[%d] prog %p link %p\n", xdp, nd->bpf_prog[xdp], nd->bpf_link[xdp]);
+      }
     }
     free(dbuf);
   }
