@@ -733,5 +733,26 @@ struct one_trace_event_call
 //  else long size + N * one_bpf_prog
 #define IOCTL_GET_BPF_PROGS            _IOR(IOCTL_NUM, 0x35, int*)
 
+struct one_group_root
+{
+  void *addr;
+  void *kf_root;
+  unsigned int subsys_mask;
+  int hierarchy_id;
+  unsigned long nr_cgrps;
+  unsigned int flags;
+  char name[64];
+};
+
+// read cgroup roots
+// in params:
+//  0 - idr address (cgroup_hierarchy_idr)
+//  1 - cgroup_mutex
+//  2 - cnt
+// out params
+//  if count is zero - count of cgroup roots
+//  else long size + N * one_group_root
+#define IOCTL_GET_CGRP_ROOTS           _IOR(IOCTL_NUM, 0x36, int*)
+
 
 #endif /* LKCD_SHARED_H */

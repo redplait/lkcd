@@ -2470,7 +2470,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
           struct net *net;
           struct one_net *curr;
           size_t kbuf_size = sizeof(unsigned long) + ptrbuf[0] * sizeof(struct one_net);
-          unsigned long *buf = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL);
+          unsigned long *buf = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL | __GFP_ZERO);
           if ( !buf )
             return -ENOMEM;
           curr = (struct one_net *)(buf + 1);
@@ -2483,6 +2483,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
             curr->addr = (void *)net;
             curr->ifindex = net->ifindex;
             curr->rtnl = (void *)net->rtnl;
+
             if ( net->rtnl )
             {
                curr->rtnl_proto = (void *)net->rtnl->sk_prot;
@@ -2623,6 +2624,62 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
             return -EFAULT;
         }
       break; /* IOCTL_GET_NLTAB */
+
+    case IOCTL_GET_CGRP_ROOTS:
+        if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 3) > 0 )
+  	  return -EFAULT;
+  	else {
+          struct idr *genl = (struct idr *)ptrbuf[0];
+          struct mutex *m = (struct mutex *)ptrbuf[1];
+          unsigned long cnt = 0;
+          unsigned int hierarchy_id;
+          const struct cgroup_root *item;
+          if ( !ptrbuf[2] )
+          {
+            mutex_lock(m);
+            idr_for_each_entry(genl, item, hierarchy_id)
+              cnt++;
+            mutex_unlock(m);
+            if (copy_to_user((void*)ioctl_param, (void*)&cnt, sizeof(cnt)) > 0)
+              return -EFAULT;
+          } else {
+            size_t kbuf_size = sizeof(unsigned long) + ptrbuf[2] * sizeof(struct one_group_root);
+            struct one_group_root *curr;
+            unsigned long *buf = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL);
+            if ( !buf )
+              return -ENOMEM;
+            curr = (struct one_group_root *)(buf + 1);
+            mutex_lock(m);
+            // iterate
+            idr_for_each_entry(genl, item, hierarchy_id)
+            {
+              if ( cnt >= ptrbuf[2] )
+                break;
+              curr->addr = (void *)item;
+              curr->kf_root = (void *)item->kf_root;
+              curr->subsys_mask = item->subsys_mask;
+              curr->hierarchy_id = item->hierarchy_id;
+              curr->nr_cgrps = atomic_read(&item->nr_cgrps);
+              curr->flags = item->flags;
+              strlcpy(curr->name, item->name, 64);
+              // next iteration
+              cnt++;
+              curr++;
+            }
+            // unlock
+            mutex_unlock(m);
+            // copy to usermode
+            buf[0] = cnt;
+            kbuf_size = sizeof(unsigned long) + cnt * sizeof(struct one_group_root);
+            if (copy_to_user((void*)ioctl_param, (void*)buf, kbuf_size) > 0)
+            {
+              kfree(buf);
+              return -EFAULT;
+            }
+            kfree(buf);          
+          }
+        }
+      break; /* IOCTL_GET_CGRP_ROOTS */
 
     case IOCTL_GET_GENL_FAMILIES:
         if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 2) > 0 )
