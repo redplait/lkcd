@@ -2651,6 +2651,61 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
         }
       break; /* IOCTL_GET_NLTAB */
 
+    case IOCTL_GET_CGROUPS:
+        if ( !css_next_child_ptr )
+          return -ENOCSI;
+        if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 4) > 0 )
+  	  return -EFAULT;
+  	else {
+          struct idr *genl = (struct idr *)ptrbuf[0];
+          struct mutex *m = (struct mutex *)ptrbuf[1];
+          void *root = (void *)ptrbuf[2];
+          unsigned long cnt = ptrbuf[3];
+          unsigned int hierarchy_id;
+          struct cgroup_root *item;
+          int found = 0;
+          size_t kbuf_size = sizeof(unsigned long) + cnt * sizeof(struct one_cgroup);
+          struct one_cgroup *curr;
+          unsigned long *buf = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL  | __GFP_ZERO);
+          if ( !buf )
+            return -ENOMEM;
+          curr = (struct one_cgroup *)(buf + 1);
+          cnt = 0;
+          // lock
+          mutex_lock(m);
+          // iterate on roots
+          idr_for_each_entry(genl, item, hierarchy_id)
+          {
+             struct cgroup_subsys_state *child;
+             if ( (void *)item != root )
+               continue;
+             found++;
+             rcu_read_lock();
+             // iterate on childres
+             for (child = css_next_child_ptr(NULL, &item->cgrp.self); child && cnt < ptrbuf[3]; child = css_next_child_ptr(child, &item->cgrp.self), cnt++, curr++ )
+               fill_one_cgroup(curr, child);
+             rcu_read_unlock();
+             break;
+          }
+          // unlock
+          mutex_unlock(m);
+          if ( !found )
+          {
+             kfree(buf);
+             return -ENOENT;
+          }
+          // copy to usermode
+          buf[0] = cnt;
+          kbuf_size = sizeof(unsigned long) + cnt * sizeof(struct one_cgroup);
+          if (copy_to_user((void*)ioctl_param, (void*)buf, kbuf_size) > 0)
+          {
+            kfree(buf);
+            return -EFAULT;
+          }
+          kfree(buf);          
+        }
+      break; /* IOCTL_GET_CGROUPS */
+
     case IOCTL_GET_CGRP_ROOTS:
         if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 3) > 0 )
   	  return -EFAULT;
@@ -2659,7 +2714,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
           struct mutex *m = (struct mutex *)ptrbuf[1];
           unsigned long cnt = 0;
           unsigned int hierarchy_id;
-          struct cgroup_root *item;          
+          struct cgroup_root *item;
           if ( !ptrbuf[2] )
           {
             mutex_lock(m);
@@ -2671,7 +2726,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
           } else {
             size_t kbuf_size = sizeof(unsigned long) + ptrbuf[2] * sizeof(struct one_group_root);
             struct one_group_root *curr;
-            unsigned long *buf = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL);
+            unsigned long *buf = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL  | __GFP_ZERO);
             if ( !buf )
               return -ENOMEM;
             curr = (struct one_group_root *)(buf + 1);
