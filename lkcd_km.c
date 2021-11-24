@@ -274,6 +274,10 @@ int is_dbgfs(const struct file_operations *in)
   return (in == s_dbg_open) || (in == s_dbg_full);
 }
 
+// css_next_child is not exported so css_for_each_child not compiling. as usually
+typedef struct cgroup_subsys_state *(*kcss_next_child)(struct cgroup_subsys_state *pos, struct cgroup_subsys_state *parent);
+static kcss_next_child css_next_child_ptr = 0;
+
 // kernfs_node_from_dentry is not exported
 typedef struct kernfs_node *(*krnf_node_type)(struct dentry *dentry);
 static krnf_node_type krnf_node_ptr = 0;
@@ -808,6 +812,28 @@ static void copy_trace_event_call(const struct trace_event_call *c, struct one_t
     mutex_unlock(s_bpf_event_mutex);
   }
 #endif
+}
+
+void fill_one_cgroup(struct one_cgroup *grp, struct cgroup_subsys_state *css)
+{
+  int i;
+  // bcs self (type cgroup_subsys_state) is first field in cgroup
+  struct cgroup *cg = (struct cgroup *)css;
+  grp->addr = (void *)cg;
+  grp->ss = (void *)css->ss;
+  grp->serial_nr = css->serial_nr;
+  grp->flags = cg->flags;
+  grp->level = cg->level;
+  for ( i = 0; i < MAX_BPF_ATTACH_TYPE && i < CG_BPF_MAX; i++ )
+  {
+    grp->prog_array[i] = (void *)cg->bpf.effective[i];
+    if ( cg->bpf.effective[i] && bpf_prog_array_length_ptr )
+    {
+      grp->prog_array_cnt[i] = bpf_prog_array_length_ptr(cg->bpf.effective[i]);
+    } else
+      grp->prog_array_cnt[i] = 0;
+    grp->bpf_flags[i] = cg->bpf.flags[i];
+  }
 }
 
 static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long ioctl_param)
@@ -2633,7 +2659,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
           struct mutex *m = (struct mutex *)ptrbuf[1];
           unsigned long cnt = 0;
           unsigned int hierarchy_id;
-          const struct cgroup_root *item;
+          struct cgroup_root *item;          
           if ( !ptrbuf[2] )
           {
             mutex_lock(m);
@@ -2660,8 +2686,20 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
               curr->subsys_mask = item->subsys_mask;
               curr->hierarchy_id = item->hierarchy_id;
               curr->nr_cgrps = atomic_read(&item->nr_cgrps);
+              curr->real_cnt = 0;
+              // calc count of children manually - ripped from css_has_online_children
+              if ( css_next_child_ptr )
+              {
+                struct cgroup_subsys_state *child;
+	        rcu_read_lock();
+	        for (child = css_next_child_ptr(NULL, &item->cgrp.self); child; child = css_next_child_ptr(child, &item->cgrp.self))
+                  curr->real_cnt++;
+                rcu_read_unlock();
+              }
               curr->flags = item->flags;
               strlcpy(curr->name, item->name, 64);
+              // fill this cgroup
+              fill_one_cgroup(&curr->grp, &item->cgrp.self);
               // next iteration
               cnt++;
               curr++;
@@ -3528,6 +3566,9 @@ init_module (void)
   bpf_prog_array_length_ptr = (und_bpf_prog_array_length)lkcd_lookup_name("bpf_prog_array_length");
   if ( !bpf_prog_array_length_ptr )
     printk("cannot find bpf_prog_array_length\n");
+  css_next_child_ptr = (kcss_next_child)lkcd_lookup_name("css_next_child");
+  if ( !css_next_child_ptr )
+    printk("cannot find css_next_child\n");
 #ifdef CONFIG_FSNOTIFY
   fsnotify_mark_srcu_ptr = (struct srcu_struct *)lkcd_lookup_name("fsnotify_mark_srcu");
   fsnotify_first_mark_ptr = (und_fsnotify_first_mark)lkcd_lookup_name("fsnotify_first_mark");

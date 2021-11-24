@@ -733,6 +733,23 @@ struct one_trace_event_call
 //  else long size + N * one_bpf_prog
 #define IOCTL_GET_BPF_PROGS            _IOR(IOCTL_NUM, 0x35, int*)
 
+#define CG_BPF_MAX	38
+
+struct one_cgroup
+{
+  // from cgroup_subsys_state
+  void *addr;
+  void *ss;
+  unsigned long serial_nr;
+  // from cgroup 
+  unsigned long flags;
+  int level;
+  // from cgroup_bpf
+  void *prog_array[CG_BPF_MAX];
+  unsigned long prog_array_cnt[CG_BPF_MAX];
+  unsigned int bpf_flags[CG_BPF_MAX];
+};
+
 struct one_group_root
 {
   void *addr;
@@ -740,8 +757,10 @@ struct one_group_root
   unsigned int subsys_mask;
   int hierarchy_id;
   unsigned long nr_cgrps;
+  unsigned long real_cnt;
   unsigned int flags;
   char name[64];
+  struct one_cgroup grp;
 };
 
 // read cgroup roots
