@@ -2682,8 +2682,13 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
              found++;
              rcu_read_lock();
              // iterate on childres
-             for (child = css_next_child_ptr(NULL, &item->cgrp.self); child && cnt < ptrbuf[3]; child = css_next_child_ptr(child, &item->cgrp.self), cnt++, curr++ )
+             for (child = css_next_descendant_pre(NULL, &item->cgrp.self); child && cnt < ptrbuf[3]; child = css_next_descendant_pre(child, &item->cgrp.self) )
+             {
+               if ( child == &item->cgrp.self )
+	         continue;
                fill_one_cgroup(curr, child);
+               cnt++; curr++;
+             }
              rcu_read_unlock();
              break;
           }
@@ -2747,8 +2752,12 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
               {
                 struct cgroup_subsys_state *child;
 	        rcu_read_lock();
-	        for (child = css_next_child_ptr(NULL, &item->cgrp.self); child; child = css_next_child_ptr(child, &item->cgrp.self))
+	        for (child = css_next_descendant_pre(NULL, &item->cgrp.self); child; child = css_next_descendant_pre(child, &item->cgrp.self))
+	        {
+	          if ( child == &item->cgrp.self )
+	            continue;
                   curr->real_cnt++;
+                }
                 rcu_read_unlock();
               }
               curr->flags = item->flags;
