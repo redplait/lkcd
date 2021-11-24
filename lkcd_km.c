@@ -853,7 +853,6 @@ void fill_bpf_prog(struct one_bpf_prog *curr, struct bpf_prog *prog)
 
 static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long ioctl_param)
 {
-//  int numargs = 0;
   unsigned long ptrbuf[16];
 //  unsigned long *ptr = ptrbuf;
   switch(ioctl_num)
@@ -2665,6 +2664,82 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
             return -EFAULT;
         }
       break; /* IOCTL_GET_NLTAB */
+
+    case IOCTL_GET_CGROUP_BPF:
+        if ( !bpf_prog_array_length_ptr )
+          return -ENOCSI;
+        if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 6) > 0 )
+  	  return -EFAULT;
+  	// check index (4 param)
+  	if ( ptrbuf[4] >= MAX_BPF_ATTACH_TYPE )
+          return -EINVAL;
+  	else {
+          struct idr *genl = (struct idr *)ptrbuf[0];
+          struct mutex *m = (struct mutex *)ptrbuf[1];
+          void *root = (void *)ptrbuf[2];
+          void *cgrp = (void *)ptrbuf[3];
+          unsigned long cnt = ptrbuf[5];
+          unsigned int hierarchy_id;
+          struct cgroup_root *item;
+          int found = 0;
+          size_t kbuf_size = sizeof(unsigned long) + cnt * sizeof(struct one_bpf_prog);
+          struct one_bpf_prog *curr;
+          unsigned long *buf = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL  | __GFP_ZERO);
+          if ( !buf )
+            return -ENOMEM;
+          curr = (struct one_bpf_prog *)(buf + 1);
+          // lock
+          mutex_lock(m);
+          // iterate on roots
+          idr_for_each_entry(genl, item, hierarchy_id)
+          {
+             struct cgroup_subsys_state *child;
+             if ( (void *)item != root )
+               continue;
+             found |= 1;
+             rcu_read_lock();
+             // iterate on childres
+             for (child = css_next_descendant_pre(NULL, &item->cgrp.self); child; child = css_next_descendant_pre(child, &item->cgrp.self) )
+             {
+               struct cgroup *cg = (struct cgroup *)child;
+               if ( (void *)child != cgrp )
+	         continue;
+	       found |= 3;
+               if ( cg->bpf.effective[ptrbuf[4]] )
+               {
+                 int total = bpf_prog_array_length_ptr(cg->bpf.effective[ptrbuf[4]]);
+                 for ( cnt = 0; cnt < total && cnt < ptrbuf[5]; cnt++, curr++ )
+                 {
+                   curr->prog = cg->bpf.effective[ptrbuf[4]]->items[cnt].prog;
+                   if ( !curr->prog )
+                     break;
+                   fill_bpf_prog(curr, cg->bpf.effective[ptrbuf[4]]->items[cnt].prog);
+                 }
+               }
+               break;
+             }
+             rcu_read_unlock();
+             break;
+          }
+          // unlock
+          mutex_unlock(m);
+          // check that we found root and cgroup
+          if ( 3 != found )
+          {
+             kfree(buf);
+             return -ENOENT;
+          }
+          // copy to usermode
+          buf[0] = cnt;
+          kbuf_size = sizeof(unsigned long) + cnt * sizeof(struct one_bpf_prog);
+          if (copy_to_user((void*)ioctl_param, (void*)buf, kbuf_size) > 0)
+          {
+            kfree(buf);
+            return -EFAULT;
+          }
+          kfree(buf);          
+   	}
+      break; /* IOCTL_GET_CGROUP_BPF */
 
     case IOCTL_GET_CGROUPS:
         if ( !css_next_child_ptr )

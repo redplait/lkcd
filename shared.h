@@ -773,7 +773,7 @@ struct one_group_root
 //  else long size + N * one_group_root
 #define IOCTL_GET_CGRP_ROOTS           _IOR(IOCTL_NUM, 0x36, int*)
 
-// read cgrops for some root
+// read cgroups for some root
 // in params:
 //  0 - idr address (cgroup_hierarchy_idr)
 //  1 - cgroup_mutex
@@ -782,5 +782,17 @@ struct one_group_root
 // out params
 //  unsigned long + N * one_cgroup
 #define IOCTL_GET_CGROUPS              _IOR(IOCTL_NUM, 0x37, int*)
+
+// read BPF progs for some cgroup
+// in params:
+//  0 - idr address (cgroup_hierarchy_idr)
+//  1 - cgroup_mutex
+//  2 - address of cgroups root - gathered with IOCTL_GET_CGRP_ROOTS
+//  3 - address of cgroup to read BPF progs
+//  4 - index in cg->bpf.effective
+//  5 - cnt
+// out params
+//  unsigned long + N * one_bpf_prog
+#define IOCTL_GET_CGROUP_BPF           _IOR(IOCTL_NUM, 0x38, int*)
 
 #endif /* LKCD_SHARED_H */
