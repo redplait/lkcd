@@ -46,6 +46,7 @@ void usage(const char *prog)
   printf("-d - use disasm\n");
   printf("-F - dump super-blocks\n");
   printf("-f - dump ftraces\n");  
+  printf("-g - dump cgroups\n");
   printf("-k - dump kprobes\n");
   printf("-n - dump nets\n");
   printf("-r - check .rodata section\n");
@@ -938,43 +939,15 @@ void dump_bpf_progs(int fd, a64 list, a64 lock, sa64 delta)
     printf("cannot find prog_idr_lock\n");
     return;
   }
-  unsigned long args[3] = { list + delta, lock + delta, 0 };
-  int err = ioctl(fd, IOCTL_GET_BPF_PROGS, (int *)args);
-  if ( err )
-  {
-    printf("IOCTL_GET_BPF_PROGS count failed, error %d (%s)\n", errno, strerror(errno));
-    return;
-  }
-  printf("\nprog_idr at %p: %ld\n", (void *)(list + delta), args[0]);
-  if ( !args[0] )
-    return;
-  size_t size = calc_data_size<one_bpf_prog>(args[0]);
-  unsigned long *buf = (unsigned long *)malloc(size);
-  if ( !buf )
-  {
-    printf("cannot alloc buffer for bpf_progs, len %lX\n", size);
-    return;
-  }
-  dumb_free<unsigned long> tmp(buf);
-  buf[0] = list + delta;
-  buf[1] = lock + delta;
-  buf[2] = args[0];
-  err = ioctl(fd, IOCTL_GET_BPF_PROGS, (int *)buf);
-  if ( err )
-  {
-    printf("IOCTL_GET_BPF_PROGS failed, error %d (%s)\n", errno, strerror(errno));
-    return;
-  }
-  size = buf[0];
-  one_bpf_prog *curr = (one_bpf_prog *)(buf + 1);
-  for ( size_t idx = 0; idx < size; idx++, curr++ )
-  {
+  dump_data2arg<one_bpf_prog>(fd, list, lock, delta, IOCTL_GET_BPF_PROGS, "prog_idr", "IOCTL_GET_BPF_PROGS", "bpf_progs",
+   [=](size_t idx, const one_bpf_prog *curr) {
     printf(" [%ld] prog %p id %d len %d jited_len %d\n", idx, curr->prog, curr->aux_id, curr->len, curr->jited_len);
     printf("  type: %d %s\n", curr->prog_type, get_bpf_prog_type_name(curr->prog_type));
     printf("  expected_attach_type: %d %s\n", curr->expected_attach_type, get_bpf_attach_type_name(curr->expected_attach_type));
     if ( curr->bpf_func )
       dump_kptr2((unsigned long)curr->bpf_func, "  bpf_func", delta);     
-  }
+   }
+  );
 }
 
 // ripped from https://elixir.bootlin.com/linux/v5.11/source/include/uapi/linux/bpf.h#L249
@@ -1111,6 +1084,81 @@ void dump_lsm(int fd, sa64 delta)
   }
 }
 
+void dump_cgroup(const one_cgroup *cg, sa64 delta)
+{
+  printf(" cgroup at %p serial_nr %ld flags %lX level %d\n", cg->addr, cg->serial_nr, cg->flags, cg->level);
+  if ( cg->ss )
+    dump_kptr((unsigned long)cg->ss, "ss", delta);
+  int i = 0;
+  int has_bpf = 0;
+  for ( i = 0; i < CG_BPF_MAX; i++ )
+  {
+    if ( cg->prog_array_cnt[i] )
+    {
+      has_bpf = 1;
+      break;
+    }
+  }
+  if ( !has_bpf )
+    return;
+  printf(" cgroup BPF:\n");
+  for ( i = 0; i < CG_BPF_MAX; i++ )
+  {
+    if ( !cg->prog_array_cnt[i] )
+      continue;
+    printf("  %s: %p cnt %ld flags %X\n", get_bpf_attach_type_name(i), cg->prog_array[i], cg->prog_array_cnt[i], cg->bpf_flags[i]);
+  }
+}
+
+void dump_groups(int fd, sa64 delta)
+{
+  unsigned long a1 = get_addr("cgroup_hierarchy_idr");
+  if ( !a1 )
+  {
+    printf("cannot find cgroup_hierarchy_idr\n");
+    return;
+  }
+  unsigned long a2 = get_addr("cgroup_mutex");
+  if ( !a2 )
+  {
+    printf("cannot find cgroup_mutex\n");
+    return;
+  }
+  unsigned long params[3] = { a1 + delta, a2 + delta, 0 };
+  int err = ioctl(fd, IOCTL_GET_CGRP_ROOTS, (int *)&params);
+  if ( err )
+  {
+    printf("IOCTL_GET_CGRP_ROOTS count failed, error %d (%s)\n", errno, strerror(errno));
+    return;
+  }
+  printf("\ncgroup_hierarchy_idr at %p: %ld\n", (void *)(a1 + delta), params[0]);
+  if ( !params[0] )
+    return;
+  size_t size = calc_data_size<one_group_root>(params[0]);
+  unsigned long *buf = (unsigned long *)malloc(size);
+  if ( !buf )
+  {
+    printf("cannot alloc buffer for group_roots, len %lX\n", size);
+    return;
+  }
+  dumb_free<unsigned long> tmp(buf);
+  buf[0] = a1 + delta;
+  buf[1] = a2 + delta;
+  buf[2] = params[0];
+  err = ioctl(fd, IOCTL_GET_CGRP_ROOTS, (int *)buf);
+  if ( err )
+  {
+    printf("IOCTL_GET_CGRP_ROOTS failed, error %d (%s)\n", errno, strerror(errno));
+    return;
+  }
+  one_group_root *gr = (one_group_root *)(buf + 1);
+  for ( auto cnt = 0; cnt < buf[0]; cnt++, gr++ )
+  {
+    printf("[%d] %s at %p flags %X hierarchy_id %d nr_cgrps %ld real_cnt %ld\n", cnt, gr->name, gr->addr, gr->flags, gr->hierarchy_id, gr->nr_cgrps, gr->real_cnt);
+    dump_cgroup(&gr->grp, delta);
+  }
+}
+
 void dump_uprobes(int fd, sa64 delta)
 {
   unsigned long a1 = get_addr("uprobes_tree");
@@ -1129,7 +1177,7 @@ void dump_uprobes(int fd, sa64 delta)
   int err = ioctl(fd, IOCTL_CNT_UPROBES, (int *)&params);
   if ( err )
   {
-    printf("IOCTL_CNT_UPROBES failed, error %d (%s)\n", errno, strerror(errno));
+    printf("IOCTL_CNT_UPROBES count failed, error %d (%s)\n", errno, strerror(errno));
     return;
   }
   printf("uprobes: %ld\n", params[0]);
@@ -1150,10 +1198,11 @@ void dump_uprobes(int fd, sa64 delta)
   if ( err )
   {
     printf("IOCTL_UPROBES failed, error %d (%s)\n", errno, strerror(errno));
-  } else {
-    one_uprobe *up = (one_uprobe *)(buf + 1);
-    for ( auto cnt = 0; cnt < buf[0]; cnt++ )
-    {
+    return;
+  }
+  one_uprobe *up = (one_uprobe *)(buf + 1);
+  for ( auto cnt = 0; cnt < buf[0]; cnt++ )
+  {
       printf("[%d] addr %p inode %p ino %ld clnts %ld offset %lX flags %lX %s\n", 
         cnt, up[cnt].addr, up[cnt].inode, up[cnt].i_no, up[cnt].cons_cnt, up[cnt].offset, up[cnt].flags, up[cnt].name);
       if ( !up[cnt].cons_cnt )
@@ -1189,7 +1238,6 @@ void dump_uprobes(int fd, sa64 delta)
         if ( uc[cnt2].filter )
           dump_kptr((unsigned long)uc[cnt2].filter, "  filter", delta);
       }
-    }
   }
 }
 
@@ -1314,34 +1362,8 @@ void dump_ulps(int fd, a64 nca, a64 plock, sa64 delta)
     printf("cannot find tcp_ulp_list_lock\n");
     return;
   }
-  unsigned long cbuf[3] = { nca + delta, plock + delta, 0 };
-  int err = ioctl(fd, IOCTL_GET_ULP_OPS, (int *)cbuf);
-  if ( err )
-  {
-    printf("IOCTL_GET_ULP_OPS count failed, error %d (%s)\n", errno, strerror(errno));
-    return;
-  }
-  printf("\ntcp_ulp_list at %p: %ld\n", (void *)(nca + delta), cbuf[0]);
-  if ( !cbuf[0] )
-    return;
-  size_t size = calc_data_size<one_tcp_ulp_ops>(cbuf[0]);
-  unsigned long *buf = (unsigned long *)malloc(size);
-  if ( !buf )
-    return;
-  dumb_free<unsigned long> tmp(buf);
-  buf[0] = nca + delta;
-  buf[1] = plock + delta;
-  buf[2] = cbuf[0];
-  err = ioctl(fd, IOCTL_GET_ULP_OPS, (int *)buf);
-  if ( err )
-  {
-    printf("IOCTL_GET_ULP_OPS failed, error %d (%s)\n", errno, strerror(errno));
-    return;
-  }
-  size = buf[0];
-  one_tcp_ulp_ops *sb = (one_tcp_ulp_ops *)(buf + 1);
-  for ( size_t idx = 0; idx < size; idx++, sb++ )
-  {
+  dump_data2arg<one_tcp_ulp_ops>(fd, nca, plock, delta, IOCTL_GET_ULP_OPS, "tcp_ulp_list", "IOCTL_GET_ULP_OPS", "tcp_ulp_ops",
+   [=](size_t idx, const one_tcp_ulp_ops *sb) {
     printf(" [%ld] at %p %s", idx, sb->addr, sb->name);
     dump_unnamed_kptr((unsigned long)sb->addr, delta);
     if ( sb->init )
@@ -1356,7 +1378,8 @@ void dump_ulps(int fd, a64 nca, a64 plock, sa64 delta)
      dump_kptr((unsigned long)sb->get_info_size, " get_info_size", delta);
     if ( sb->clone )
      dump_kptr((unsigned long)sb->clone, " clone", delta);
-  }
+   }
+  );
 }
 
 void dump_pernet_ops(int fd, a64 nca, a64 plock, sa64 delta)
@@ -1371,34 +1394,8 @@ void dump_pernet_ops(int fd, a64 nca, a64 plock, sa64 delta)
     printf("cannot find pernet_ops_rwsem\n");
     return;
   }
-  unsigned long cbuf[3] = { nca + delta, plock + delta, 0 };
-  int err = ioctl(fd, IOCTL_GET_PERNET_OPS, (int *)cbuf);
-  if ( err )
-  {
-    printf("IOCTL_GET_PERNET_OPS count failed, error %d (%s)\n", errno, strerror(errno));
-    return;
-  }
-  printf("\npernet_ops: %ld\n", cbuf[0]);
-  if ( !cbuf[0] )
-    return;
-  size_t size = calc_data_size<one_pernet_ops>(cbuf[0]);
-  unsigned long *buf = (unsigned long *)malloc(size);
-  if ( !buf )
-    return;
-  dumb_free<unsigned long> tmp(buf);
-  buf[0] = nca + delta;
-  buf[1] = plock + delta;
-  buf[2] = cbuf[0];
-  err = ioctl(fd, IOCTL_GET_PERNET_OPS, (int *)buf);
-  if ( err )
-  {
-    printf("IOCTL_GET_PERNET_OPS failed, error %d (%s)\n", errno, strerror(errno));
-    return;
-  }
-  size = buf[0];
-  struct one_pernet_ops *sb = (struct one_pernet_ops *)(buf + 1);
-  for ( size_t idx = 0; idx < size; idx++, sb++ )
-  {
+  dump_data2arg<one_pernet_ops>(fd, nca, plock, delta, IOCTL_GET_PERNET_OPS, "pernet_ops", "IOCTL_GET_PERNET_OPS", "pernet_ops",
+   [=](size_t idx, const one_pernet_ops *sb) {
     printf(" [%ld] at %p", idx, sb->addr);
     dump_unnamed_kptr((unsigned long)sb->addr, delta);
     if ( sb->init )
@@ -1407,7 +1404,8 @@ void dump_pernet_ops(int fd, a64 nca, a64 plock, sa64 delta)
      dump_kptr((unsigned long)sb->exit, " exit", delta);
     if ( sb->exit_batch )
      dump_kptr((unsigned long)sb->exit_batch, " exit_batch", delta);
-  }
+   }
+  );
 }
 
 static size_t calc_net_chains_size(size_t n)
@@ -1880,16 +1878,6 @@ void dump_nets(int fd, sa64 delta)
   dump_genl(fd, nca, delta);
 }
 
-static size_t calc_marks_size(size_t n)
-{
-  return n * sizeof(one_fsnotify) + sizeof(unsigned long);
-}
-
-static size_t calc_mount_size(size_t n)
-{
-  return n * sizeof(one_mount) + sizeof(unsigned long);
-}
-
 // ripped from include/uapi/linux/stat.h
 const char *get_mod_name(unsigned long mod)
 {
@@ -1980,7 +1968,7 @@ void dump_super_blocks(int fd, sa64 delta)
       printf("IOCTL_GET_SUPERBLOCK_MARKS count failed, error %d (%s)\n", errno, strerror(errno));
     } else if ( sb_marks_arg[1] )
     {
-      size_t mmsize = calc_marks_size(sb_marks_arg[1]);
+      size_t mmsize = calc_data_size<one_fsnotify>(sb_marks_arg[1]);
       unsigned long *mmbuf = (unsigned long *)malloc(mmsize);
       if ( mmbuf )
       {
@@ -1998,7 +1986,7 @@ void dump_super_blocks(int fd, sa64 delta)
     // dump mounts
     if ( sb[idx].mount_count )
     {
-      size_t msize = calc_mount_size(sb[idx].mount_count);
+      size_t msize = calc_data_size<one_mount>(sb[idx].mount_count);
       unsigned long *mbuf = (unsigned long *)malloc(msize);
       if ( mbuf )
       {
@@ -2026,7 +2014,7 @@ void dump_super_blocks(int fd, sa64 delta)
             printf(" mnt[%ld] %p mark_cnt %ld mnt_id %d %s\n", j, mnt[j].addr, mnt[j].mark_count, mnt[j].mnt_id, path ? path : "");
             if ( !mnt[j].mark_count )
               continue;
-            size_t mmsize = calc_marks_size(mnt[j].mark_count);
+            size_t mmsize = calc_data_size<one_fsnotify>(mnt[j].mark_count);
             unsigned long *mmbuf = (unsigned long *)malloc(mmsize);
             if ( !mmbuf )
               continue;
@@ -2077,7 +2065,7 @@ void dump_super_blocks(int fd, sa64 delta)
         printf("    i_fsnotify_mask: %lX i_fsnotify_marks %p count %ld\n", inod[j].i_fsnotify_mask, inod[j].i_fsnotify_marks, inod[j].mark_count);
       if ( !inod[j].mark_count )
         continue;
-      size_t msize = calc_marks_size(inod[j].mark_count);
+      size_t msize = calc_data_size<one_fsnotify>(inod[j].mark_count);
       unsigned long *fbuf = (unsigned long *)malloc(msize);
       if ( !fbuf )
         continue;
@@ -2429,6 +2417,7 @@ int main(int argc, char **argv)
    // read options
    int opt_f = 0,
        opt_F = 0,
+       opt_g = 0,
        opt_d = 0,
        opt_c = 0,
        opt_k = 0,
@@ -2443,7 +2432,7 @@ int main(int argc, char **argv)
    int fd = 0;
    while (1)
    {
-     c = getopt(argc, argv, "bcdFfknrSstuv");
+     c = getopt(argc, argv, "bcdFfgknrSstuv");
      if (c == -1)
 	break;
 
@@ -2457,6 +2446,9 @@ int main(int argc, char **argv)
          break;
  	case 'f':
  	  opt_f = 1;
+         break;
+        case 'g':
+ 	  opt_g = 1;
          break;
         case 'v':
           g_opt_v = 1;
@@ -2763,6 +2755,12 @@ end:
        printf(".data section offset %lX\n", off);
        size_t count = 0;
        a64 curr_addr;
+       if ( opt_g && has_syms )
+       {
+#ifndef _MSC_VER
+         dump_groups(fd, delta);
+#endif  /* !_MSC_VER */
+       }
        if ( opt_u && has_syms )
        {
          a64 addr = get_addr("mon_ops");
