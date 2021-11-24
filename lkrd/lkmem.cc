@@ -858,6 +858,16 @@ static const char *get_bpf_attach_type_name(int idx)
   return bpf_attach_type_names[idx];
 }
 
+void show_bpf_progs(size_t bpf_size, const one_bpf_prog *curr, sa64 delta)
+{
+  for ( size_t j = 0; j < bpf_size; j++, curr++ )
+  {
+    printf("  [%ld] prog %p id %d type %d len %d jited_len %d\n", j, curr->prog, curr->aux_id, curr->prog_type, curr->len, curr->jited_len);
+    if ( curr->bpf_func )
+      dump_kptr2((unsigned long)curr->bpf_func, "  bpf_func", delta);         
+  }
+}
+
 void dump_registered_trace_event_calls(int fd, sa64 delta)
 {
   unsigned long args[2] = { 0, 0 };
@@ -916,14 +926,8 @@ void dump_registered_trace_event_calls(int fd, sa64 delta)
       printf("IOCTL_GET_EVT_CALLS for bpf_progs failed, error %d (%s)\n", errno, strerror(errno));
       continue;
     }
-    bpf_size = bpf_buf[0];
     one_bpf_prog *curr2 = (one_bpf_prog *)(bpf_buf + 1);
-    for ( size_t j = 0; j < bpf_size; j++, curr2++ )
-    {
-      printf("  [%ld] prog %p id %d type %d len %d jited_len %d\n", j, curr2->prog, curr2->aux_id, curr2->prog_type, curr2->len, curr2->jited_len);
-      if ( curr2->bpf_func )
-        dump_kptr2((unsigned long)curr2->bpf_func, "  bpf_func", delta);         
-    }
+    show_bpf_progs(bpf_buf[0], curr2, delta);
   }
 }
 
@@ -1084,7 +1088,14 @@ void dump_lsm(int fd, sa64 delta)
   }
 }
 
-void dump_cgroup(const one_cgroup *cg, sa64 delta)
+size_t calc_cgroup_bpf_size(unsigned long n)
+{
+  const size_t args_size = 6 * sizeof(unsigned long);
+  size_t res = sizeof(unsigned long) + n * sizeof(one_bpf_prog);
+  return res < args_size ? args_size : res;
+}
+
+void dump_cgroup(const one_cgroup *cg, sa64 delta, int fd, unsigned long a1, unsigned long a2, unsigned long a3)
 {
   printf(" cgroup at %p serial_nr %ld flags %lX level %d\n", cg->addr, cg->serial_nr, cg->flags, cg->level);
   if ( cg->ss )
@@ -1107,6 +1118,26 @@ void dump_cgroup(const one_cgroup *cg, sa64 delta)
     if ( !cg->prog_array_cnt[i] )
       continue;
     printf("  %s: %p cnt %ld flags %X\n", get_bpf_attach_type_name(i), cg->prog_array[i], cg->prog_array_cnt[i], cg->bpf_flags[i]);
+    size_t size = calc_cgroup_bpf_size(cg->prog_array_cnt[i]);
+    unsigned long *buf = (unsigned long *)malloc(size);
+    if ( !buf )
+      continue;
+    dumb_free<unsigned long> tmp(buf);
+    // fill args for IOCTL_GET_CGROUP_BPF
+    buf[0] = a1;
+    buf[1] = a2;
+    buf[2] = a3;
+    buf[3] = (unsigned long)cg->addr;
+    buf[4] = i;
+    buf[5] = cg->prog_array_cnt[i];
+    int err = ioctl(fd, IOCTL_GET_CGROUP_BPF, (int *)buf);
+    if ( err )
+    {
+      printf("IOCTL_GET_CGRP_ROOTS for cgroup %p and index %d failed, error %d (%s)\n", cg->addr, i, errno, strerror(errno));
+      continue;
+    }
+    one_bpf_prog *bpf = (one_bpf_prog *)(buf + 1);
+    show_bpf_progs(buf[0], bpf, delta);
   }
 }
 
@@ -1155,7 +1186,31 @@ void dump_groups(int fd, sa64 delta)
   for ( auto cnt = 0; cnt < buf[0]; cnt++, gr++ )
   {
     printf("[%d] %s at %p flags %X hierarchy_id %d nr_cgrps %ld real_cnt %ld\n", cnt, gr->name, gr->addr, gr->flags, gr->hierarchy_id, gr->nr_cgrps, gr->real_cnt);
-    dump_cgroup(&gr->grp, delta);
+    dump_cgroup(&gr->grp, delta, fd, a1 + delta, a2 + delta, (unsigned long)gr->addr);
+    if ( !gr->real_cnt )
+      continue;
+    size = calc_data_size<one_cgroup>(gr->real_cnt);
+    unsigned long *cbuf = (unsigned long *)malloc(size);
+    if ( !cbuf )
+      continue;
+    dumb_free<unsigned long> ctmp(cbuf);
+    // fill params for IOCTL_GET_CGROUPS
+    cbuf[0] = a1 + delta;
+    cbuf[1] = a2 + delta;
+    cbuf[2] = (unsigned long)gr->addr;
+    cbuf[3] = gr->real_cnt;
+    err = ioctl(fd, IOCTL_GET_CGROUPS, (int *)cbuf);
+    if ( err )
+    {
+      printf("IOCTL_GET_CGROUPS failed, error %d (%s)\n", errno, strerror(errno));
+      continue;
+    }
+    one_cgroup *cg = (one_cgroup *)(cbuf + 1);
+    for ( auto cgnt = 0; cgnt < cbuf[0]; cgnt++, cg++ )
+    {
+      printf(" child %d:\n", cgnt);
+      dump_cgroup(cg, delta, fd, a1 + delta, a2 + delta, (unsigned long)gr->addr);
+    }
   }
 }
 
