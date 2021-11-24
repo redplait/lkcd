@@ -836,6 +836,21 @@ void fill_one_cgroup(struct one_cgroup *grp, struct cgroup_subsys_state *css)
   }
 }
 
+void fill_bpf_prog(struct one_bpf_prog *curr, struct bpf_prog *prog)
+{
+  curr->prog = (void *)prog;
+  curr->prog_type = (int)prog->type;
+  curr->expected_attach_type = (int)prog->expected_attach_type;
+  curr->len = prog->len;
+  curr->jited_len = prog->jited_len;
+  curr->bpf_func = (void *)prog->bpf_func;
+  curr->aux = (void *)prog->aux;
+  if ( prog->aux )
+    curr->aux_id = prog->aux->id;
+  else
+    curr->aux_id = 0;
+}
+
 static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long ioctl_param)
 {
 //  int numargs = 0;
@@ -2937,15 +2952,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
             {
               if ( cnt >= ptrbuf[1] )
                 break;
-              curr->prog = (void *)prog;
-              curr->prog_type = (int)prog->type;
-              curr->expected_attach_type = (int)prog->expected_attach_type;
-              curr->len = prog->len;
-              curr->jited_len = prog->jited_len;
-              curr->bpf_func = (void *)prog->bpf_func;
-              curr->aux = (void *)prog->aux;
-              if ( prog->aux )
-                curr->aux_id = prog->aux->id;
+              fill_bpf_prog(curr, prog);
               // next iteration
               cnt++;
               curr++;
@@ -3256,14 +3263,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
                curr->prog = call->prog_array->items[cnt].prog;
                if ( !curr->prog )
                  break;
-               curr->prog_type = call->prog_array->items[cnt].prog->type;
-               curr->expected_attach_type = (int)call->prog_array->items[cnt].prog->expected_attach_type;
-               curr->len = call->prog_array->items[cnt].prog->len;
-               curr->jited_len = call->prog_array->items[cnt].prog->jited_len;
-               curr->bpf_func = (void *)call->prog_array->items[cnt].prog->bpf_func;
-               curr->aux = (void *)call->prog_array->items[cnt].prog->aux;
-               if ( curr->aux )
-                 curr->aux_id = call->prog_array->items[cnt].prog->aux->id;
+               fill_bpf_prog(curr, call->prog_array->items[cnt].prog);
              }
              mutex_unlock(s_bpf_event_mutex);
              found++;
