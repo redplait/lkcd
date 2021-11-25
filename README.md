@@ -12,6 +12,8 @@ Small pet project to find and dump some linux kernel guts like
 * uprobes (including uprobe_consumer) (-c -k options)
 * filesystem notifications (-c -F options) (see http://redplait.blogspot.com/2021/09/filesystem-notifications-in-linux-kernel.html)
 * security hooks (-c -S options)
+* eBPF programs (-c -B options)
+* cgroups (-c -g options)
  
 etc etc
 
