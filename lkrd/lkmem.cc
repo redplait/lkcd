@@ -41,6 +41,7 @@ void usage(const char *prog)
 {
   printf("%s usage: [options] image [symbols]\n", prog);
   printf("Options:\n");
+  printf("-B - dump BPF\n");
   printf("-b - check .bss section\n");
   printf("-c - check memory. Achtung - you must first load lkcd driver\n");
   printf("-d - use disasm\n");
@@ -1095,7 +1096,7 @@ size_t calc_cgroup_bpf_size(unsigned long n)
   return res < args_size ? args_size : res;
 }
 
-void dump_cgroup(const one_cgroup *cg, sa64 delta, int fd, unsigned long a1, unsigned long a2, unsigned long a3)
+void dump_cgroup(const one_cgroup *cg, sa64 delta, int fd, unsigned long a1, unsigned long a2, unsigned long root)
 {
   printf(" cgroup at %p serial_nr %ld flags %lX level %d\n", cg->addr, cg->serial_nr, cg->flags, cg->level);
   if ( cg->ss )
@@ -1126,7 +1127,7 @@ void dump_cgroup(const one_cgroup *cg, sa64 delta, int fd, unsigned long a1, uns
     // fill args for IOCTL_GET_CGROUP_BPF
     buf[0] = a1;
     buf[1] = a2;
-    buf[2] = a3;
+    buf[2] = root;
     buf[3] = (unsigned long)cg->addr;
     buf[4] = i;
     buf[5] = cg->prog_array_cnt[i];
@@ -2482,17 +2483,21 @@ int main(int argc, char **argv)
        opt_S = 0,
        opt_t = 0,
        opt_b = 0,
+       opt_B = 0,
        opt_u = 0;
    int c;
    int fd = 0;
    while (1)
    {
-     c = getopt(argc, argv, "bcdFfgknrSstuv");
+     c = getopt(argc, argv, "BbcdFfgknrSstuv");
      if (c == -1)
 	break;
 
      switch (c)
      {
+        case 'B':
+          opt_B = 1;
+         break;
         case 'b':
           opt_b = 1;
          break;
@@ -2810,7 +2815,8 @@ end:
        printf(".data section offset %lX\n", off);
        size_t count = 0;
        a64 curr_addr;
-       if ( opt_g && has_syms )
+       // dump cgroups
+       if ( opt_g && opt_c && has_syms )
        {
 #ifndef _MSC_VER
          dump_groups(fd, delta);
@@ -2984,8 +2990,9 @@ end:
             printf("no disasm for machine %d\n", reader.get_machine());
             break;
           }
-          if ( opt_t )
+          if ( opt_B || opt_t )
           {
+            // find bpf targets
             auto entry = get_addr("bpf_iter_reg_target");
             auto mlock = get_addr("mutex_lock");
             if ( !entry )
@@ -2994,8 +3001,25 @@ end:
               printf("cannot find mutex_lock\n");
             else
               bpf_target = bd->process_bpf_target(entry, mlock);
+            // dump bpf
+            if ( opt_B && opt_c && has_syms )
+            {
+#ifndef _MSC_VER
+               auto tgm = get_addr("targets_mutex");
+               dump_bpf_targets(fd, bpf_target, tgm, delta);
+               auto entry = get_addr("prog_idr");
+               tgm = get_addr("prog_idr_lock");
+               dump_bpf_progs(fd, entry, tgm, delta);
+               entry = get_addr("link_idr");
+               tgm = get_addr("link_idr_lock");
+               dump_bpf_links(fd, entry, tgm, delta);
+#endif /* !_MSC_VER */
+            }
+          }
+          if ( opt_t )
+          {
             // find trace_event_call.filter offset
-            entry = get_addr("trace_remove_event_call");
+            auto entry = get_addr("trace_remove_event_call");
             auto free_evt = get_addr("free_event_filter");
             if ( !entry )
               printf("cannot find trace_remove_event_call\n");
@@ -3003,16 +3027,6 @@ end:
               printf("cannot find trace_remove_event_call\n");
             else
               g_event_foff = bd->process_trace_remove_event_call(entry, free_evt);
-#ifndef _MSC_VER
-            auto tgm = get_addr("targets_mutex");
-            dump_bpf_targets(fd, bpf_target, tgm, delta);
-            entry = get_addr("prog_idr");
-            tgm = get_addr("prog_idr_lock");
-            dump_bpf_progs(fd, entry, tgm, delta);
-            entry = get_addr("link_idr");
-            tgm = get_addr("link_idr_lock");
-            dump_bpf_links(fd, entry, tgm, delta);
-#endif /* !_MSC_VER */
           }
           if ( opt_S )
           {
