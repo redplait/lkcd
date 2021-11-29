@@ -864,6 +864,10 @@ void show_bpf_progs(size_t bpf_size, const one_bpf_prog *curr, sa64 delta)
   for ( size_t j = 0; j < bpf_size; j++, curr++ )
   {
     printf("  [%ld] prog %p id %d type %d len %d jited_len %d\n", j, curr->prog, curr->aux_id, curr->prog_type, curr->len, curr->jited_len);
+    printf("        tag:");
+    for ( int i = 0; i < 8; i++ )
+      printf(" %2.2X", curr->tag[i]);
+    printf("\n");
     if ( curr->bpf_func )
       dump_kptr2((unsigned long)curr->bpf_func, "  bpf_func", delta);         
   }
@@ -947,6 +951,10 @@ void dump_bpf_progs(int fd, a64 list, a64 lock, sa64 delta)
   dump_data2arg<one_bpf_prog>(fd, list, lock, delta, IOCTL_GET_BPF_PROGS, "prog_idr", "IOCTL_GET_BPF_PROGS", "bpf_progs",
    [=](size_t idx, const one_bpf_prog *curr) {
     printf(" [%ld] prog %p id %d len %d jited_len %d\n", idx, curr->prog, curr->aux_id, curr->len, curr->jited_len);
+    printf("     tag:");
+    for ( int i = 0; i < 8; i++ )
+      printf(" %2.2X", curr->tag[i]);
+    printf("\n");
     printf("  type: %d %s\n", curr->prog_type, get_bpf_prog_type_name(curr->prog_type));
     printf("  expected_attach_type: %d %s\n", curr->expected_attach_type, get_bpf_attach_type_name(curr->expected_attach_type));
     if ( curr->bpf_func )
@@ -1013,6 +1021,37 @@ void dump_bpf_links(int fd, a64 list, a64 lock, sa64 delta)
     }
    }
   );
+}
+
+template <typename T>
+void dump_jit_option(int fd, a64 addr, sa64 delta, const char *fmt)
+{
+  char *ptr = (char *)addr + delta;
+  char *arg = ptr;
+  int err = ioctl(fd, IOCTL_READ_PTR, (int *)&arg);
+  if ( err )
+  {
+     printf("read at %p failed, error %d (%s)\n", ptr, errno, strerror(errno));
+     return;
+  }
+  T val = *(T *)&arg;
+  printf(fmt, val);
+}
+
+void dump_jit_options(int fd, sa64 delta)
+{
+  auto addr = get_addr("bpf_jit_enable");
+  if ( addr )
+    dump_jit_option<int>(fd, addr, delta, "bpf_jit_enable: %d\n");
+  addr = get_addr("bpf_jit_harden");
+  if ( addr )
+    dump_jit_option<int>(fd, addr, delta, "bpf_jit_harden: %d\n");
+  addr = get_addr("bpf_jit_kallsyms");
+  if ( addr )
+    dump_jit_option<int>(fd, addr, delta, "bpf_jit_kallsyms: %d\n");
+  addr = get_addr("bpf_jit_limit");
+  if ( addr )
+    dump_jit_option<int>(fd, addr, delta, "bpf_jit_limit: %ld\n");
 }
 
 void dump_bpf_targets(int fd, a64 list, a64 lock, sa64 delta)
@@ -1777,6 +1816,15 @@ void dump_nets(int fd, sa64 delta)
       dump_kptr((unsigned long)sb->diag_nlsk_proto, "diag_nlsk_proto", delta);
     if ( sb->diag_nlsk_filter )
       dump_kptr((unsigned long)sb->diag_nlsk_filter, "diag_nlsk_filter", delta);
+    // dump bpf
+    if ( sb->progs[0] )
+      printf(" netns_bpf[0]: %p\n", sb->progs[0]);
+    if ( sb->bpf_cnt[0] )
+      printf(" bpf_cnt[0]: %ld\n", sb->bpf_cnt[0]);
+    if ( sb->progs[1] )
+      printf(" netns_bpf[1]: %p\n", sb->progs[1]);
+    if ( sb->bpf_cnt[1] )
+      printf(" bpf_cnt[1]: %ld\n", sb->bpf_cnt[1]);
     if ( !sb->dev_cnt )
       continue;
     size_t dsize = calc_data_size<one_net_dev>(sb->dev_cnt);
@@ -3005,6 +3053,7 @@ end:
             if ( opt_B && opt_c && has_syms )
             {
 #ifndef _MSC_VER
+               dump_jit_options(fd, delta);
                auto tgm = get_addr("targets_mutex");
                dump_bpf_targets(fd, bpf_target, tgm, delta);
                auto entry = get_addr("prog_idr");
