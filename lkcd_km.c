@@ -2561,6 +2561,18 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
                 curr->dev_cnt++;
               read_unlock(s_dev_base_lock);
             }
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5,0,0)
+            // copy netns_bpf
+            curr->progs[0] = net->bpf.progs[0];
+            curr->progs[1] = net->bpf.progs[1];
+            if ( bpf_prog_array_length_ptr )
+            {
+              if ( net->bpf.run_array[0] )
+               curr->bpf_cnt[0] = bpf_prog_array_length_ptr(net->bpf.run_array[0]);
+              if ( net->bpf.run_array[1] )
+               curr->bpf_cnt[1] = bpf_prog_array_length_ptr(net->bpf.run_array[1]);
+            }
+#endif
             curr++;
             buf[0]++;
           }

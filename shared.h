@@ -320,6 +320,9 @@ struct one_net
   int ifindex;
   unsigned long dev_cnt;
   unsigned long netdev_chain_cnt;
+  // netns_bpf - introduced in 5.x. MAX_NETNS_BPF_ATTACH_TYPE .eq. 2
+  void *progs[2];
+  unsigned long bpf_cnt[2];
 };
 
 // read net from net_namespace_list
