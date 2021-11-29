@@ -843,6 +843,7 @@ void fill_bpf_prog(struct one_bpf_prog *curr, struct bpf_prog *prog)
   curr->expected_attach_type = (int)prog->expected_attach_type;
   curr->len = prog->len;
   curr->jited_len = prog->jited_len;
+  memcpy(curr->tag, prog->tag, 8);
   curr->bpf_func = (void *)prog->bpf_func;
   curr->aux = (void *)prog->aux;
   if ( prog->aux )

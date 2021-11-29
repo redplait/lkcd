@@ -664,6 +664,7 @@ struct one_bpf_prog
   int expected_attach_type;
   unsigned int len;
   unsigned int jited_len;
+  unsigned char tag[8];
   unsigned int aux_id;
   void *aux;  
   void *bpf_func;
