@@ -101,6 +101,30 @@ class used_regs
     std::map<ud_type, V> m_regs;
 };
 
+class x64_jit_disasm
+{
+  public:
+   x64_jit_disasm(a64 addr, const char *body, unsigned long len)
+   {
+      ud_init(&ud_obj);
+      ud_set_mode(&ud_obj, 64);
+      ud_set_syntax(&ud_obj, UD_SYN_INTEL);
+      ud_set_input_buffer(&ud_obj, (uint8_t *)body, len);
+      ud_set_pc(&ud_obj, (uint64_t)addr);
+   }
+   void disasm()
+   {
+     while (ud_disassemble(&ud_obj))
+     {
+       printf("%016lx ", ud_insn_off(&ud_obj));
+       const char* hex1 = ud_insn_hex(&ud_obj);
+       printf("%s %-24s\n", hex1, ud_insn_asm(&ud_obj));
+     }
+   }
+  protected:
+   ud_t ud_obj;
+};
+
 class x64_disasm: public dis_base
 {
   public:

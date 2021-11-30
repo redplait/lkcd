@@ -982,7 +982,9 @@ void dump_bpf_progs(int fd, a64 list, a64 lock, sa64 delta)
         printf("IOCTL_GET_BPF_PROG_BODY failed, error %d (%s)\n", errno, strerror(errno));
         return;
       }
-      HexDump((unsigned char *)l, curr->jited_len);
+//      HexDump((unsigned char *)l, curr->jited_len);
+      x64_jit_disasm dis((a64)curr->bpf_func, (const char *)l, curr->jited_len);
+      dis.disasm();
     }
    }
   );
