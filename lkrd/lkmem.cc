@@ -957,8 +957,33 @@ void dump_bpf_progs(int fd, a64 list, a64 lock, sa64 delta)
     printf("\n");
     printf("  type: %d %s\n", curr->prog_type, get_bpf_prog_type_name(curr->prog_type));
     printf("  expected_attach_type: %d %s\n", curr->expected_attach_type, get_bpf_attach_type_name(curr->expected_attach_type));
-    if ( curr->bpf_func )
-      dump_kptr2((unsigned long)curr->bpf_func, "  bpf_func", delta);     
+    if ( curr->bpf_func && curr->jited_len )
+    {
+      dump_kptr2((unsigned long)curr->bpf_func, "  bpf_func", delta);
+      // dump body
+      const size_t args_len = sizeof(unsigned long) * 4;
+      size_t body_len = curr->jited_len;
+      if ( body_len < args_len )
+        body_len = args_len;
+      unsigned long *l = (unsigned long *)malloc(body_len);
+      if ( !l )
+      {
+        printf("cannot alloc memory for bpf body\n");
+        return;
+      }
+      dumb_free<unsigned long> tmp(l);
+      l[0] = list + delta;
+      l[1] = lock + delta;
+      l[2] = (unsigned long)curr->prog;
+      l[3] = curr->jited_len;
+      int err = ioctl(fd, IOCTL_GET_BPF_PROG_BODY, (int *)l);
+      if ( err )
+      {
+        printf("IOCTL_GET_BPF_PROG_BODY failed, error %d (%s)\n", errno, strerror(errno));
+        return;
+      }
+      HexDump((unsigned char *)l, curr->jited_len);
+    }
    }
   );
 }
@@ -1051,7 +1076,7 @@ void dump_jit_options(int fd, sa64 delta)
     dump_jit_option<int>(fd, addr, delta, "bpf_jit_kallsyms: %d\n");
   addr = get_addr("bpf_jit_limit");
   if ( addr )
-    dump_jit_option<int>(fd, addr, delta, "bpf_jit_limit: %ld\n");
+    dump_jit_option<long>(fd, addr, delta, "bpf_jit_limit: %ld\n");
 }
 
 void dump_bpf_targets(int fd, a64 list, a64 lock, sa64 delta)
