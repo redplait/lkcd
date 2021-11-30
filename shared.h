@@ -737,6 +737,14 @@ struct one_trace_event_call
 //  else long size + N * one_bpf_prog
 #define IOCTL_GET_BPF_PROGS            _IOR(IOCTL_NUM, 0x35, int*)
 
+// read bpf prog body
+// in params:
+//  0 - idr address (prog_idr)
+//  1 - prog_idr_lock spinlock_t
+//  2 - address of bpf_prog
+//  3 - length
+#define IOCTL_GET_BPF_PROG_BODY        _IOR(IOCTL_NUM, 0x36, int*)
+
 #define CG_BPF_MAX	38
 
 struct one_cgroup
@@ -775,7 +783,7 @@ struct one_group_root
 // out params
 //  if count is zero - count of cgroup roots
 //  else long size + N * one_group_root
-#define IOCTL_GET_CGRP_ROOTS           _IOR(IOCTL_NUM, 0x36, int*)
+#define IOCTL_GET_CGRP_ROOTS           _IOR(IOCTL_NUM, 0x37, int*)
 
 // read cgroups for some root
 // in params:
@@ -785,7 +793,7 @@ struct one_group_root
 //  3 - cnt
 // out params
 //  unsigned long + N * one_cgroup
-#define IOCTL_GET_CGROUPS              _IOR(IOCTL_NUM, 0x37, int*)
+#define IOCTL_GET_CGROUPS              _IOR(IOCTL_NUM, 0x38, int*)
 
 // read BPF progs for some cgroup
 // in params:
@@ -797,6 +805,6 @@ struct one_group_root
 //  5 - cnt
 // out params
 //  unsigned long + N * one_bpf_prog
-#define IOCTL_GET_CGROUP_BPF           _IOR(IOCTL_NUM, 0x38, int*)
+#define IOCTL_GET_CGROUP_BPF           _IOR(IOCTL_NUM, 0x39, int*)
 
 #endif /* LKCD_SHARED_H */

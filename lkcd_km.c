@@ -3011,6 +3011,34 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
        }
      break; /* IOCTL_GET_NL_SK */
 
+    case IOCTL_GET_BPF_PROG_BODY:
+       if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 4) > 0 )
+         return -EFAULT;
+       else if ( !ptrbuf[3] )
+         return -EINVAL;
+       else {
+         struct idr *links = (struct idr *)ptrbuf[0];
+         spinlock_t *lock = (spinlock_t *)ptrbuf[1];
+         struct bpf_prog *target = (struct bpf_prog *)ptrbuf[2];
+         struct bpf_prog *prog;
+         char *body = NULL;
+         unsigned int id;
+
+         spin_lock_bh(lock);
+         idr_for_each_entry(links, prog, id)
+         {
+           if ( prog == target )
+             body = (char *)prog->bpf_func;
+         }
+         spin_unlock_bh(lock);
+         if ( !body )
+           return -ENOENT;
+         // copy to user
+         if (copy_to_user((void*)ioctl_param, (void*)body, ptrbuf[3]) > 0)
+           return -EFAULT;
+       }
+     break; /* IOCTL_GET_BPF_PROG_BODY */
+
     case IOCTL_GET_BPF_PROGS:
        if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 3) > 0 )
          return -EFAULT;
