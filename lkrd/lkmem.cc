@@ -27,6 +27,7 @@
 #endif
 
 int g_opt_v = 0;
+int g_opt_h = 0;
 int g_event_foff = 0;
 
 using namespace ELFIO;
@@ -48,6 +49,7 @@ void usage(const char *prog)
   printf("-F - dump super-blocks\n");
   printf("-f - dump ftraces\n");  
   printf("-g - dump cgroups\n");
+  printf("-h - hexdump\n");
   printf("-k - dump kprobes\n");
   printf("-n - dump nets\n");
   printf("-r - check .rodata section\n");
@@ -982,9 +984,10 @@ void dump_bpf_progs(int fd, a64 list, a64 lock, sa64 delta)
         printf("IOCTL_GET_BPF_PROG_BODY failed, error %d (%s)\n", errno, strerror(errno));
         return;
       }
-//      HexDump((unsigned char *)l, curr->jited_len);
+      if ( g_opt_h )
+        HexDump((unsigned char *)l, curr->jited_len);
       x64_jit_disasm dis((a64)curr->bpf_func, (const char *)l, curr->jited_len);
-      dis.disasm();
+      dis.disasm(delta);
     }
    }
   );
@@ -2564,7 +2567,7 @@ int main(int argc, char **argv)
    int fd = 0;
    while (1)
    {
-     c = getopt(argc, argv, "BbcdFfgknrSstuv");
+     c = getopt(argc, argv, "BbcdFfghknrSstuv");
      if (c == -1)
 	break;
 
@@ -2584,6 +2587,9 @@ int main(int argc, char **argv)
          break;
         case 'g':
  	  opt_g = 1;
+         break;
+        case 'h':
+ 	  g_opt_h = 1;
          break;
         case 'v':
           g_opt_v = 1;

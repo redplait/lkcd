@@ -112,13 +112,32 @@ class x64_jit_disasm
       ud_set_input_buffer(&ud_obj, (uint8_t *)body, len);
       ud_set_pc(&ud_obj, (uint64_t)addr);
    }
-   void disasm()
+   void disasm(sa64 delta)
    {
      while (ud_disassemble(&ud_obj))
      {
        printf("%016lx ", ud_insn_off(&ud_obj));
        const char* hex1 = ud_insn_hex(&ud_obj);
-       printf("%s %-24s\n", hex1, ud_insn_asm(&ud_obj));
+       const char *name = NULL;
+       if ( ud_obj.mnemonic == UD_Icall && ud_obj.operand[0].type == UD_OP_JIMM )
+       {
+         a64 addr = 0;
+         switch(ud_obj.operand[0].size)
+         {
+           case  8: addr = ud_obj.pc + ud_obj.operand[0].lval.sbyte;
+            break;
+           case 16: addr = ud_obj.pc + ud_obj.operand[0].lval.sword;
+            break;
+           case 32: addr = ud_obj.pc + ud_obj.operand[0].lval.sdword;
+            break;
+         }
+         if ( addr )
+           name = name_by_addr((a64)(addr - delta));
+       }
+       if ( name )
+         printf("%-32s %s ; %s\n", hex1, ud_insn_asm(&ud_obj), name);
+       else
+         printf("%-32s %s\n", hex1, ud_insn_asm(&ud_obj));
      }
    }
   protected:
