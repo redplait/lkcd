@@ -807,4 +807,15 @@ struct one_group_root
 //  unsigned long + N * one_bpf_prog
 #define IOCTL_GET_CGROUP_BPF           _IOR(IOCTL_NUM, 0x39, int*)
 
+// Achtung! This ioctl is very dangerous!
+// remove bpf program for some cgroup
+// in params:
+//  0 - idr address (cgroup_hierarchy_idr)
+//  1 - cgroup_mutex
+//  2 - address of cgroups root - gathered with IOCTL_GET_CGRP_ROOTS
+//  3 - address of cgroup to remove BPF prog
+//  4 - bpf_attach_type - index in cg->bpf.effective
+//  5 - bpf address
+#define IOCTL_DEL_CGROUP_BPF           _IOR(IOCTL_NUM, 0x3A, int*)
+
 #endif /* LKCD_SHARED_H */

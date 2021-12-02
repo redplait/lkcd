@@ -277,6 +277,8 @@ int is_dbgfs(const struct file_operations *in)
 // css_next_child is not exported so css_for_each_child not compiling. as usually
 typedef struct cgroup_subsys_state *(*kcss_next_child)(struct cgroup_subsys_state *pos, struct cgroup_subsys_state *parent);
 static kcss_next_child css_next_child_ptr = 0;
+typedef int (*kcgroup_bpf_detach)(struct cgroup *cgrp, struct bpf_prog *prog, enum bpf_attach_type type);
+static kcgroup_bpf_detach cgroup_bpf_detach_ptr = 0;
 
 // kernfs_node_from_dentry is not exported
 typedef struct kernfs_node *(*krnf_node_type)(struct dentry *dentry);
@@ -2678,6 +2680,51 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
         }
       break; /* IOCTL_GET_NLTAB */
 
+    case IOCTL_DEL_CGROUP_BPF:
+        if ( !cgroup_bpf_detach_ptr )
+         return -ENOCSI;
+        if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 6) > 0 )
+  	  return -EFAULT;
+  	// check index (4 param)
+  	if ( ptrbuf[4] >= MAX_BPF_ATTACH_TYPE )
+          return -EINVAL;
+  	else {
+          struct idr *genl = (struct idr *)ptrbuf[0];
+          struct mutex *m = (struct mutex *)ptrbuf[1];
+          void *root = (void *)ptrbuf[2];
+          void *cgrp = (void *)ptrbuf[3];
+          struct bpf_prog *prog = (struct bpf_prog *)ptrbuf[5];
+          struct cgroup_root *item;
+          struct cgroup *found = 0;
+          unsigned int hierarchy_id;
+          // lock
+          mutex_lock(m);
+          // iterate on roots
+          idr_for_each_entry(genl, item, hierarchy_id)
+          {
+             struct cgroup_subsys_state *child;
+             if ( (void *)item != root )
+               continue;
+             rcu_read_lock();
+             // iterate on childres
+             for (child = css_next_descendant_pre(NULL, &item->cgrp.self); child; child = css_next_descendant_pre(child, &item->cgrp.self) )
+             {
+               if ( (void *)child != cgrp )
+	         continue;
+	       found = (struct cgroup *)child;
+	       break;
+             }
+             rcu_read_unlock();
+             break;
+          }
+          // unlock
+          mutex_unlock(m);
+          if ( !found )
+             return -ENOENT;
+          return cgroup_bpf_detach_ptr(found, prog, (enum bpf_attach_type)ptrbuf[4]);
+        }
+      break; /* IOCTL_DEL_CGROUP_BPF */
+
     case IOCTL_GET_CGROUP_BPF:
         if ( !bpf_prog_array_length_ptr )
           return -ENOCSI;
@@ -2755,8 +2802,6 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
       break; /* IOCTL_GET_CGROUP_BPF */
 
     case IOCTL_GET_CGROUPS:
-        if ( !css_next_child_ptr )
-          return -ENOCSI;
         if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 4) > 0 )
   	  return -EFAULT;
   	else {
@@ -3749,6 +3794,9 @@ init_module (void)
   css_next_child_ptr = (kcss_next_child)lkcd_lookup_name("css_next_child");
   if ( !css_next_child_ptr )
     printk("cannot find css_next_child\n");
+  cgroup_bpf_detach_ptr = (kcgroup_bpf_detach)lkcd_lookup_name("cgroup_bpf_detach");
+  if ( !cgroup_bpf_detach_ptr )
+    printk("cannot find cgroup_bpf_detach\n");
 #ifdef CONFIG_FSNOTIFY
   fsnotify_mark_srcu_ptr = (struct srcu_struct *)lkcd_lookup_name("fsnotify_mark_srcu");
   fsnotify_first_mark_ptr = (und_fsnotify_first_mark)lkcd_lookup_name("fsnotify_first_mark");
