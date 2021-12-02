@@ -826,6 +826,8 @@ void fill_one_cgroup(struct one_cgroup *grp, struct cgroup_subsys_state *css)
   grp->serial_nr = css->serial_nr;
   grp->flags = cg->flags;
   grp->level = cg->level;
+  grp->kn = (void *)cg->kn;
+  grp->id = cgroup_id(cg);
   for ( i = 0; i < MAX_BPF_ATTACH_TYPE && i < CG_BPF_MAX; i++ )
   {
     grp->prog_array[i] = (void *)cg->bpf.effective[i];

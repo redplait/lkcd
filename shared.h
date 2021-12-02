@@ -754,6 +754,8 @@ struct one_cgroup
   void *ss;
   unsigned long serial_nr;
   // from cgroup 
+  void *kn;
+  unsigned long id; // from cgroup_id
   unsigned long flags;
   int level;
   // from cgroup_bpf
