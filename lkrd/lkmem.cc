@@ -1167,7 +1167,7 @@ size_t calc_cgroup_bpf_size(unsigned long n)
 
 void dump_cgroup(const one_cgroup *cg, sa64 delta, int fd, unsigned long a1, unsigned long a2, unsigned long root)
 {
-  printf(" cgroup at %p serial_nr %ld flags %lX level %d\n", cg->addr, cg->serial_nr, cg->flags, cg->level);
+  printf(" cgroup at %p id %ld serial_nr %ld flags %lX level %d kn %p\n", cg->addr, cg->id, cg->serial_nr, cg->flags, cg->level, cg->kn);
   if ( cg->ss )
     dump_kptr((unsigned long)cg->ss, "ss", delta);
   int i = 0;
