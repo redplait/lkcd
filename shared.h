@@ -705,6 +705,7 @@ struct one_trace_event_call
   void *filter;    // event_filter
   int flags;
   int bpf_cnt;
+  unsigned long perf_cnt; // count of perf_events
   void *perf_perm;
   void *bpf_prog;  // prog_array->bpf_prog
 };
@@ -724,7 +725,7 @@ struct one_trace_event_call
 //  0 - address
 //  1 - bpf_cnt
 // output
-//  long size + N * one_bpf_prog
+//  long size + N * one_trace_event_call
 #define IOCTL_GET_EVT_CALLS            _IOR(IOCTL_NUM, 0x34, int*)
 
 // read bpf progs

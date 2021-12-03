@@ -798,11 +798,13 @@ static void count_lrn(void *info)
 
 static void copy_trace_event_call(const struct trace_event_call *c, struct one_trace_event_call *out_data)
 {
+  struct hlist_head *list;
   out_data->addr = (void *)c;
   out_data->evt_class = (void *)c->class; // nice to use c++ keyword
   out_data->tp = (void *)c->tp;
   out_data->filter = (void *)c->filter;
   out_data->flags = c->flags;
+  out_data->perf_cnt = 0;
 #ifdef CONFIG_PERF_EVENTS
   out_data->perf_perm = (void *)c->perf_perm;
   if ( c->prog_array )
@@ -812,6 +814,13 @@ static void copy_trace_event_call(const struct trace_event_call *c, struct one_t
     if ( bpf_prog_array_length_ptr )
       out_data->bpf_cnt = bpf_prog_array_length_ptr(c->prog_array);
     mutex_unlock(s_bpf_event_mutex);
+  }
+  list = this_cpu_ptr(c->perf_events);
+  if ( list )
+  {
+    struct perf_event *pe;
+    hlist_for_each_entry(pe, list, hlist_entry)
+      out_data->perf_cnt++;
   }
 #endif
 }
