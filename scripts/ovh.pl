@@ -36,7 +36,7 @@ while($str = <$fh>)
      $curr_len = $odd_len = 0;
      next;
   }
-  my $this_len = length($2);
+  my $this_len = length($2) / 2;
   $curr_len += $this_len;
   # state 1: mov reg, rbp                 3 byte
   # state 2: add reg, 0xffffffffffffffa0  4 bytes
