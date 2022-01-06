@@ -1,0 +1,27 @@
+{
+   "pluginmetadataversion": 2,
+   "name": "system.map",
+   "author": "red plait",
+   "type": [
+      "ui"
+   ],
+   "api": [
+      "python3"
+   ],
+   "description": "load kernel functions names from system.map",
+   "license": {
+      "name": "MIT",
+   },
+   "platforms": [
+      "Darwin",
+      "Windows",
+      "Linux"
+   ],
+   "installinstructions": {
+      "Darwin": "",
+      "Windows": "",
+      "Linux": ""
+   },
+   "version": "1.0",
+   "minimumbinaryninjaversion": 1500
+}
