@@ -15,7 +15,8 @@ g_linux_sync = [
  [ 'cpus_write_lock', 'cpus_write_unlock' ],
  [ '__srcu_read_lock', '__srcu_read_unlock' ],
  [ 'trace_event_read_lock', 'trace_event_read_unlock' ],
- [ 'kretprobe_table_lock', 'kretprobe_hash_unlock' ],
+ [ 'kretprobe_table_lock', 'kretprobe_table_unlock' ],
+ [ 'kretprobe_hash_lock', 'kretprobe_hash_unlock' ],
 ]
 
 def is_const_ptr(op):
