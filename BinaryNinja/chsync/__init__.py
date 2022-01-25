@@ -21,6 +21,9 @@ g_linux_sync = [
  [ 'dm_lock_md_type', 'dm_unlock_md_type' ],
  [ 'spi_bus_lock', 'spi_bus_unlock' ],
  [ 'regmap_lock_mutex', 'regmap_unlock_mutex' ],
+ [ 'genpd_lock_mtx', 'genpd_unlock_mtx' ],
+ [ 'device_pm_lock', 'device_pm_unlock' ],
+ [ 'lock_device_hotplug', 'unlock_device_hotplug' ],
 ]
 
 def is_const_ptr(op):
@@ -94,6 +97,8 @@ def process_pair(bv, up, down):
       if addr in pr_branches:
         continue
       bl = func.get_basic_block_at(addr)
+      if not bl:
+        continue
       while addr <= bl.end:
         expr = func.get_llil_at(addr)
         if not expr:
