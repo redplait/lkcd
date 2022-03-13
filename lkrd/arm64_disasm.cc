@@ -73,6 +73,15 @@ int arm64_disasm::is_bl_jimm(a64 &addr) const
     return 0;
 }
 
+int arm64_disasm::is_adr() const
+{
+  return (m_dis.instr_id == AD_INSTR_ADR) && 
+         (m_dis.num_operands == 2) &&
+         (m_dis.operands[0].type == AD_OP_REG) &&
+         (m_dis.operands[1].type == AD_OP_IMM)
+  ;
+}
+
 int arm64_disasm::is_adrp() const
 {
   return (m_dis.instr_id == AD_INSTR_ADRP) && 
@@ -153,6 +162,8 @@ a64 arm64_disasm::process_bpf_target(a64 addr, a64 mlock)
       break;
     if ( is_adrp(regs) )
       continue;
+    if ( is_adr(regs) )
+      continue;
     if ( is_add() )
     {
       regs.add2(get_reg(0), get_reg(1), m_dis.operands[2].op_imm.bits);
@@ -191,6 +202,8 @@ int arm64_disasm::process_sl(lsm_hook &sl)
     if ( !disasm() || is_ret() )
       break;
     if ( is_adrp(regs) )
+      continue;
+    if ( is_adr(regs) )
       continue;
     if ( is_ldr() )
     {
@@ -286,6 +299,8 @@ int arm64_disasm::process(a64 addr, std::map<a64, a64> &skip, std::set<a64> &out
          if ( !disasm() || is_ret() )
             break;
          if ( is_adrp(iter->second) )
+            continue;
+         if ( is_adr(iter->second) )
             continue;
          if ( check_jmps(cgraph, iter->second) )
             continue;

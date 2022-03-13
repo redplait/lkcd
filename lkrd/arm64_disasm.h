@@ -217,6 +217,14 @@ class arm64_disasm: public dis_base
       return m_dis.operands[idx].op_reg.sz;
     }
     int is_adrp() const;
+    int is_adr() const;
+    inline int is_adr(regs_pad &used_regs) const
+    {
+      if ( !is_adr() )
+        return 0;
+      used_regs.adrp(get_reg(0), m_dis.operands[1].op_imm.bits);
+      return 1;
+    }
     int is_add() const;
     // must be called after is_add
     inline int is_add_r() const
