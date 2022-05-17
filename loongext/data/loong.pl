@@ -122,6 +122,8 @@ foreach my $m ( sort { $b <=> $a } keys %g_masks )
     printf("  case 0x%X:\n", $a->[1]);
     printf("    insn->itype = LOONG_%s; // %s\n", $a->[0], $a->[2]);
     my $s = $a->[2];
+    $s =~ s/\+a\(b\)/plusa/;
+    $s =~ s/\+c\(b\)/plusc/;
     $s =~ s/\)//g;
     $s =~ s/\(/,/g;
     $s =~ s/\+/plus/g;

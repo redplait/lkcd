@@ -9,11 +9,12 @@
 
 static const char node_name[] = "$ sample loongson processor extender parameters";
 
-// SINT (8, 6);
+// +a(b) SINT (8, 6);
 void lop_plusa(unsigned long l, op_t &x)
 {
   x.type = o_displ;
-  x.offb = (l >> 6) & 0xff;
+  x.addr = (l >> 6) & 0xff;
+  x.phrase = (l >> 21) & 0x1f;
 }
 
 // REG (5, 21, GP);
@@ -30,11 +31,13 @@ void lop_plusb(unsigned long l, op_t &x)
   x.offb = (l >> 3) & 0xff;
 }
 
-// INT_ADJ(9, 6
+// +c(b) INT_ADJ(9, 6) << 4
 void lop_plusc(unsigned long l, op_t &x)
 {
   x.type = o_displ;
-  x.offb = (l >> 6) & 0x1ff;
+  x.phrase = (l >> 21) & 0x1f;
+  x.dtype = dt_qword;
+  x.addr = ((l >> 6) & 0x1ff) << 4;
 }
 
 // REG (5, 11, GP);

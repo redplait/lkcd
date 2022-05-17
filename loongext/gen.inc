@@ -836,49 +836,41 @@ int loongson_ana(unsigned long value, insn_t *insn)
     insn->itype = LOONG_gslwlc1; // T,+a(b)
     lop_T(value, insn->Op1);
     lop_plusa(value, insn->Op2);
-    lop_b(value, insn->Op3);
   return 4;
   case 0xC8000005:
     insn->itype = LOONG_gslwrc1; // T,+a(b)
     lop_T(value, insn->Op1);
     lop_plusa(value, insn->Op2);
-    lop_b(value, insn->Op3);
   return 4;
   case 0xC8000006:
     insn->itype = LOONG_gsldlc1; // T,+a(b)
     lop_T(value, insn->Op1);
     lop_plusa(value, insn->Op2);
-    lop_b(value, insn->Op3);
   return 4;
   case 0xC8000007:
     insn->itype = LOONG_gsldrc1; // T,+a(b)
     lop_T(value, insn->Op1);
     lop_plusa(value, insn->Op2);
-    lop_b(value, insn->Op3);
   return 4;
   case 0xE8000004:
     insn->itype = LOONG_gsswlc1; // T,+a(b)
     lop_T(value, insn->Op1);
     lop_plusa(value, insn->Op2);
-    lop_b(value, insn->Op3);
   return 4;
   case 0xE8000005:
     insn->itype = LOONG_gsswrc1; // T,+a(b)
     lop_T(value, insn->Op1);
     lop_plusa(value, insn->Op2);
-    lop_b(value, insn->Op3);
   return 4;
   case 0xE8000006:
     insn->itype = LOONG_gssdlc1; // T,+a(b)
     lop_T(value, insn->Op1);
     lop_plusa(value, insn->Op2);
-    lop_b(value, insn->Op3);
   return 4;
   case 0xE8000007:
     insn->itype = LOONG_gssdrc1; // T,+a(b)
     lop_T(value, insn->Op1);
     lop_plusa(value, insn->Op2);
-    lop_b(value, insn->Op3);
   return 4;
  }
  switch(value & 0xFC008020)
@@ -888,28 +880,24 @@ int loongson_ana(unsigned long value, insn_t *insn)
     lop_plusz(value, insn->Op1);
     lop_t(value, insn->Op2);
     lop_plusc(value, insn->Op3);
-    lop_b(value, insn->Op4);
   return 4;
   case 0xE8000020:
     insn->itype = LOONG_gssq; // +z,t,+c(b)
     lop_plusz(value, insn->Op1);
     lop_t(value, insn->Op2);
     lop_plusc(value, insn->Op3);
-    lop_b(value, insn->Op4);
   return 4;
   case 0xC8008020:
     insn->itype = LOONG_gslqc1; // +Z,T,+c(b)
     lop_plusZ(value, insn->Op1);
     lop_T(value, insn->Op2);
     lop_plusc(value, insn->Op3);
-    lop_b(value, insn->Op4);
   return 4;
   case 0xE8008020:
     insn->itype = LOONG_gssqc1; // +Z,T,+c(b)
     lop_plusZ(value, insn->Op1);
     lop_T(value, insn->Op2);
     lop_plusc(value, insn->Op3);
-    lop_b(value, insn->Op4);
   return 4;
  }
  switch(value & 0xFC0007FF)
