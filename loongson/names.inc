@@ -295,9 +295,9 @@ const instruc_t Instructions[] = {
 { "bnez", CF_USE1 | CF_USE2 }, /* Loong_bnez */
 { "bceqz", CF_USE1 | CF_USE2 }, /* Loong_bceqz */
 { "bcnez", CF_USE1 | CF_USE2 }, /* Loong_bcnez */
-{ "jirl", 1 | CF_CHG1 | CF_USE2 | CF_USE3 | CF_CALL }, /* Loong_jirl */
-{ "b", 1 | CF_USE1 }, /* Loong_b */
-{ "bl", CF_USE1 | CF_CALL }, /* Loong_bl */
+{ "jirl", CF_STOP | CF_CHG1 | CF_USE2 | CF_USE3 | CF_CALL }, /* Loong_jirl */
+{ "b", CF_STOP | CF_JUMP | CF_USE1 }, /* Loong_b */
+{ "bl", CF_CALL | CF_USE1 }, /* Loong_bl */
 { "beq", CF_USE1 | CF_USE2 | CF_USE3 }, /* Loong_beq */
 { "bne", CF_USE1 | CF_USE2 | CF_USE3 }, /* Loong_bne */
 { "blt", CF_USE1 | CF_USE2 | CF_USE3 }, /* Loong_blt */
@@ -325,7 +325,7 @@ const instruc_t Instructions[] = {
 { "cacop", CF_USE1 | CF_USE2 | CF_USE3 }, /* Loong_cacop */
 { "lddir", CF_CHG1 | CF_USE2 | CF_USE3 }, /* Loong_lddir */
 { "ldpte", CF_USE1 | CF_USE2 }, /* Loong_ldpte */
-{ "ertn", 1 }, /* Loong_ertn */
+{ "ertn", CF_STOP }, /* Loong_ertn */
 { "idle", 0 }, /* Loong_idle */
 { "dbcl", 0 }, /* Loong_dbcl */
  // fcmp.cond.suffix

@@ -102,7 +102,9 @@ ssize_t idaapi idb_listener_t::on_event(ssize_t code, va_list)
 ssize_t idaapi loongson_t::on_event(ssize_t msgid, va_list va)
 {
   int code = 0;
-msg("msgid: %X\n", msgid);
+#ifdef _DEBUG
+  msg("msgid: %X\n", msgid);
+#endif
   switch ( msgid )
   {
     case processor_t::ev_loader_elf_machine:
@@ -137,7 +139,9 @@ msg("msgid: %X\n", msgid);
         dc.insn = out;
         out->flags |= INSN_64BIT;
         int res = LoongsonDisassemble(out->get_next_dword(), &dc);
+#ifdef _DEBUG
     msg("%a: %d\n", out->ea, res);
+#endif /* _DEBUG */
         return res;
       }
 
@@ -179,6 +183,17 @@ msg("msgid: %X\n", msgid);
       }
       break;
 
+    case processor_t::ev_is_call_insn:
+    {
+      const insn_t *insn = va_arg(va, insn_t *);
+      if ( insn->itype == Loong_bl )
+        return 1;
+      else if ( insn->itype == Loong_jirl && !is_retn(insn) )
+        return 1;
+      else
+        return -1;
+    }
+
     case processor_t::ev_is_ret_insn:
     {
       const insn_t *insn = va_arg(va, insn_t *);
@@ -193,16 +208,6 @@ msg("msgid: %X\n", msgid);
         return -1;
     }
 
-    case processor_t::ev_is_call_insn:
-    {
-      const insn_t *insn = va_arg(va, insn_t *);
-      if ( insn->itype == Loong_bl )
-        return 1;
-      else if ( insn->itype == Loong_jirl && !is_retn(insn) )
-        return 1;
-      else
-        return -1;
-    }
   }
   return code;
 }

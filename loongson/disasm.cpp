@@ -142,11 +142,47 @@ int is_sp_based(const insn_t *insn, const op_t *op)
   return 0;
 }
 
+bool is_loongson_basic_block_end(const insn_t *insn, bool call_insn_stops_block)
+{
+  uint32 feature = insn->get_canon_feature(ph);
+  if ( feature & CF_STOP )
+    return true;
+  if ( feature & CF_CALL )
+    return call_insn_stops_block;
+  return false;
+}
+
+void find_function_end(ea_t ea)
+{
+  func_t *pfn = get_func(ea);
+  if ( NULL == pfn )
+    return;
+   DisasContext dc;
+   ea_t fea = ea += 4;
+   for ( ; ; fea += 4 )
+   {
+      insn_t tmp;
+      dc.pc = fea;
+      dc.insn = &tmp;
+      int res = LoongsonDisassemble(get_dword(fea), &dc);
+      if ( !res )
+        break;
+      if ( is_loongson_basic_block_end(&tmp, false) )
+      {
+        fea += res;
+        break;
+      }
+   }
+   set_func_end(ea, fea);
+}
+
 void make_jmp(const insn_t *insn)
 {
   if ( insn->Op1.type == o_far )
   {
     insn->add_cref(insn->Op1.addr, 0, fl_JF);
+    if ( insn->itype == Loong_bl )
+      add_func(insn->Op1.addr);
     return;
   }
   if ( insn->Op2.type == o_far )
@@ -164,6 +200,9 @@ void make_jmp(const insn_t *insn)
 void emu_insn(const insn_t *insn)
 {
   make_jmp(insn);
+  int is_end = is_loongson_basic_block_end(insn, false);
+  if ( !is_end )
+    add_cref(insn->ea, insn->ea + insn->size, fl_F);
   int sl = is_ld_st(insn->itype);
   if ( sl && is_stkreg(insn->Op2.reg) && insn->Op3.type == o_imm )
   {
