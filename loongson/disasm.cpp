@@ -210,6 +210,7 @@ void emu_insn(const insn_t *insn)
       op_stkvar(insn->ea, insn->Op1.n);
     return;
   }
+  // check for stack adjusting
   if ( (insn->itype == Loong_addi_w || insn->itype == Loong_addi_d) && is_stkreg(insn->Op1.reg) && is_stkreg(insn->Op2.reg) )
   {
     func_t *pfn = get_func(insn->ea);
@@ -217,7 +218,7 @@ void emu_insn(const insn_t *insn)
     msg("%a stack pfn %p\n", insn->ea, pfn);
 #endif /* _DEBUG */
     if ( pfn != NULL )
-     add_auto_stkpnt(pfn, insn->ea+insn->size, insn->Op3.value);
+      add_auto_stkpnt(pfn, insn->ea+insn->size, insn->Op3.value);
     return;
   }
   if ( is_add(insn) )
@@ -321,7 +322,12 @@ static void output_r_i(DisasContext *ctx, arg_r_i *a, loong_insn_type_t mnemonic
 
 static void output_rrr(DisasContext *ctx, arg_rrr *a, loong_insn_type_t mnemonic)
 {
-  ctx->num_ops = 3;
+  if ( ctx->insn->itype == Loong_or && !a->rk ) // or rd, rj, r0 eq mov rd, rj
+  {
+    ctx->num_ops = 2;
+    ctx->insn->itype = Loong_mov;
+  } else
+    ctx->num_ops = 3;
 
   ctx->insn->Op1.type = o_reg;
   ctx->insn->Op1.reg = a->rd;
@@ -331,9 +337,12 @@ static void output_rrr(DisasContext *ctx, arg_rrr *a, loong_insn_type_t mnemonic
   ctx->insn->Op2.reg = a->rj;
   ctx->insn->Op2.dtype = dt_qword;
 
-  ctx->insn->Op3.type = o_reg;
-  ctx->insn->Op3.reg = a->rk;
-  ctx->insn->Op3.dtype = dt_qword;
+  if ( ctx->num_ops > 2 )
+  {
+    ctx->insn->Op3.type = o_reg;
+    ctx->insn->Op3.reg = a->rk;
+    ctx->insn->Op3.dtype = dt_qword;
+  }
 }
 
 static void output_rr_i(DisasContext *ctx, arg_rr_i *a, loong_insn_type_t mnemonic)

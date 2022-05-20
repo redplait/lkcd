@@ -376,4 +376,6 @@ enum loong_insn_type_t {
  Loong_fcmp_sor_d,
  Loong_fcmp_cune_d,
  Loong_fcmp_sune_d,
+ // pseudo ops
+ Loong_mov,
 };
