@@ -271,10 +271,10 @@ const instruc_t Instructions[] = {
 { "fldgt.d", CF_CHG1 | CF_USE2 | CF_USE3 }, /* Loong_fldgt_d */
 { "fldle.s", CF_CHG1 | CF_USE2 | CF_USE3 }, /* Loong_fldle_s */
 { "fldle.d", CF_CHG1 | CF_USE2 | CF_USE3 }, /* Loong_fldle_d */
-{ "fstgt.s", CF_CHG1 | CF_USE2 | CF_USE3 }, /* Loong_fstgt_s */
-{ "fstgt.d", CF_CHG1 | CF_USE2 | CF_USE3 }, /* Loong_fstgt_d */
-{ "fstle.s", CF_CHG1 | CF_USE2 | CF_USE3 }, /* Loong_fstle_s */
-{ "fstle.d", CF_CHG1 | CF_USE2 | CF_USE3 }, /* Loong_fstle_d */
+{ "fstgt.s", CF_USE1 | CF_USE2 | CF_USE3 }, /* Loong_fstgt_s */
+{ "fstgt.d", CF_USE1 | CF_USE2 | CF_USE3 }, /* Loong_fstgt_d */
+{ "fstle.s", CF_USE1 | CF_USE2 | CF_USE3 }, /* Loong_fstle_s */
+{ "fstle.d", CF_USE1 | CF_USE2 | CF_USE3 }, /* Loong_fstle_d */
 { "ldgt.b", CF_CHG1 | CF_USE2 | CF_USE3 }, /* Loong_ldgt_b */
 { "ldgt.h", CF_CHG1 | CF_USE2 | CF_USE3 }, /* Loong_ldgt_h */
 { "ldgt.w", CF_CHG1 | CF_USE2 | CF_USE3 }, /* Loong_ldgt_w */

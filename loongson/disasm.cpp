@@ -2,6 +2,7 @@
 #include <assert.h>
 #include "idaidp.hpp"
 #include <idp.hpp>
+#include <frame.hpp>
 #include "disasm.h"
 
 #define FCMP_LT   0b0001  /* fp0 < fp1 */
@@ -13,8 +14,20 @@ int is_retn(const insn_t *insn)
 {
   if ( insn->itype != Loong_jirl )
     return 0;
-msg("is_retn: %a %a\n", insn->Op3.addr, insn->ea);
+#ifdef _DEBUG
+   msg("is_retn: %a %a\n", insn->Op3.addr, insn->ea);
+#endif /* _DEBUG */
   return /* insn->Op1.reg == 1 && !insn->Op2.reg && */ insn->Op3.addr == insn->ea;
+}
+
+inline bool is_stkreg(int r)
+{
+  return r == 3;
+}
+
+inline int is_add(const insn_t *insn)
+{
+  return (insn->itype == Loong_addi_w || insn->itype == Loong_addi_d) && (insn->Op1.reg == insn->Op2.reg) && !is_stkreg(insn->Op1.reg);
 }
 
 int is_pcadd(int itype)
@@ -30,30 +43,96 @@ int is_pcadd(int itype)
   return 0;
 }
 
+ea_t pcadd(int itype, ea_t pc, int imm)
+{
+  switch(itype)
+  {
+    case Loong_pcaddi:
+      // see gen_pcaddi
+      return pc + (imm << 2);
+    case Loong_pcalau12i:
+      // see gen_pcalau12i
+      return (pc + (imm << 12)) & ~0xfff;
+    case Loong_pcaddu12i:
+      // see gen_pcaddu12i
+      return pc + (imm << 12);
+    case Loong_pcaddu18i:
+      // see gen_pcaddu18i
+      return pc + ((ea_t)(imm) << 18);
+  }
+  return 0;
+
+}
+
+// 1 - ld, 2 - st, 3 - Bound Check ld, 4 - Bound Check st
 int is_ld_st(int itype)
 {
   switch(itype)
   {
+    case Loong_ld_bu:
+    case Loong_ld_hu:
+    case Loong_ld_wu:
     case Loong_ld_b:
     case Loong_ld_h:
     case Loong_ld_w:
     case Loong_ld_d:
+    case Loong_ldptr_w:
+    case Loong_ldptr_d:
+    case Loong_ldx_bu:
+    case Loong_ldx_hu:
+    case Loong_ldx_wu:
+    case Loong_ldx_b:
+    case Loong_ldx_h:
+    case Loong_ldx_w:
+    case Loong_ldx_d:
+    case Loong_fld_s:
+    case Loong_fld_d:
+    case Loong_fldx_s:
+    case Loong_fldx_d:
+      return 1;
     case Loong_st_b:
     case Loong_st_h:
     case Loong_st_w:
     case Loong_st_d:
-    case Loong_ldptr_w:
-    case Loong_ldptr_d:
     case Loong_stptr_w:
     case Loong_stptr_d:
-      return 1;
+    case Loong_stx_b:
+    case Loong_stx_h:
+    case Loong_stx_w:
+    case Loong_stx_d:
+    case Loong_fst_s:
+    case Loong_fst_d:
+    case Loong_fstx_s:
+    case Loong_fstx_d:
+     return 2;
+    case Loong_ldgt_b:
+    case Loong_ldgt_h:
+    case Loong_ldgt_w:
+    case Loong_ldgt_d:
+    case Loong_ldle_b:
+    case Loong_ldle_h:
+    case Loong_ldle_w:
+    case Loong_ldle_d:
+    case Loong_fldgt_s:
+    case Loong_fldgt_d:
+    case Loong_fldle_s:
+    case Loong_fldle_d:
+     return 3;
+    case Loong_stgt_b:
+    case Loong_stgt_h:
+    case Loong_stgt_w:
+    case Loong_stgt_d:
+    case Loong_stle_b:
+    case Loong_stle_h:
+    case Loong_stle_w:
+    case Loong_stle_d:
+    case Loong_fstgt_s:
+    case Loong_fstgt_d:
+    case Loong_fstle_s:
+    case Loong_fstle_d:
+     return 4;
   }
   return 0;
-}
-
-inline bool is_stkreg(int r)
-{
-  return r == 3;
 }
 
 int is_sp_based(const insn_t *insn, const op_t *op)
@@ -63,14 +142,8 @@ int is_sp_based(const insn_t *insn, const op_t *op)
   return 0;
 }
 
-void emu_insn(const insn_t *insn)
+void make_jmp(const insn_t *insn)
 {
-  if ( is_pcadd(insn->itype) )
-  {
-    ea_t ea = insn->ea + insn->Op2.value;
-    insn->add_dref(ea, 0, dr_O);
-    return;
-  }
   if ( insn->Op1.type == o_far )
   {
     insn->add_cref(insn->Op1.addr, 0, fl_JF);
@@ -81,10 +154,71 @@ void emu_insn(const insn_t *insn)
     insn->add_cref(insn->Op2.addr, 0, fl_JF);
     return;
   }
-  if ( insn->Op3.type == o_far )
+  if ( insn->Op3.type == o_far && !is_retn(insn) )
   {
     insn->add_cref(insn->Op3.addr, 0, fl_JF);
     return;
+  }
+}
+
+void emu_insn(const insn_t *insn)
+{
+  make_jmp(insn);
+  int sl = is_ld_st(insn->itype);
+  if ( sl && is_stkreg(insn->Op2.reg) && insn->Op3.type == o_imm )
+  {
+    if ( insn_create_stkvar(*insn, insn->Op1, insn->Op3.value, 0) )
+      op_stkvar(insn->ea, insn->Op1.n);
+    return;
+  }
+  if ( (insn->itype == Loong_addi_w || insn->itype == Loong_addi_d) && is_stkreg(insn->Op1.reg) && is_stkreg(insn->Op2.reg) )
+  {
+    func_t *pfn = get_func(insn->ea);
+#ifdef _DEBUG
+    msg("%a stack pfn %p\n", insn->ea, pfn);
+#endif /* _DEBUG */
+    if ( pfn != NULL )
+     add_auto_stkpnt(pfn, insn->ea+insn->size, insn->Op3.value);
+    return;
+  }
+  if ( is_add(insn) )
+  {
+    ea_t off = insn->Op3.value;
+    int idxr = insn->Op2.reg;
+    // find previous pcadd
+    insn_t prev;
+    func_item_iterator_t fii(get_func(insn->ea), insn->ea);
+    while ( fii.decode_prev_insn(&prev) )
+    {
+      if ( is_pcadd(prev.itype) && prev.Op1.reg == idxr )
+      {
+        ea_t ea = pcadd(prev.itype, prev.ea, prev.Op2.value) + off;
+        insn->add_dref(ea, 0, dr_O);
+        break;
+      }
+    }
+  }
+  if ( sl && insn->Op3.type == o_imm )
+  {
+    ea_t off = insn->Op3.value;
+    int idxr = insn->Op2.reg;
+    // find previous pcadd
+    insn_t prev;
+    func_item_iterator_t fii(get_func(insn->ea), insn->ea);
+    while ( fii.decode_prev_insn(&prev) )
+    {
+      if ( is_add(&prev) && prev.Op1.reg == idxr )
+      {
+        off += prev.Op3.value;
+        continue;
+      }
+      if ( is_pcadd(prev.itype) && prev.Op1.reg == idxr )
+      {
+        ea_t ea = pcadd(prev.itype, prev.ea, prev.Op2.value) + off;
+        insn->add_dref(ea, 0, sl & 1 ? dr_R : dr_W);
+        break;
+      }
+    }
   }
 }
 

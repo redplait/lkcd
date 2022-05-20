@@ -116,6 +116,7 @@ msg("msgid: %X\n", msgid);
          *proc = shnames[0];
          return machine_type;
        }
+       break;
      }
 
     case processor_t::ev_init:
@@ -183,7 +184,9 @@ msg("msgid: %X\n", msgid);
       const insn_t *insn = va_arg(va, insn_t *);
       if ( is_retn(insn) )
       {
+#ifdef _DEBUG
         msg("retn at %a\n", insn->ea);
+#endif /* _DEBUG */
         return 1;
       }
       else
