@@ -298,7 +298,7 @@ void emu_insn(const insn_t *insn)
       else
       {
         char comm[64];
-        qsnprintf(comm, sizeof(comm), "r%d: %a", insn->Op1.reg, addr);
+        qsnprintf(comm, sizeof(comm), "r%d: %a", insn->Op2.reg, addr);
         set_cmt(insn->ea, comm, false);
         add_cref(insn->ea, addr, fl_JF);
       }
@@ -391,6 +391,13 @@ static void output_rrr(DisasContext *ctx, arg_rrr *a, loong_insn_type_t mnemonic
 
 static void output_rr_i(DisasContext *ctx, arg_rr_i *a, loong_insn_type_t mnemonic)
 {
+  // check for andi r0 - this is nop
+  if ( mnemonic == Loong_andi && !a->rd )
+  {
+    ctx->num_ops = 0;
+    ctx->insn->itype = Loong_nop;
+    return;
+  }
   ctx->num_ops = 3;
 
   ctx->insn->Op1.type = o_reg;

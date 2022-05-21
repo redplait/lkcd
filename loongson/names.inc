@@ -376,4 +376,5 @@ const instruc_t Instructions[] = {
 { "fcmp.sune.d", CF_CHG1 | CF_USE2 | CF_USE3 }, // Loong_fcmp_sune_d
 // pseudo ops
 { "mov", CF_CHG1 | CF_USE2 }, // Loong_mov 
+{ "nop", 0 }, // Loong_nop 
 };

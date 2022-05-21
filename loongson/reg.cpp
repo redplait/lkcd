@@ -251,7 +251,7 @@ processor_t LPH =
   retcodes,
 
   Loong_clo_w,
-  Loong_mov + 1,
+  Loong_last,
   Instructions,         // instruc
   0,                    // int tbyte_size;  -- doesn't exist
   { 0, 7, 15, 19 },     // char real_width[4];
