@@ -7,6 +7,7 @@
 extern void emu_insn(const insn_t *);
 extern int is_sp_based(const insn_t *, const op_t *);
 extern int is_retn(const insn_t *insn);
+extern int loongson_is_switch(switch_info_t *si, const insn_t &insn);
 
 #include "names.inc"
 
@@ -182,6 +183,13 @@ ssize_t idaapi loongson_t::on_event(ssize_t msgid, va_list va)
         sptr->defsr[1] = 0;
       }
       break;
+
+    case processor_t::ev_is_switch:
+      {
+        switch_info_t *si = va_arg(va, switch_info_t *);
+        const insn_t *insn = va_arg(va, const insn_t *);
+        return loongson_is_switch(si, *insn) ? 1 : 0;
+      }
 
     case processor_t::ev_is_call_insn:
     {

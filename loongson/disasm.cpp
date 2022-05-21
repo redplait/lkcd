@@ -10,6 +10,36 @@
 #define FCMP_UN   0b0100  /* unordered */
 #define FCMP_GT   0b1000  /* fp0 > fp1 */
 
+extern int loongson_is_switch(switch_info_t *si, const insn_t &insn);
+
+void loong_create_switch_table(ea_t insn_ea, const switch_info_t &si)
+{
+  int size = si.get_jtable_element_size();
+  int tab_size = si.get_jtable_size();
+  ea_t curr = si.jumps;
+  for ( int i = 0; i < tab_size; i++, curr += size )
+  {
+    int64 off = 0;
+    switch(size)
+    {
+      case 1: off = get_byte(curr);
+              create_byte(curr, 1);
+       break;
+      case 2: off = get_word(curr);
+              create_word(curr, 1);
+       break;
+      case 4: off = get_dword(curr);
+              create_dword(curr, 1);
+       break;
+      case 8: off = get_qword(curr);
+              create_qword(curr, 1);
+       break;
+    }
+    ea_t add = si.jumps + off;
+    add_dref(curr, add, dr_O);
+  }
+}
+
 int is_retn(const insn_t *insn)
 {
   if ( insn->itype != Loong_jirl )
@@ -61,7 +91,6 @@ ea_t pcadd(int itype, ea_t pc, int imm)
       return pc + ((ea_t)(imm) << 18);
   }
   return 0;
-
 }
 
 // 1 - ld, 2 - st, 3 - Bound Check ld, 4 - Bound Check st
@@ -314,6 +343,17 @@ void emu_insn(const insn_t *insn)
     } else {
       qsnprintf(comm, sizeof(comm), "r%d", insn->Op2.reg);
       set_cmt(insn->ea, comm, false);
+      // check for switch jmp
+      switch_info_t si;
+      if ( loongson_is_switch(&si, *insn) )
+      {
+msg("switch at %a\n", insn->ea);
+        set_switch_info(insn->ea, si);
+        if ( !create_switch_table(insn->ea, si) )
+          loong_create_switch_table(insn->ea, si);
+        else
+          create_switch_xrefs(insn->ea, si);
+      }
     }
   }
 }
@@ -782,14 +822,14 @@ static void output_rr_offs(DisasContext *ctx, arg_rr_offs *a,
                            loong_insn_type_t mnemonic)
 {
   ctx->num_ops = 3;
-
+  int need_swap = (mnemonic == Loong_jirl);
   // reg
   ctx->insn->Op1.type = o_reg;
-  ctx->insn->Op1.reg = a->rd;
+  ctx->insn->Op1.reg = need_swap ? a->rd : a->rj;
   ctx->insn->Op1.dtype = get_dtype(mnemonic);
 
   ctx->insn->Op2.type = o_reg;
-  ctx->insn->Op2.reg = a->rj;
+  ctx->insn->Op2.reg = need_swap ? a->rj : a->rd;
   ctx->insn->Op2.dtype = dt_qword;
 
   // imm dword
