@@ -69,6 +69,10 @@ int is_ld_st(int itype)
 {
   switch(itype)
   {
+    case Loong_ldl_w:
+    case Loong_ldl_d:
+    case Loong_ldr_w:
+    case Loong_ldr_d:
     case Loong_ld_bu:
     case Loong_ld_hu:
     case Loong_ld_wu:
@@ -90,6 +94,10 @@ int is_ld_st(int itype)
     case Loong_fldx_s:
     case Loong_fldx_d:
       return 1;
+    case Loong_stl_w:
+    case Loong_stl_d:
+    case Loong_str_w:
+    case Loong_str_d:
     case Loong_st_b:
     case Loong_st_h:
     case Loong_st_w:
@@ -257,6 +265,7 @@ void emu_insn(const insn_t *insn)
       add_auto_stkpnt(pfn, insn->ea+insn->size, insn->Op3.value);
     return;
   }
+  char comm[64];
   if ( is_add(insn) )
   {
     ea_t off = insn->Op3.value;
@@ -270,6 +279,8 @@ void emu_insn(const insn_t *insn)
       {
         ea_t ea = pcadd(prev.itype, prev.ea, prev.Op2.value) + off;
         insn->add_dref(ea, 0, dr_O);
+        qsnprintf(comm, sizeof(comm), "%a %X", ea, ea & 0xffffffff);
+        set_cmt(insn->ea, comm, false);
         break;
       }
       if ( !is_reg_alive(&prev, idxr) )
@@ -281,8 +292,7 @@ void emu_insn(const insn_t *insn)
     ea_t addr;
     if ( track_back(insn, addr) )
     {
-      char comm[64];
-      qsnprintf(comm, sizeof(comm), "d%d: %a", insn->Op1.reg, addr);
+      qsnprintf(comm, sizeof(comm), "d%d: %a %X", insn->Op1.reg, addr, addr & 0xffffffff);
       set_cmt(insn->ea, comm, false);
       insn->add_dref(addr, 0, sl & 1 ? dr_R : dr_W);
     }
@@ -297,11 +307,13 @@ void emu_insn(const insn_t *insn)
         add_cref(insn->ea, insn->ea + insn->size, fl_F);
       else
       {
-        char comm[64];
         qsnprintf(comm, sizeof(comm), "r%d: %a", insn->Op2.reg, addr);
         set_cmt(insn->ea, comm, false);
         add_cref(insn->ea, addr, fl_JF);
       }
+    } else {
+      qsnprintf(comm, sizeof(comm), "r%d", insn->Op2.reg);
+      set_cmt(insn->ea, comm, false);
     }
   }
 }
@@ -1151,6 +1163,14 @@ INSN(ldle_b,       rrr)
 INSN(ldle_h,       rrr)
 INSN(ldle_w,       rrr)
 INSN(ldle_d,       rrr)
+INSN(ldl_w,        rr_i)
+INSN(ldl_d,        rr_i)
+INSN(ldr_w,        rr_i)
+INSN(ldr_d,        rr_i)
+INSN(stl_w,        rr_i)
+INSN(stl_d,        rr_i)
+INSN(str_w,        rr_i)
+INSN(str_d,        rr_i)
 INSN(stgt_b,       rrr)
 INSN(stgt_h,       rrr)
 INSN(stgt_w,       rrr)

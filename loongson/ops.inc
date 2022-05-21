@@ -376,6 +376,15 @@ enum loong_insn_type_t {
  Loong_fcmp_sor_d,
  Loong_fcmp_cune_d,
  Loong_fcmp_sune_d,
+ // LDL/LDR/STL/STR
+ Loong_ldl_w,
+ Loong_ldl_d,
+ Loong_ldr_w,
+ Loong_ldr_d,
+ Loong_stl_w,
+ Loong_stl_d,
+ Loong_str_w,
+ Loong_str_d,
  // pseudo ops
  Loong_mov,
  Loong_nop,

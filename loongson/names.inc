@@ -374,6 +374,15 @@ const instruc_t Instructions[] = {
 { "fcmp.sor.d", CF_CHG1 | CF_USE2 | CF_USE3 }, // Loong_fcmp_sor_d
 { "fcmp.cune.d", CF_CHG1 | CF_USE2 | CF_USE3 }, // Loong_fcmp_cune_d
 { "fcmp.sune.d", CF_CHG1 | CF_USE2 | CF_USE3 }, // Loong_fcmp_sune_d
+// // LDL/LDR/STL/STR
+{ "ldl.w", CF_CHG1 | CF_USE2 | CF_USE3 }, // Loong_ldl_w
+{ "ldl.d", CF_CHG1 | CF_USE2 | CF_USE3 }, // Loong_ldl_d
+{ "ldr.w", CF_CHG1 | CF_USE2 | CF_USE3 }, // Loong_ldr_w
+{ "ldr.d", CF_CHG1 | CF_USE2 | CF_USE3 }, // Loong_ldr_d
+{ "stl.w", CF_USE1 | CF_USE2 | CF_USE3 }, // Loong_stl_w
+{ "stl.d", CF_USE1 | CF_USE2 | CF_USE3 }, // Loong_stl_d
+{ "str.w", CF_USE1 | CF_USE2 | CF_USE3 }, // Loong_str_w
+{ "str.d", CF_USE1 | CF_USE2 | CF_USE3 }, // Loong_str_d
 // pseudo ops
 { "mov", CF_CHG1 | CF_USE2 }, // Loong_mov 
 { "nop", 0 }, // Loong_nop 

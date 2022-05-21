@@ -848,6 +848,20 @@ typedef arg_i arg_idle;
 static bool trans_idle(DisasContext *ctx, arg_idle *a);
 typedef arg_i arg_dbcl;
 static bool trans_dbcl(DisasContext *ctx, arg_dbcl *a);
+typedef arg_rr_i arg_ldl_w;
+static bool trans_ldl_w(DisasContext *ctx, arg_ldl_w *a);
+typedef arg_rr_i arg_ldr_w;
+static bool trans_ldr_w(DisasContext *ctx, arg_ldr_w *a);
+typedef arg_rr_i arg_ldr_d;
+static bool trans_ldr_d(DisasContext *ctx, arg_ldr_d *a);
+typedef arg_rr_i arg_stl_w;
+static bool trans_stl_w(DisasContext *ctx, arg_stl_w *a);
+typedef arg_rr_i arg_str_w;
+static bool trans_str_w(DisasContext *ctx, arg_str_w *a);
+typedef arg_rr_i arg_stl_d;
+static bool trans_stl_d(DisasContext *ctx, arg_stl_d *a);
+typedef arg_rr_i arg_str_d;
+static bool trans_str_d(DisasContext *ctx, arg_str_d *a);
 
 static void decode_extract_c_offs21(DisasContext *ctx, arg_c_offs *a, uint32_t insn)
 {
@@ -2800,6 +2814,47 @@ static bool decode(DisasContext *ctx, uint32_t insn)
             /* insns.decode:426 */
             decode_extract_fr_i12(ctx, &u.f_fr_i, insn);
             if (trans_fst_d(ctx, &u.f_fr_i)) return true;
+            break;
+        }
+        break;
+    case 0xb:
+        /* 001011.. ........ ........ ........ */
+        decode_extract_rr_i12(ctx, &u.f_rr_i, insn);
+        switch ((insn >> 22) & 0xf) {
+        case 0x8:
+            /* 00101110 00...... ........ ........ */
+            /* insns.decode:489 */
+            if (trans_ldl_w(ctx, &u.f_rr_i)) return true;
+            break;
+        case 0x9:
+            /* 00101110 01...... ........ ........ */
+            /* insns.decode:490 */
+            if (trans_ldr_w(ctx, &u.f_rr_i)) return true;
+            break;
+        case 0xb:
+            /* 00101110 11...... ........ ........ */
+            /* insns.decode:491 */
+            if (trans_ldr_d(ctx, &u.f_rr_i)) return true;
+            break;
+        case 0xc:
+            /* 00101111 00...... ........ ........ */
+            /* insns.decode:492 */
+            if (trans_stl_w(ctx, &u.f_rr_i)) return true;
+            break;
+        case 0xd:
+            /* 00101111 01...... ........ ........ */
+            /* insns.decode:493 */
+            if (trans_str_w(ctx, &u.f_rr_i)) return true;
+            break;
+        case 0xe:
+            /* 00101111 10...... ........ ........ */
+            /* insns.decode:494 */
+            if (trans_stl_d(ctx, &u.f_rr_i)) return true;
+            break;
+        case 0xf:
+            /* 00101111 11...... ........ ........ */
+            /* insns.decode:495 */
+            if (trans_str_d(ctx, &u.f_rr_i)) return true;
             break;
         }
         break;
