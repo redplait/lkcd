@@ -374,7 +374,7 @@ const instruc_t Instructions[] = {
 { "fcmp.sor.d", CF_CHG1 | CF_USE2 | CF_USE3 }, // Loong_fcmp_sor_d
 { "fcmp.cune.d", CF_CHG1 | CF_USE2 | CF_USE3 }, // Loong_fcmp_cune_d
 { "fcmp.sune.d", CF_CHG1 | CF_USE2 | CF_USE3 }, // Loong_fcmp_sune_d
-// // LDL/LDR/STL/STR
+ // LDL/LDR/STL/STR
 { "ldl.w", CF_CHG1 | CF_USE2 | CF_USE3 }, // Loong_ldl_w
 { "ldl.d", CF_CHG1 | CF_USE2 | CF_USE3 }, // Loong_ldl_d
 { "ldr.w", CF_CHG1 | CF_USE2 | CF_USE3 }, // Loong_ldr_w

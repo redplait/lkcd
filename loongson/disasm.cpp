@@ -410,11 +410,23 @@ static void output_rr_i(DisasContext *ctx, arg_rr_i *a, loong_insn_type_t mnemon
     ctx->insn->itype = Loong_nop;
     return;
   }
-  ctx->num_ops = 3;
 
   ctx->insn->Op1.type = o_reg;
   ctx->insn->Op1.reg = a->rd;
   ctx->insn->Op1.dtype = get_dtype(mnemonic);
+
+  // addi.w reg, r0, imm - this is mov reg, imm
+  if ( (mnemonic == Loong_addi_w || mnemonic == Loong_addi_d) && !a->rj )
+  {
+    ctx->num_ops = 2;
+    ctx->insn->itype = Loong_mov;
+    ctx->insn->Op2.type = o_imm;
+    ctx->insn->Op2.value = a->imm;
+    ctx->insn->Op2.dtype = dt_byte;
+    return;
+  }
+
+  ctx->num_ops = 3;
 
   ctx->insn->Op2.type = o_reg;
   ctx->insn->Op2.reg = a->rj;
