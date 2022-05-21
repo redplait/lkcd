@@ -96,3 +96,19 @@ class loongson_jump_pattern_t2: public loongson_jump_pattern_t
   virtual bool jpi2(void) override { return is_ldptr(); }
   virtual bool jpi1(void) override { return is_add_base(); }
 };
+
+class loongson_jump_pattern_t3: public loongson_jump_pattern_t
+{
+ public:
+   loongson_jump_pattern_t3(switch_info_t *_si)
+     : loongson_jump_pattern_t(_si)
+   {}
+  // 1..7
+  virtual bool jpi7(void) override { return is_rimm(); }
+  virtual bool jpi6(void) override { return is_bxx(); }
+  virtual bool jpi5(void) override { return is_pcadduXXi(); }
+  virtual bool jpi4(void) override { return is_addi(); }
+  virtual bool jpi3(void) override { return is_alsl(); }
+  virtual bool jpi2(void) override { return is_ldptr(); }
+  virtual bool jpi1(void) override { return is_add_base(); }
+};

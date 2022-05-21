@@ -192,6 +192,7 @@ int loongson_is_switch(switch_info_t *si, const insn_t &insn)
   {
     is_jump_pattern<loongson_jump_pattern_t1>,
     is_jump_pattern<loongson_jump_pattern_t2>,
+    is_jump_pattern<loongson_jump_pattern_t3>,
   };
   return check_for_table_jump(si, insn, patterns, qnumber(patterns));
 }
