@@ -142,6 +142,42 @@ int is_sp_based(const insn_t *insn, const op_t *op)
   return 0;
 }
 
+bool is_reg_alive(const insn_t *insn, int ridx)
+{
+  uint32 feature = insn->get_canon_feature(ph);
+  if ( feature & CF_CHG1 )
+  {
+    if ( insn->Op1.type == o_reg && insn->Op1.reg == ridx )
+      return false;
+  }
+  return true;
+}
+
+bool track_back(const insn_t *insn, ea_t &addr)
+{
+  ea_t off = insn->Op3.value;
+  int idxr = insn->Op2.reg;
+  // find previous pair of pcadd/add
+  insn_t prev;
+  func_item_iterator_t fii(get_func(insn->ea), insn->ea);
+  while ( fii.decode_prev_insn(&prev) )
+  {
+    if ( is_add(&prev) && prev.Op1.reg == idxr )
+    {
+      off += prev.Op3.value;
+      continue;
+    }
+    if ( is_pcadd(prev.itype) && prev.Op1.reg == idxr )
+    {
+      addr = pcadd(prev.itype, prev.ea, prev.Op2.value) + off;
+      return true;
+    }
+    if ( !is_reg_alive(&prev, idxr) )
+      return false;
+  }
+  return false;
+}
+
 bool is_loongson_basic_block_end(const insn_t *insn, bool call_insn_stops_block)
 {
   uint32 feature = insn->get_canon_feature(ph);
@@ -236,27 +272,35 @@ void emu_insn(const insn_t *insn)
         insn->add_dref(ea, 0, dr_O);
         break;
       }
+      if ( !is_reg_alive(&prev, idxr) )
+        break;
     }
   }
   if ( sl && insn->Op3.type == o_imm )
   {
-    ea_t off = insn->Op3.value;
-    int idxr = insn->Op2.reg;
-    // find previous pcadd
-    insn_t prev;
-    func_item_iterator_t fii(get_func(insn->ea), insn->ea);
-    while ( fii.decode_prev_insn(&prev) )
+    ea_t addr;
+    if ( track_back(insn, addr) )
     {
-      if ( is_add(&prev) && prev.Op1.reg == idxr )
+      char comm[64];
+      qsnprintf(comm, sizeof(comm), "d%d: %a", insn->Op1.reg, addr);
+      set_cmt(insn->ea, comm, false);
+      insn->add_dref(addr, 0, sl & 1 ? dr_R : dr_W);
+    }
+  }
+  // check for patched r1 in Loong_jirl
+  if ( Loong_jirl == insn->itype )
+  {
+    ea_t addr;
+    if ( track_back(insn, addr) )
+    {
+      if ( addr == insn->ea + insn->size )
+        add_cref(insn->ea, insn->ea + insn->size, fl_F);
+      else
       {
-        off += prev.Op3.value;
-        continue;
-      }
-      if ( is_pcadd(prev.itype) && prev.Op1.reg == idxr )
-      {
-        ea_t ea = pcadd(prev.itype, prev.ea, prev.Op2.value) + off;
-        insn->add_dref(ea, 0, sl & 1 ? dr_R : dr_W);
-        break;
+        char comm[64];
+        qsnprintf(comm, sizeof(comm), "r%d: %a", insn->Op1.reg, addr);
+        set_cmt(insn->ea, comm, false);
+        add_cref(insn->ea, addr, fl_JF);
       }
     }
   }
