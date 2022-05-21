@@ -11,7 +11,7 @@ extern int is_pcadd(int itype);
 extern ea_t pcadd(int itype, ea_t pc, int imm);
 
 // 0) ret regA
-bool loongson_jump_pattern_t::jpi0(void)
+bool loongson_jump_pattern_t::is_ret(void)
 {
   if ( insn.itype != Loong_jirl )
     return false;
@@ -19,8 +19,25 @@ bool loongson_jump_pattern_t::jpi0(void)
   return true;
 }
 
-// 1) add.d regA, regA, rJ
-bool loongson_jump_pattern_t::jpi1(void)
+// add.d regA, rBase, regA
+bool loongson_jump_pattern_t::is_add_base(void)
+{
+  if ( insn.itype != Loong_add_d || !same_value(insn.Op1, regA) )
+    return false;
+#ifdef _DEBUG
+  msg("jpi1: %a\n", insn.ea);
+#endif
+  if ( same_value(insn.Op3, regA) )
+    trackop(insn.Op2, rBase);
+  else if ( same_value(insn.Op2, regA) )
+    trackop(insn.Op3, rBase);
+  else
+    return false;
+  return true;
+}
+
+// add.d regA, regA, rJ
+bool loongson_jump_pattern_t::is_add(void)
 {
   if ( insn.itype != Loong_add_d || !same_value(insn.Op1, regA) || !same_value(insn.Op2, regA) )
     return false;
@@ -31,21 +48,34 @@ bool loongson_jump_pattern_t::jpi1(void)
   return true;
 }
 
-// 2) ldptr.d rJ, rS, 0
-bool loongson_jump_pattern_t::jpi2(void)
+// ldptr.d rJ, rS, 0
+bool loongson_jump_pattern_t::is_ldptr(void)
 {
-  if ( insn.itype != Loong_ldptr_d || !same_value(insn.Op1, rJ) )
+  if ( insn.itype != Loong_ldptr_d || (!same_value(insn.Op1, rJ) && !same_value(insn.Op1, regA)) )
     return false;
 #ifdef _DEBUG
   msg("jpi2: %a\n", insn.ea);
 #endif
-  si->startea = insn.ea;
   trackop(insn.Op2, rS); 
   return true;
 }
 
-// 3) alsl.d rS, rIdx, rBase, size
-bool loongson_jump_pattern_t::jpi3(void)
+// alsl.d rS, rBase, rIdx, size
+bool loongson_jump_pattern_t::is_alsl_base(void)
+{
+  if ( insn.itype != Loong_alsl_d || !same_value(insn.Op1, rS) )
+    return false;
+#ifdef _DEBUG
+  msg("jpi3: %a\n", insn.ea);
+#endif
+  trackop(insn.Op3, rIdx); 
+  trackop(insn.Op2, rBase); 
+  si->set_jtable_element_size(1 << insn.Op4.value);
+  return true;
+}
+
+// alsl.d rS, rIdx, rBase, size
+bool loongson_jump_pattern_t::is_alsl(void)
 {
   if ( insn.itype != Loong_alsl_d || !same_value(insn.Op1, rS) )
     return false;
@@ -59,7 +89,7 @@ bool loongson_jump_pattern_t::jpi3(void)
 }
 
 // 4) addi.d rBase, rBase2, offset
-bool loongson_jump_pattern_t::jpi4(void)
+bool loongson_jump_pattern_t::is_addi(void)
 {
   if ( insn.itype != Loong_addi_d || !same_value(insn.Op1, rBase) )
     return false;
@@ -72,7 +102,7 @@ bool loongson_jump_pattern_t::jpi4(void)
 }
 
 // 5) pcadduXXi rBase2, base
-bool loongson_jump_pattern_t::jpi5(void)
+bool loongson_jump_pattern_t::is_pcadduXXi(void)
 {
   if ( !same_value(insn.Op1, rBase2) )
     return false;
@@ -89,7 +119,7 @@ bool loongson_jump_pattern_t::jpi5(void)
 
 // 6)  bltu rMax, rIdx default addr
 // 6b) bge rIdx, rMax, default addr
-bool loongson_jump_pattern_t::jpi6(void)
+bool loongson_jump_pattern_t::is_bxx(void)
 {
  if ( insn.itype == Loong_bltu || insn.itype == Loong_blt )
  {
@@ -112,7 +142,7 @@ bool loongson_jump_pattern_t::jpi6(void)
 }
 
 // 7) mov rMax, imm
-bool loongson_jump_pattern_t::jpi7(void)
+bool loongson_jump_pattern_t::is_rimm(void)
 {
  if ( insn.itype != Loong_mov || !same_value(insn.Op1, rMax) )
    return false;
@@ -121,6 +151,7 @@ bool loongson_jump_pattern_t::jpi7(void)
    jsize++;
  si->set_jtable_size(jsize);
  si->flags |= SWI_SIGNED;
+ si->startea = insn.ea;
 msg("jpi7: %a jumps %a size %d elsize %d\n", insn.ea, si->jumps, si->get_jtable_size(), si->get_jtable_element_size());
  return true;
 }
@@ -144,9 +175,10 @@ bool loongson_jump_pattern_t::handle_mov(tracked_regs_t &_regs)
   return set_moved(insn.Op2, insn.Op1, _regs);
 }
 
+template <typename T>
 static int is_jump_pattern(switch_info_t *si, const insn_t &insn, procmod_t *pm)
 {
-  loongson_jump_pattern_t jp(si);
+  T jp(si);
   if ( !jp.match(insn) || !jp.finish() )
     return JT_NONE;
   return JT_SWITCH;
@@ -158,7 +190,8 @@ int loongson_is_switch(switch_info_t *si, const insn_t &insn)
     return false;
   static is_pattern_t *const patterns[] =
   {
-    is_jump_pattern,
+    is_jump_pattern<loongson_jump_pattern_t1>,
+    is_jump_pattern<loongson_jump_pattern_t2>,
   };
   return check_for_table_jump(si, insn, patterns, qnumber(patterns));
 }
