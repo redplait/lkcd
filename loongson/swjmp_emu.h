@@ -194,3 +194,56 @@ class loongson_jump_pattern_t4: public loongson_jump_pattern9ops
   virtual bool jpi2(void) override { return is_ldx(); }
   virtual bool jpi1(void) override { return is_add(); }
 };
+
+// jump pattern #5 - more short variation of #1, see libcrypto.so.1.0.0 for example at 85754
+// 6  mov rMax, imm
+// 5  bltu rMax, ??? default addr
+// 4  ldptr rJ, ???, 0
+// 3  pcadduXXi rBase2, base
+// 2  addi.d rBase, rBase2, offset
+// 1  add.d regA, rBase, rJ
+// 0  ret regA
+static const char lsw7_depends[][4] =
+{
+  { 1 },     // 0
+  { 2, 4 },  // 1) rBase from 2, rJ from 4
+  { 3 },     // 2
+  { 0 },     // 3
+  { 5 },     // 4
+  { 6 },     // 5
+  { 0 },     // 6
+};
+
+class loongson_jump_pattern7ops : public jump_pattern_t
+{
+protected:
+  enum {
+   regA, rJ, rBase, rBase2, rMax
+  };
+  ea_t add_off;
+  int is_ge; // for bge(u)
+  // common methods
+  bool is_ret();
+  bool is_add();
+  bool is_addi();
+  bool is_ldptr();
+  bool is_pcadduXXi();
+  bool is_bxx();
+  bool is_rimm();
+public:
+  loongson_jump_pattern7ops(switch_info_t *_si)
+   : jump_pattern_t(_si, lsw7_depends, rMax)
+  {
+    add_off = NULL;
+    is_ge = 0;
+  }
+  virtual bool handle_mov(tracked_regs_t &_regs) override;
+  bool finish();
+  virtual bool jpi6(void) override { return is_rimm(); }
+  virtual bool jpi5(void) override { return is_bxx(); }
+  virtual bool jpi4(void) override { return is_ldptr(); }
+  virtual bool jpi3(void) override { return is_pcadduXXi(); }
+  virtual bool jpi2(void) override { return is_addi(); }
+  virtual bool jpi1(void) override { return is_add(); }
+  virtual bool jpi0(void) override { return is_ret(); }
+};

@@ -10,6 +10,129 @@
 extern int is_pcadd(int itype);
 extern ea_t pcadd(int itype, ea_t pc, int imm);
 
+// 7 ops
+bool loongson_jump_pattern7ops::is_ret()
+{
+  if ( insn.itype != Loong_jirl )
+    return false;
+  trackop(insn.Op2, regA);
+  return true;
+}
+
+// add.d regA, rBase, rJ
+bool loongson_jump_pattern7ops::is_add()
+{
+  if ( insn.itype != Loong_add_d || !same_value(insn.Op1, regA) )
+    return false;
+#ifdef _DEBUG
+  msg("7pi1: %a\n", insn.ea);
+#endif
+  trackop(insn.Op2, rBase);
+  trackop(insn.Op3, rJ);
+  return true;
+}
+
+// addi.d rBase, rBase2, offset
+bool loongson_jump_pattern7ops::is_addi()
+{
+  if ( insn.itype != Loong_addi_d || !same_value(insn.Op1, rBase) )
+    return false;
+#ifdef _DEBUG
+  msg("7pi2: %a\n", insn.ea);
+#endif
+  trackop(insn.Op2, rBase2); 
+  add_off = insn.Op3.value;
+  return true;
+}
+
+bool loongson_jump_pattern7ops::is_pcadduXXi()
+{
+  if ( !same_value(insn.Op1, rBase2) )
+    return false;
+  if ( !is_pcadd(insn.itype) )
+    return false;
+  // ok, we finally have address of table
+  si->jumps = add_off + pcadd(insn.itype, insn.ea, insn.Op2.value);
+  si->set_elbase(si->jumps);
+// #ifdef _DEBUG
+  msg("9pi3: %a jumps %a\n", insn.ea, si->jumps);
+// #endif
+  return true;
+}
+
+bool loongson_jump_pattern7ops::is_ldptr()
+{
+  int shift = 0;
+  if ( insn.itype == Loong_ldptr_d )
+    shift = 3;
+  else if ( insn.itype == Loong_ldptr_w )
+    shift = 2;
+  else
+    return false;
+  if ( !same_value(insn.Op1, rJ) )
+    return false;
+// #ifdef _DEBUG
+  msg("7pi4: %a\n", insn.ea);
+// #endif
+  si->set_jtable_element_size(1 << shift);
+  return true;
+}
+
+bool loongson_jump_pattern7ops::is_bxx()
+{
+ if ( insn.itype == Loong_bltu || insn.itype == Loong_blt )
+ {
+// #ifdef _DEBUG
+  msg("7pi5: %a bltu\n", insn.ea, si->jumps);
+// #endif
+   trackop(insn.Op1, rMax); 
+ } else if ( insn.itype == Loong_bge || insn.itype == Loong_bgeu )
+ {
+// #ifdef _DEBUG
+  msg("7pi5: %a bge\n", insn.ea, si->jumps);
+// #endif
+   trackop(insn.Op2, rMax); 
+   is_ge = 1;
+ } else
+   return false;
+  si->defjump = insn.Op3.addr;
+  return true;
+}
+
+bool loongson_jump_pattern7ops::is_rimm()
+{
+ if ( insn.itype != Loong_mov || !same_value(insn.Op1, rMax) )
+   return false;
+ auto jsize = insn.Op2.value;
+ if ( !is_ge )
+   jsize++;
+ si->set_jtable_size(jsize);
+ si->flags |= SWI_SIGNED;
+ si->startea = insn.ea;
+msg("7pi6: %a jumps %a size %d elsize %d\n", insn.ea, si->jumps, si->get_jtable_size(), si->get_jtable_element_size());
+ return true;
+}
+
+bool loongson_jump_pattern7ops::handle_mov(tracked_regs_t &_regs)
+{
+  if ( insn.itype != Loong_mov
+    && insn.Op1.type != o_reg
+    && insn.Op2.type != o_reg )
+  {
+    return false;
+  }
+  return set_moved(insn.Op2, insn.Op1, _regs);
+}
+
+bool loongson_jump_pattern7ops::finish()
+{
+#ifdef _DEBUG
+  msg("finish: %a\n", eas[6]);
+#endif
+  return (eas[6] != BADADDR) && (si->jumps != BADADDR) && (si->defjump != BADADDR) && si->get_jtable_size();
+}
+
+// 9 ops
 bool loongson_jump_pattern9ops::is_ret()
 {
   if ( insn.itype != Loong_jirl )
@@ -356,6 +479,7 @@ int loongson_is_switch(switch_info_t *si, const insn_t &insn)
     is_jump_pattern<loongson_jump_pattern_t2>,
     is_jump_pattern<loongson_jump_pattern_t3>,
     is_jump_pattern<loongson_jump_pattern_t4>,
+    is_jump_pattern<loongson_jump_pattern7ops>,
   };
   return check_for_table_jump(si, insn, patterns, qnumber(patterns));
 }
