@@ -1,4 +1,5 @@
 #include "idaidp.hpp"
+#include "loongson.h"
 
 class out_loongson_t : public outctx_t
 {
@@ -12,7 +13,7 @@ extern int is_retn(const insn_t *insn);
 
 void out_loongson_t::out_insn(void)
 {
-  if ( is_retn(&insn) )
+  if ( is_retn(&insn) && ((loongson_t *)procmod)->use_retn() )
     out_custom_mnem("ret");
   else {
     out_mnemonic();
