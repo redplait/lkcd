@@ -39,16 +39,16 @@ bool loongson_jump_pattern9ops::is_ldx()
   if ( same_value(insn.Op2, rBase) )
   {
     trackop(insn.Op3, rS);
-// #ifdef _DEBUG
+#ifdef _DEBUG
     msg("9pi2: %a rS3 %d\n", insn.ea, insn.Op3.reg);
-// #endif
+#endif
     return true;
   } else if ( same_value(insn.Op3, rBase) )
   {
     trackop(insn.Op2, rS);
-// #ifdef _DEBUG
+#ifdef _DEBUG
     msg("9pi2: %a rS2 %d\n", insn.ea, insn.Op2.reg);
-// #endif
+#endif
     return true;
   } else
     return false;
@@ -59,9 +59,9 @@ bool loongson_jump_pattern9ops::is_alsl0()
 {
   if ( insn.itype != Loong_alsl_d || !same_value(insn.Op1, rS) || insn.Op3.reg )
     return false;
-// #ifdef _DEBUG
+#ifdef _DEBUG
   msg("9pi3: %a\n", insn.ea);
-// #endif
+#endif
   trackop(insn.Op2, rIdx2); 
   si->set_jtable_element_size(1 << insn.Op4.value);
   return true;
@@ -72,9 +72,9 @@ bool loongson_jump_pattern9ops::is_bstrpick()
 {
   if ( (insn.itype != Loong_bstrpick_w && insn.itype != Loong_bstrpick_d) || !same_value(insn.Op1, rIdx2) )
     return false;
-// #ifdef _DEBUG
+#ifdef _DEBUG
   msg("9pi4: %a\n", insn.ea);
-// #endif
+#endif
   trackop(insn.Op2, rIdx); 
   return true;
 }
@@ -84,9 +84,9 @@ bool loongson_jump_pattern9ops::is_addi()
 {
   if ( insn.itype != Loong_addi_d || !same_value(insn.Op1, rBase) )
     return false;
-// #ifdef _DEBUG
+#ifdef _DEBUG
   msg("9pi5: %a\n", insn.ea);
-// #endif
+#endif
   trackop(insn.Op2, rBase2); 
   add_off = insn.Op3.value;
   return true;
@@ -102,9 +102,9 @@ bool loongson_jump_pattern9ops::is_pcadduXXi()
   // ok, we finally have address of table
   si->jumps = add_off + pcadd(insn.itype, insn.ea, insn.Op2.value);
   si->set_elbase(si->jumps);
-// #ifdef _DEBUG
+#ifdef _DEBUG
   msg("9pi6: %a jumps %a\n", insn.ea, si->jumps);
-// #endif
+#endif
   return true;
 }
 

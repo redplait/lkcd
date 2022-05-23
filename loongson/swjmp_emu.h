@@ -13,25 +13,15 @@
 // 0  ret regA
 static const char lsw1_depends[][4] =
 {
-  { 1 },  // 0
-  { 2 },  // 1
-  { 3 },  // 2
-  { 4 },  // 3
-  { 5 },  // 4
-  { 6 },  // 5
-  { 7 },  // 6
+  { 1 },     // 0
+  { 2 },     // 1
+  { 3 },     // 2
+  { 4, 6 },  // 3) rBase from 4, rIdx from 6
+  { 5 },     // 4
+  { 0 },     // 5 - no deps
+  { 7 },     // 6
   { 0 },
 };
-
-// jump pattern #2
-// 7  pcadduXXi rBase2, base
-// 6  addi.d rBase, rBase2, offset
-// 5  mov rMax, imm
-// 4  bltu rMax, rIdx default addr
-// 3  alsl.d rS, rBase, rIdx, size
-// 2  ldptr.d regA, rS, 0
-// 1  add.d regA, rBase, regA
-// 0  ret regA
 
 class loongson_jump_pattern_t : public jump_pattern_t
 {
@@ -54,8 +44,8 @@ protected:
   bool is_bxx();
   bool is_rimm();
 public:
-  loongson_jump_pattern_t(switch_info_t *_si)
-   : jump_pattern_t(_si, lsw1_depends, rMax)
+  loongson_jump_pattern_t(switch_info_t *_si, const char (*depends)[4] = NULL)
+   : jump_pattern_t(_si, depends == NULL ? lsw1_depends : depends, rMax)
   {
     add_off = NULL;
     is_ge = 0;
@@ -81,11 +71,33 @@ class loongson_jump_pattern_t1: public loongson_jump_pattern_t
   virtual bool jpi1(void) override { return is_add(); }
 };
 
+// jump pattern #2
+// 7  pcadduXXi rBase2, base
+// 6  addi.d rBase, rBase2, offset
+// 5  mov rMax, imm
+// 4  bltu rMax, rIdx default addr
+// 3  alsl.d rS, rBase, rIdx, size
+// 2  ldptr.d regA, rS, 0
+// 1  add.d regA, rBase, regA
+// 0  ret regA
+
+static const char lsw2_depends[][4] =
+{
+  { 1 },        // 0
+  { 2, 6 },     // 1) rBase from 6
+  { 3 },        // 2
+  { 4, 6 },     // 3) rIdx from 4, rBase from 6
+  { 5 },        // 4
+  { 0 },        // 5 - no deps
+  { 7 },        // 6
+  { 0 },
+};
+
 class loongson_jump_pattern_t2: public loongson_jump_pattern_t
 {
  public:
    loongson_jump_pattern_t2(switch_info_t *_si)
-     : loongson_jump_pattern_t(_si)
+     : loongson_jump_pattern_t(_si, lsw2_depends)
    {}
   // 1..7
   virtual bool jpi7(void) override { return is_pcadduXXi(); }
@@ -123,16 +135,16 @@ class loongson_jump_pattern_t3: public loongson_jump_pattern_t
 // 2  ldx.d rJ, rBase, rS
 // 1  add.d regA, rBase, rJ
 // 0  ret regA
-static const char lsw2_depends[][4] =
+static const char lsw4_depends[][4] =
 {
-  { 1 },  // 0
-  { 2 },  // 1
-  { 3 },  // 2
-  { 4 },  // 3
-  { 5 },  // 4
-  { 6 },  // 5
-  { 7 },  // 6
-  { 8 },  // 7
+  { 1 },     // 0
+  { 2, 5 },  // 1) rj from 2, rBase from 5
+  { 3, 5 },  // 2) rS from 3, rBase from 5
+  { 4 },     // 3
+  { 7 },     // 4) rIdx from 7
+  { 6 },     // 5
+  { 0 },     // 6 - no deps
+  { 8 },     // 7
   { 0 },
 };
 
@@ -156,7 +168,7 @@ protected:
   bool is_rimm();
 public:
   loongson_jump_pattern9ops(switch_info_t *_si)
-   : jump_pattern_t(_si, lsw2_depends, rMax)
+   : jump_pattern_t(_si, lsw4_depends, rMax)
   {
     add_off = NULL;
     is_ge = 0;
