@@ -1,8 +1,11 @@
 #include "idaidp.hpp"
 #include <idp.hpp>
 #include <ua.hpp>
+#include <elf/elfbase.h>
+#include <elf/elf.h>
 #include "disasm.h"
 #include "loongson.h"
+//#include "loong_relocs.hpp"
 
 extern void emu_insn(const insn_t *);
 extern int is_sp_based(const insn_t *, const op_t *);
@@ -94,10 +97,54 @@ ssize_t idaapi idb_listener_t::on_event(ssize_t code, va_list)
   {
     case idb_event::closebase:
     case idb_event::savebase:
-      pm.helper.altset(-1, pm.idpflags - 1);
+      pm.helper.altset(-1, pm.idpflags);
       break;
   }
   return 0;
+}
+
+const char *loongson_t::set_idp_options(
+        const char *keyword,
+        int value_type,
+        const void *value,
+        bool idb_loaded)
+{
+  if ( keyword == NULL )
+  {
+    static const char form[] =
+      "HELP\n"
+      "LoongArch specific options\n"
+      "\n"
+      " use retn pseudo instruction\n"
+      "\n"
+      "      If this option is on, IDA will ignore retn and show jirl instead\n"
+      "\n"
+      "ENDHELP\n"
+      "LoongArch specific options\n"
+      "%*\n"
+      " <idpflags:D:::>>\n"
+      "\n";
+    sval_t val = idpflags;
+//    int code = ask_form(form, &val);
+    int code = ask_long(&val, "idpflags");
+    idpflags = val & 0xffff;
+msg("idpflags %X val %d code %d\n", (int)idpflags, (int)val, code);
+    return IDPOPT_OK;
+  }
+  else
+  {
+    if ( !strcmp(keyword, "USE_RETN") )
+    {
+      setflag(idpflags, USE_RETN, *(int*)value != 0);
+    }
+    else
+    {
+      return IDPOPT_BADKEY;
+    }
+    if ( idb_loaded )
+      helper.altset(-1, idpflags);
+    return IDPOPT_OK;
+  }
 }
 
 ssize_t idaapi loongson_t::on_event(ssize_t msgid, va_list va)
@@ -110,13 +157,18 @@ ssize_t idaapi loongson_t::on_event(ssize_t msgid, va_list va)
   {
     case processor_t::ev_loader_elf_machine:
      {
+       // from https://www.hex-rays.com/products/ida/support/sdkdoc/structprocessor__t.html
        linput_t *li = va_arg(va, linput_t *);
        int machine_type = va_arg(va, int);
-       const char **proc = va_arg(va, const char **);
+       const char **procname = va_arg(va, const char **);
+       proc_def_t **p_pd = va_arg(va, proc_def_t **);
+       elf_loader_t *loader = va_arg(va, elf_loader_t *);
+       reader_t *reader = va_arg(va, reader_t *);
        msg("elf: %d\n", machine_type);
        if ( machine_type == 258 )
        {
-         *proc = shnames[0];
+         *procname = shnames[0];
+//         *p_pd = new loongson_relocs(*loader, *reader);
          return machine_type;
        }
        break;
@@ -126,6 +178,10 @@ ssize_t idaapi loongson_t::on_event(ssize_t msgid, va_list va)
       hook_event_listener(HT_IDB, &idb_listener, &LPH);
       helper.create("$ loongson");
       inf_set_be(false);
+      break;
+
+    case processor_t::ev_oldfile:
+      idpflags = (ushort)helper.altval(-1) & 1;
       break;
 
     case processor_t::ev_term:
@@ -202,8 +258,25 @@ ssize_t idaapi loongson_t::on_event(ssize_t msgid, va_list va)
         return -1;
     }
 
+    case processor_t::ev_set_idp_options:
+      {
+        const char *keyword = va_arg(va, const char *);
+        int value_type = va_arg(va, int);
+        const char *value = va_arg(va, const char *);
+        const char **errmsg = va_arg(va, const char **);
+        bool idb_loaded = va_argi(va, bool);
+        const char *ret = set_idp_options(keyword, value_type, value, idb_loaded);
+        if ( ret == IDPOPT_OK )
+          return 1;
+        if ( errmsg != NULL )
+          *errmsg = ret;
+        return -1;
+      }
+
     case processor_t::ev_is_ret_insn:
     {
+      if ( !use_retn() )
+        break;
       const insn_t *insn = va_arg(va, insn_t *);
       if ( is_retn(insn) )
       {
@@ -238,7 +311,7 @@ processor_t LPH =
   | PR_ALIGN
   | PR_NO_SEGMOVE,
                          // flag2
-  0,                     // the module has processor-specific configuration options
+  PR2_IDP_OPTS,          // the module has processor-specific configuration options
   8,                     // 8 bits in a byte for code segments
   8,                     // 8 bits in a byte for other segments
   shnames,
