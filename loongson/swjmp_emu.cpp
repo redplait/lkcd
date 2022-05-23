@@ -103,8 +103,11 @@ bool loongson_jump_pattern9ops::is_pcadduXXi()
   si->jumps = add_off + pcadd(insn.itype, insn.ea, insn.Op2.value);
   si->set_elbase(si->jumps);
 #ifdef _DEBUG
-  msg("9pi6: %a jumps %a\n", insn.ea, si->jumps);
+  msg("9pi6: %a jumps %a %a %a %a %a %a %a %a %a %a\n", insn.ea, si->jumps,
+   eas[0], eas[1], eas[2], eas[3], eas[4], eas[5], eas[6], eas[7], eas[8]
+    );
 #endif
+  stop_matching = true;
   return true;
 }
 
@@ -115,11 +118,17 @@ bool loongson_jump_pattern9ops::is_bxx()
  {
    if ( !same_value(insn.Op2, rIdx) )
      return false;
+#ifdef _DEBUG
+  msg("9pi7: %a bltu\n", insn.ea, si->jumps);
+#endif
    trackop(insn.Op1, rMax); 
  } else if ( insn.itype == Loong_bge || insn.itype == Loong_bgeu )
  {
    if ( !same_value(insn.Op1, rIdx) )
      return false;
+#ifdef _DEBUG
+  msg("9pi7: %a bge\n", insn.ea, si->jumps);
+#endif
    trackop(insn.Op2, rMax); 
    is_ge = 1;
  } else
@@ -139,7 +148,7 @@ bool loongson_jump_pattern9ops::is_rimm()
  si->set_jtable_size(jsize);
  si->flags |= SWI_SIGNED;
  si->startea = insn.ea;
-msg("9pi9: %a jumps %a size %d elsize %d\n", insn.ea, si->jumps, si->get_jtable_size(), si->get_jtable_element_size());
+msg("9pi8: %a jumps %a size %d elsize %d\n", insn.ea, si->jumps, si->get_jtable_size(), si->get_jtable_element_size());
  return true;
 }
 
@@ -157,9 +166,9 @@ bool loongson_jump_pattern9ops::handle_mov(tracked_regs_t &_regs)
 bool loongson_jump_pattern9ops::finish()
 {
 #ifdef _DEBUG
-  msg("finish: %a\n", eas[8]);
+  msg("finish9: %a\n", eas[8]);
 #endif
-  return eas[8] != BADADDR;
+  return (eas[8] != BADADDR) && (si->jumps != BADADDR) && (si->defjump != BADADDR) && si->get_jtable_size();
 }
 
 // 0) ret regA
@@ -313,7 +322,7 @@ bool loongson_jump_pattern_t::finish()
 #ifdef _DEBUG
   msg("finish: %a\n", eas[7]);
 #endif
-  return eas[7] != BADADDR;
+  return (eas[7] != BADADDR) && (si->jumps != BADADDR) && (si->defjump != BADADDR) && si->get_jtable_size();
 }
 
 bool loongson_jump_pattern_t::handle_mov(tracked_regs_t &_regs)
@@ -331,7 +340,8 @@ template <typename T>
 static int is_jump_pattern(switch_info_t *si, const insn_t &insn, procmod_t *pm)
 {
   T jp(si);
-  if ( !jp.match(insn) || !jp.finish() )
+  jp.match(insn);
+  if ( !jp.finish() )
     return JT_NONE;
   return JT_SWITCH;
 }
