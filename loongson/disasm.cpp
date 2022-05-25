@@ -190,6 +190,41 @@ bool is_reg_alive(const insn_t *insn, int ridx)
   return true;
 }
 
+// some very clumsy and inefficient way to load 64bit ptr
+// lu12i.w r12, 0       # 20 bit << 12
+// ori r12, r12, 0x44   # 12 bit in low bits
+// lu32i.d r12, 0       # 20 bit << 32
+// lu52i.d r12, r12, 0  # 12 bit in high bits
+// total 20 + 12 + 20 + 12 = 64
+// I assume that this function called when lu52i.d was detected
+bool track_clumsy64(func_item_iterator_t &fii, const insn_t &curr, ea_t &out_val)
+{
+  // lu52i.d - imm3
+  int idxr = curr.Op1.reg;
+  int hi = curr.Op3.value;
+  insn_t prev;
+  // lu32i.d - imm2
+  if ( !fii.decode_prev_insn(&prev) )
+    return false;
+  if ( prev.itype != Loong_lu32i_d || prev.Op1.reg != idxr )
+    return false;
+  ea_t tmp = prev.Op2.value | (hi << 20);
+  // ori - imm3
+  if ( !fii.decode_prev_insn(&prev) )
+    return false;
+  if ( prev.itype != Loong_ori || prev.Op2.reg != idxr )
+    return false;
+  hi = prev.Op3.value & 0xfff;
+  idxr = prev.Op1.reg;
+  // lu12i - imm2
+  if ( !fii.decode_prev_insn(&prev) )
+    return false;
+  if ( prev.itype != Loong_lu12i_w || prev.Op1.reg != idxr )
+    return false;
+  out_val = (hi | (prev.Op2.value << 12)) | (tmp << 32);
+  return true;
+}
+
 bool track_back(const insn_t *insn, ea_t &addr)
 {
   ea_t off = insn->Op3.value;
@@ -208,6 +243,15 @@ bool track_back(const insn_t *insn, ea_t &addr)
     {
       addr = pcadd(prev.itype, prev.ea, prev.Op2.value) + off;
       return true;
+    }
+    if ( prev.itype == Loong_lu52i_d && prev.Op1.reg == idxr )
+    {
+      ea_t tmp = 0;
+      if ( track_clumsy64(fii, prev, tmp) )
+      {
+        addr = tmp + off;
+        return true;
+      }
     }
     if ( !is_reg_alive(&prev, idxr) )
       return false;
@@ -314,6 +358,16 @@ void emu_insn(const insn_t *insn)
       }
       if ( !is_reg_alive(&prev, idxr) )
         break;
+    }
+  }
+  if ( Loong_lu52i_d == insn->itype )
+  {
+    func_item_iterator_t fii(get_func(insn->ea), insn->ea);
+    ea_t off = NULL;
+    if ( track_clumsy64(fii, *insn, off) )
+    {
+      qsnprintf(comm, sizeof(comm), "%a %X", off, off & 0xffffffff);
+      set_cmt(insn->ea, comm, false);
     }
   }
   if ( sl && insn->Op3.type == o_imm )
