@@ -112,7 +112,7 @@ class x64_jit_disasm
       ud_set_input_buffer(&ud_obj, (uint8_t *)body, len);
       ud_set_pc(&ud_obj, (uint64_t)addr);
    }
-   void disasm(sa64 delta)
+   void disasm(sa64 delta, std::map<void *, std::string> &map_names)
    {
      while (ud_disassemble(&ud_obj))
      {
@@ -133,6 +133,17 @@ class x64_jit_disasm
          }
          if ( addr )
            name = name_by_addr((a64)(addr - delta));
+       }
+       else if ( ud_obj.mnemonic == UD_Imov && ud_obj.operand[0].type == UD_OP_REG && ud_obj.operand[1].type == UD_OP_IMM && ud_obj.operand[1].size == 64 )
+       {
+         a64 addr = ud_obj.operand[1].lval.uqword;
+         name = name_by_addr((a64)(addr - delta));
+         if ( name == NULL )
+         {
+           auto miter = map_names.find((void *)addr);
+           if ( miter != map_names.end() )
+             name = miter->second.c_str();
+         }
        }
        if ( name )
          printf("%-32s %s ; %s\n", hex1, ud_insn_asm(&ud_obj), name);

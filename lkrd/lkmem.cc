@@ -876,7 +876,7 @@ void show_bpf_progs(size_t bpf_size, const one_bpf_prog *curr, sa64 delta)
       printf(" %2.2X", curr->tag[i]);
     printf("\n");
     if ( curr->bpf_func )
-      dump_kptr2((unsigned long)curr->bpf_func, "  bpf_func", delta);         
+      dump_kptr2((unsigned long)curr->bpf_func, "  bpf_func", delta);
   }
 }
 
@@ -951,7 +951,7 @@ void dump_registered_trace_event_calls(int fd, sa64 delta)
   }
 }
 
-void dump_bpf_progs(int fd, a64 list, a64 lock, sa64 delta)
+void dump_bpf_progs(int fd, a64 list, a64 lock, sa64 delta, std::map<void *, std::string> &map_names)
 {
   if ( !list )
   {
@@ -964,7 +964,7 @@ void dump_bpf_progs(int fd, a64 list, a64 lock, sa64 delta)
     return;
   }
   dump_data2arg<one_bpf_prog>(fd, list, lock, delta, IOCTL_GET_BPF_PROGS, "prog_idr", "IOCTL_GET_BPF_PROGS", "bpf_progs",
-   [=](size_t idx, const one_bpf_prog *curr) {
+   [=,&map_names](size_t idx, const one_bpf_prog *curr) {
     printf(" [%ld] prog %p id %d len %d jited_len %d\n", idx, curr->prog, curr->aux_id, curr->len, curr->jited_len);
     printf("     tag:");
     for ( int i = 0; i < 8; i++ )
@@ -1000,11 +1000,54 @@ void dump_bpf_progs(int fd, a64 list, a64 lock, sa64 delta)
       if ( g_opt_h )
         HexDump((unsigned char *)l, curr->jited_len);
       x64_jit_disasm dis((a64)curr->bpf_func, (const char *)l, curr->jited_len);
-      dis.disasm(delta);
+      dis.disasm(delta, map_names);
     }
    }
   );
 }
+
+// ripped from https://elixir.bootlin.com/linux/v5.18/source/include/uapi/linux/bpf.h#L880
+static const char *const bpf_map_type_names[] = {
+ "BPF_MAP_TYPE_UNSPEC",
+ "BPF_MAP_TYPE_HASH",
+ "BPF_MAP_TYPE_ARRAY",
+ "BPF_MAP_TYPE_PROG_ARRAY",
+ "BPF_MAP_TYPE_PERF_EVENT_ARRAY",
+ "BPF_MAP_TYPE_PERCPU_HASH",
+ "BPF_MAP_TYPE_PERCPU_ARRAY",
+ "BPF_MAP_TYPE_STACK_TRACE",
+ "BPF_MAP_TYPE_CGROUP_ARRAY",
+ "BPF_MAP_TYPE_LRU_HASH",
+ "BPF_MAP_TYPE_LRU_PERCPU_HASH",
+ "BPF_MAP_TYPE_LPM_TRIE",
+ "BPF_MAP_TYPE_ARRAY_OF_MAPS",
+ "BPF_MAP_TYPE_HASH_OF_MAPS",
+ "BPF_MAP_TYPE_DEVMAP",
+ "BPF_MAP_TYPE_SOCKMAP",
+ "BPF_MAP_TYPE_CPUMAP",
+ "BPF_MAP_TYPE_XSKMAP",
+ "BPF_MAP_TYPE_SOCKHASH",
+ "BPF_MAP_TYPE_CGROUP_STORAGE",
+ "BPF_MAP_TYPE_REUSEPORT_SOCKARRAY",
+ "BPF_MAP_TYPE_PERCPU_CGROUP_STORAGE",
+ "BPF_MAP_TYPE_QUEUE",
+ "BPF_MAP_TYPE_STACK",
+ "BPF_MAP_TYPE_SK_STORAGE",
+ "BPF_MAP_TYPE_DEVMAP_HASH",
+ "BPF_MAP_TYPE_STRUCT_OPS",
+ "BPF_MAP_TYPE_RINGBUF",
+ "BPF_MAP_TYPE_INODE_STORAGE",
+ "BPF_MAP_TYPE_TASK_STORAGE",
+ "BPF_MAP_TYPE_BLOOM_FILTER",
+};
+
+static const char *get_bpf_map_type_name(int idx)
+{
+  if ( idx >= sizeof(bpf_map_type_names) / sizeof(bpf_map_type_names[0]) )
+    return "";
+  return bpf_map_type_names[idx];
+}
+
 
 // ripped from https://elixir.bootlin.com/linux/v5.18/source/include/uapi/linux/bpf.h#L1006
 static const char *const bpf_link_type_names[] = {
@@ -1097,6 +1140,30 @@ void dump_jit_options(int fd, sa64 delta)
   addr = get_addr("bpf_jit_limit");
   if ( addr )
     dump_jit_option<long>(fd, addr, delta, "bpf_jit_limit: %ld\n");
+}
+
+void dump_bpf_maps(int fd, a64 list, a64 lock, sa64 delta, std::map<void *, std::string> &map_names)
+{
+  if ( !list )
+  {
+    printf("cannot find map_idr\n");
+    return;
+  }
+  if ( !lock )
+  {
+    printf("cannot find map_idr_lock\n");
+    return;
+  }
+  dump_data2arg<one_bpf_map>(fd, list, lock, delta, IOCTL_GET_BPF_MAPS, "bpf_maps", "IOCTL_GET_BPF_MAPS", "bpf_maps",
+   [=,&map_names](size_t idx, const one_bpf_map *curr) {
+      printf(" [%ld] id %d %s at %p\n", idx, curr->id, curr->name, curr->addr);
+      map_names[curr->addr] = curr->name;
+      printf("  type: %d %s\n", curr->map_type, get_bpf_map_type_name(curr->map_type));
+      printf("  key_size %d value_size %d\n", curr->key_size, curr->value_size);
+      if ( curr->btf )
+        dump_kptr((unsigned long)curr->btf, "  btf", delta);
+   }
+  );
 }
 
 void dump_bpf_targets(int fd, a64 list, a64 lock, sa64 delta)
@@ -3104,9 +3171,16 @@ end:
                dump_jit_options(fd, delta);
                auto tgm = get_addr("targets_mutex");
                dump_bpf_targets(fd, bpf_target, tgm, delta);
-               auto entry = get_addr("prog_idr");
+               // bpf maps
+               std::map<void *, std::string> names;
+               auto entry = get_addr("map_idr");
+               tgm = get_addr("map_idr_lock");
+               dump_bpf_maps(fd, entry, tgm, delta, names);
+               // bpf progs
+               entry = get_addr("prog_idr");
                tgm = get_addr("prog_idr_lock");
-               dump_bpf_progs(fd, entry, tgm, delta);
+               dump_bpf_progs(fd, entry, tgm, delta, names);
+               // bpf links
                entry = get_addr("link_idr");
                tgm = get_addr("link_idr_lock");
                dump_bpf_links(fd, entry, tgm, delta);
