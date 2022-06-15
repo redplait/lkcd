@@ -2743,22 +2743,24 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
       if ( !ptrbuf[2] )
       {
         struct idr *bmaps = (struct idr *)ptrbuf[0];
-        raw_spinlock_t *lock = (raw_spinlock_t *)ptrbuf[1];
+        spinlock_t *lock = (spinlock_t *)ptrbuf[1];
         unsigned int id;
         struct bpf_map *map;
         ptrbuf[0] = 0;
+        idr_preload(GFP_KERNEL);
         // lock
-        _raw_spin_lock_bh(lock);
+        spin_lock_bh(lock);
         // iterate
         idr_for_each_entry(bmaps, map, id)
           ptrbuf[0]++;
         // unlock
-        _raw_spin_unlock_bh(lock);
-        if (copy_to_user((void*)ioctl_param, (void*)ioctl_param, sizeof(ptrbuf[0])) > 0)
+        spin_unlock_bh(lock);
+        idr_preload_end();
+        if (copy_to_user((void*)ioctl_param, (void*)ptrbuf, sizeof(ptrbuf[0])) > 0)
           return -EFAULT;
       } else {
         struct idr *bmaps = (struct idr *)ptrbuf[0];
-        raw_spinlock_t *lock = (raw_spinlock_t *)ptrbuf[1];
+        spinlock_t *lock = (spinlock_t *)ptrbuf[1];
         unsigned int id;
         struct bpf_map *map;
         unsigned long cnt = 0;
@@ -2768,8 +2770,9 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
         if ( !buf )
            return -ENOMEM;
         curr = (struct one_bpf_map *)(buf + 1);
+        idr_preload(GFP_KERNEL);
         // lock
-        _raw_spin_lock_bh(lock);
+        spin_lock_bh(lock);
         // iterate
         idr_for_each_entry(bmaps, map, id)
         {
@@ -2788,7 +2791,8 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
           cnt++;
         }
         // unlock
-        _raw_spin_unlock_bh(lock);
+        spin_unlock_bh(lock);
+        idr_preload_end();
         // copy to user
         buf[0] = cnt;
         if (copy_to_user((void*)ioctl_param, (void*)buf, kbuf_size) > 0)
