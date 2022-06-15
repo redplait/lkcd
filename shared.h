@@ -821,4 +821,25 @@ struct one_group_root
 //  5 - bpf address
 #define IOCTL_DEL_CGROUP_BPF           _IOR(IOCTL_NUM, 0x3A, int*)
 
+struct one_bpf_map
+{
+  void *addr;
+  void *inner_map_meta;
+  void *btf;
+  int map_type; // bpf_map_type
+  unsigned int key_size;
+  unsigned int value_size;
+  unsigned int id;
+  char name[16]; // BPF_OBJ_NAME_LEN
+};
+
+// read BPF maps
+// in params:
+//  0 - address of map_idr
+//  1 - address of map_idr_lock
+//  2 - cnt
+// out params
+//  unsigned long + N * one_bpf_map
+#define IOCTL_GET_BPF_MAPS             _IOR(IOCTL_NUM, 0x3B, int*)
+
 #endif /* LKCD_SHARED_H */
