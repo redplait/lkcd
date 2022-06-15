@@ -2739,68 +2739,66 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
     case IOCTL_GET_BPF_MAPS:
       if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 3) > 0 )
         return -EFAULT;
-      // check cnt
-      if ( !ptrbuf[2] )
-      {
+      else {
         struct idr *bmaps = (struct idr *)ptrbuf[0];
         spinlock_t *lock = (spinlock_t *)ptrbuf[1];
         unsigned int id;
         struct bpf_map *map;
-        ptrbuf[0] = 0;
-        idr_preload(GFP_KERNEL);
-        // lock
-        spin_lock_bh(lock);
-        // iterate
-        idr_for_each_entry(bmaps, map, id)
-          ptrbuf[0]++;
-        // unlock
-        spin_unlock_bh(lock);
-        idr_preload_end();
-        if (copy_to_user((void*)ioctl_param, (void*)ptrbuf, sizeof(ptrbuf[0])) > 0)
-          return -EFAULT;
-      } else {
-        struct idr *bmaps = (struct idr *)ptrbuf[0];
-        spinlock_t *lock = (spinlock_t *)ptrbuf[1];
-        unsigned int id;
-        struct bpf_map *map;
-        unsigned long cnt = 0;
-        size_t kbuf_size = sizeof(unsigned long) + ptrbuf[2] * sizeof(struct one_bpf_map);
-        struct one_bpf_map *curr;
-        unsigned long *buf = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL  | __GFP_ZERO);
-        if ( !buf )
-           return -ENOMEM;
-        curr = (struct one_bpf_map *)(buf + 1);
-        idr_preload(GFP_KERNEL);
-        // lock
-        spin_lock_bh(lock);
-        // iterate
-        idr_for_each_entry(bmaps, map, id)
+        // check cnt
+        if ( !ptrbuf[2] )
         {
-          if ( cnt < ptrbuf[2] )
+          ptrbuf[0] = 0;
+          idr_preload(GFP_KERNEL);
+          // lock
+          spin_lock_bh(lock);
+          // iterate
+          idr_for_each_entry(bmaps, map, id)
+            ptrbuf[0]++;
+          // unlock
+          spin_unlock_bh(lock);
+          idr_preload_end();
+          if (copy_to_user((void*)ioctl_param, (void*)ptrbuf, sizeof(ptrbuf[0])) > 0)
+            return -EFAULT;
+        } else {
+          unsigned long cnt = 0;
+          size_t kbuf_size = sizeof(unsigned long) + ptrbuf[2] * sizeof(struct one_bpf_map);
+          struct one_bpf_map *curr;
+          unsigned long *buf = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL  | __GFP_ZERO);
+          if ( !buf )
+             return -ENOMEM;
+          curr = (struct one_bpf_map *)(buf + 1);
+          idr_preload(GFP_KERNEL);
+          // lock
+          spin_lock_bh(lock);
+          // iterate
+          idr_for_each_entry(bmaps, map, id)
           {
-            curr->addr = map;
-            curr->inner_map_meta = map->inner_map_meta;
-            curr->btf = map->btf;
-            curr->map_type = map->map_type;
-            curr->key_size = map->key_size;
-            curr->value_size = map->value_size;
-            curr->id = map->id;
-            strlcpy(curr->name, map->name, 16);
-            curr++;
+            if ( cnt < ptrbuf[2] )
+            {
+              curr->addr = map;
+              curr->inner_map_meta = map->inner_map_meta;
+              curr->btf = map->btf;
+              curr->map_type = map->map_type;
+              curr->key_size = map->key_size;
+              curr->value_size = map->value_size;
+              curr->id = map->id;
+              strlcpy(curr->name, map->name, 16);
+              curr++;
+            }
+            cnt++;
           }
-          cnt++;
+          // unlock
+          spin_unlock_bh(lock);
+          idr_preload_end();
+          // copy to user
+          buf[0] = cnt;
+          if (copy_to_user((void*)ioctl_param, (void*)buf, kbuf_size) > 0)
+          {
+             kfree(buf);
+             return -EFAULT;
+          }
+          kfree(buf);
         }
-        // unlock
-        spin_unlock_bh(lock);
-        idr_preload_end();
-        // copy to user
-        buf[0] = cnt;
-        if (copy_to_user((void*)ioctl_param, (void*)buf, kbuf_size) > 0)
-        {
-           kfree(buf);
-           return -EFAULT;
-        }
-        kfree(buf);          
       }
       break; /* IOCTL_GET_BPF_MAPS */
 
