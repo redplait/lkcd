@@ -812,7 +812,7 @@ static const char *get_bpf_prog_type_name(int idx)
   return bpf_prog_type_names[idx];
 }
 
-// ripped from https://elixir.bootlin.com/linux/v5.11/source/include/uapi/linux/bpf.h#L205
+// ripped from https://elixir.bootlin.com/linux/v5.18/source/include/uapi/linux/bpf.h#L957
 static const char *const bpf_attach_type_names[] = {
  "BPF_CGROUP_INET_INGRESS",
  "BPF_CGROUP_INET_EGRESS",
@@ -852,6 +852,11 @@ static const char *const bpf_attach_type_names[] = {
  "BPF_XDP_CPUMAP",
  "BPF_SK_LOOKUP",
  "BPF_XDP",
+ "BPF_SK_SKB_VERDICT",
+ "BPF_SK_REUSEPORT_SELECT",
+ "BPF_SK_REUSEPORT_SELECT_OR_MIGRATE",
+ "BPF_PERF_EVENT",
+ "BPF_TRACE_KPROBE_MULTI",
 };
 
 static const char *get_bpf_attach_type_name(int idx)
@@ -908,9 +913,17 @@ void dump_registered_trace_event_calls(int fd, sa64 delta)
   for ( size_t idx = 0; idx < size; idx++, curr++ )
   {
     if ( curr->bpf_prog )
-      printf(" [%ld] flags %X filter %p bpf_cnt %d at", idx, curr->flags, curr->filter, curr->bpf_cnt);
-    else
-      printf(" [%ld] flags %X filter %p at", idx, curr->flags, curr->filter);
+    {
+      if ( curr->perf_cnt )
+        printf(" [%ld] flags %X filter %p perf_cnt %ld bpf_cnt %d at", idx, curr->flags, curr->filter, curr->perf_cnt, curr->bpf_cnt);
+      else
+        printf(" [%ld] flags %X filter %p bpf_cnt %d at", idx, curr->flags, curr->filter, curr->bpf_cnt);
+    } else {
+      if ( curr->perf_cnt )
+        printf(" [%ld] flags %X filter %p perf_cnt %ld at", idx, curr->flags, curr->filter, curr->perf_cnt);
+      else
+        printf(" [%ld] flags %X filter %p at", idx, curr->flags, curr->filter);
+    }
     dump_unnamed_kptr((unsigned long)curr->addr, delta);
     if ( curr->evt_class )
       dump_kptr((unsigned long)curr->evt_class, "  evt_class", delta);
@@ -993,7 +1006,7 @@ void dump_bpf_progs(int fd, a64 list, a64 lock, sa64 delta)
   );
 }
 
-// ripped from https://elixir.bootlin.com/linux/v5.11/source/include/uapi/linux/bpf.h#L249
+// ripped from https://elixir.bootlin.com/linux/v5.18/source/include/uapi/linux/bpf.h#L1006
 static const char *const bpf_link_type_names[] = {
  "BPF_LINK_TYPE_UNSPEC",
  "BPF_LINK_TYPE_RAW_TRACEPOINT",
@@ -1002,6 +1015,8 @@ static const char *const bpf_link_type_names[] = {
  "BPF_LINK_TYPE_ITER",
  "BPF_LINK_TYPE_NETNS",
  "BPF_LINK_TYPE_XDP",
+ "BPF_LINK_TYPE_PERF_EVENT",
+ "BPF_LINK_TYPE_KPROBE_MULTI",
 };
 
 static const char *get_bpf_link_type_name(int idx)
