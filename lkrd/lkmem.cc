@@ -1157,6 +1157,8 @@ void dump_bpf_maps(int fd, a64 list, a64 lock, sa64 delta, std::map<void *, std:
   dump_data2arg<one_bpf_map>(fd, list, lock, delta, IOCTL_GET_BPF_MAPS, "bpf_maps", "IOCTL_GET_BPF_MAPS", "bpf_maps",
    [=,&map_names](size_t idx, const one_bpf_map *curr) {
       printf(" [%ld] id %d %s at %p\n", idx, curr->id, curr->name, curr->addr);
+      if ( curr->ops )
+        dump_kptr((unsigned long)curr->ops, "  ops", delta);
       map_names[curr->addr] = curr->name;
       printf("  type: %d %s\n", curr->map_type, get_bpf_map_type_name(curr->map_type));
       printf("  key_size %d value_size %d\n", curr->key_size, curr->value_size);
