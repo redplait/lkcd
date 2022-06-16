@@ -824,6 +824,7 @@ struct one_group_root
 struct one_bpf_map
 {
   void *addr;
+  const void *ops;
   void *inner_map_meta;
   void *btf;
   int map_type; // bpf_map_type

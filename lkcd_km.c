@@ -2776,6 +2776,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
             if ( cnt < ptrbuf[2] )
             {
               curr->addr = map;
+              curr->ops = map->ops;
               curr->inner_map_meta = map->inner_map_meta;
               curr->btf = map->btf;
               curr->map_type = map->map_type;
