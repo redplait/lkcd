@@ -665,9 +665,12 @@ struct one_bpf_prog
   unsigned int len;
   unsigned int jited_len;
   unsigned char tag[8];
-  unsigned int aux_id;
-  void *aux;  
   void *bpf_func;
+  // all field below from bpf_prog_aux 
+  void *aux;
+  unsigned int aux_id;
+  unsigned int used_map_cnt;
+  unsigned int used_btf_cnt;
 };
 
 struct one_bpf_links

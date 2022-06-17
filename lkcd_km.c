@@ -860,9 +860,14 @@ void fill_bpf_prog(struct one_bpf_prog *curr, struct bpf_prog *prog)
   curr->bpf_func = (void *)prog->bpf_func;
   curr->aux = (void *)prog->aux;
   if ( prog->aux )
+  {
     curr->aux_id = prog->aux->id;
-  else
+    curr->used_map_cnt = prog->aux->used_map_cnt;
+    curr->used_btf_cnt = prog->aux->used_btf_cnt;
+  } else {
     curr->aux_id = 0;
+    curr->used_map_cnt = curr->used_btf_cnt = 0;
+  }
 }
 
 static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long ioctl_param)
