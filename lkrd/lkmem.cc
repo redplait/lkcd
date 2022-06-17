@@ -1140,6 +1140,9 @@ void dump_jit_options(int fd, sa64 delta)
   addr = get_addr("bpf_jit_limit");
   if ( addr )
     dump_jit_option<long>(fd, addr, delta, "bpf_jit_limit: %ld\n");
+  addr = get_addr("bpf_jit_limit_max");
+  if ( addr )
+    dump_jit_option<long>(fd, addr, delta, "bpf_jit_limit_max: %ld\n");
 }
 
 void dump_bpf_maps(int fd, a64 list, a64 lock, sa64 delta, std::map<void *, std::string> &map_names)
