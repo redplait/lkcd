@@ -864,9 +864,10 @@ void fill_bpf_prog(struct one_bpf_prog *curr, struct bpf_prog *prog)
     curr->aux_id = prog->aux->id;
     curr->used_map_cnt = prog->aux->used_map_cnt;
     curr->used_btf_cnt = prog->aux->used_btf_cnt;
+    curr->func_cnt = prog->aux->func_cnt;
   } else {
     curr->aux_id = 0;
-    curr->used_map_cnt = curr->used_btf_cnt = 0;
+    curr->used_map_cnt = curr->used_btf_cnt = curr->func_cnt = 0;
   }
 }
 
@@ -3139,6 +3140,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
        }
      break; /* IOCTL_GET_NL_SK */
 
+    case IOCTL_GET_BPF_OPCODES:
     case IOCTL_GET_BPF_PROG_BODY:
        if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 4) > 0 )
          return -EFAULT;
@@ -3156,7 +3158,13 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
          idr_for_each_entry(links, prog, id)
          {
            if ( prog == target )
-             body = (char *)prog->bpf_func;
+           {
+             if ( IOCTL_GET_BPF_PROG_BODY == ioctl_num )
+               body = (char *)prog->bpf_func;
+             else
+               body = (char *)&prog->insnsi;
+             break;
+           }
          }
          spin_unlock_bh(lock);
          if ( !body )
