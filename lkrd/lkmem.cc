@@ -28,6 +28,7 @@
 
 int g_opt_v = 0;
 int g_opt_h = 0;
+int g_dump_bpf_ops = 0;
 int g_event_foff = 0;
 
 using namespace ELFIO;
@@ -50,6 +51,7 @@ void usage(const char *prog)
   printf("-f - dump ftraces\n");  
   printf("-g - dump cgroups\n");
   printf("-h - hexdump\n");
+  printf("-H - dump BPF opcodes\n");
   printf("-k - dump kprobes\n");
   printf("-n - dump nets\n");
   printf("-r - check .rodata section\n");
@@ -870,7 +872,8 @@ void show_bpf_progs(size_t bpf_size, const one_bpf_prog *curr, sa64 delta)
 {
   for ( size_t j = 0; j < bpf_size; j++, curr++ )
   {
-    printf("  [%ld] prog %p id %d type %d len %d jited_len %d\n", j, curr->prog, curr->aux_id, curr->prog_type, curr->len, curr->jited_len);
+    printf("  [%ld] prog %p id %d type %d len %d jited_len %d aux %p used_maps %d used_btf %d\n", j, curr->prog, curr->aux_id, curr->prog_type, curr->len, curr->jited_len, 
+      curr->aux, curr->used_map_cnt, curr->used_btf_cnt);
     printf("        tag:");
     for ( int i = 0; i < 8; i++ )
       printf(" %2.2X", curr->tag[i]);
@@ -965,7 +968,9 @@ void dump_bpf_progs(int fd, a64 list, a64 lock, sa64 delta, std::map<void *, std
   }
   dump_data2arg<one_bpf_prog>(fd, list, lock, delta, IOCTL_GET_BPF_PROGS, "prog_idr", "IOCTL_GET_BPF_PROGS", "bpf_progs",
    [=,&map_names](size_t idx, const one_bpf_prog *curr) {
-    printf(" [%ld] prog %p id %d len %d jited_len %d\n", idx, curr->prog, curr->aux_id, curr->len, curr->jited_len);
+    printf(" [%ld] prog %p id %d len %d jited_len %d aux %p used_maps %d used_btf %d\n", idx, curr->prog, curr->aux_id, curr->len, curr->jited_len,
+      curr->aux, curr->used_map_cnt, curr->used_btf_cnt
+    );
     printf("     tag:");
     for ( int i = 0; i < 8; i++ )
       printf(" %2.2X", curr->tag[i]);
@@ -983,7 +988,7 @@ void dump_bpf_progs(int fd, a64 list, a64 lock, sa64 delta, std::map<void *, std
       unsigned long *l = (unsigned long *)malloc(body_len);
       if ( !l )
       {
-        printf("cannot alloc memory for bpf body\n");
+        printf("cannot alloc memory for bpf jit code\n");
         return;
       }
       dumb_free<unsigned long> tmp(l);
@@ -1001,6 +1006,32 @@ void dump_bpf_progs(int fd, a64 list, a64 lock, sa64 delta, std::map<void *, std
         HexDump((unsigned char *)l, curr->jited_len);
       x64_jit_disasm dis((a64)curr->bpf_func, (const char *)l, curr->jited_len);
       dis.disasm(delta, map_names);
+    }
+    if ( g_dump_bpf_ops && curr->len )
+    {
+      // dump opcodes, each have size 64bit
+      const size_t args_len = sizeof(unsigned long) * 4;
+      size_t body_len = curr->len * 8;
+      if ( body_len < args_len )
+        body_len = args_len;
+      unsigned long *l = (unsigned long *)malloc(body_len);
+      if ( !l )
+      {
+        printf("cannot alloc memory for bpf body\n");
+        return;
+      }
+      dumb_free<unsigned long> tmp(l);
+      l[0] = list + delta;
+      l[1] = lock + delta;
+      l[2] = (unsigned long)curr->prog;
+      l[3] = curr->len * 8;
+      int err = ioctl(fd, IOCTL_GET_BPF_OPCODES, (int *)l);
+      if ( err )
+      {
+        printf("IOCTL_GET_BPF_OPCODES failed, error %d (%s)\n", errno, strerror(errno));
+        return;
+      }
+      HexDump((unsigned char *)l, curr->len * 8);
     }
    }
   );
@@ -2654,7 +2685,7 @@ int main(int argc, char **argv)
    int fd = 0;
    while (1)
    {
-     c = getopt(argc, argv, "BbcdFfghknrSstuv");
+     c = getopt(argc, argv, "BbcdFfghHknrSstuv");
      if (c == -1)
 	break;
 
@@ -2677,6 +2708,9 @@ int main(int argc, char **argv)
          break;
         case 'h':
  	  g_opt_h = 1;
+         break;
+        case 'H':
+          g_dump_bpf_ops = 1;
          break;
         case 'v':
           g_opt_v = 1;
