@@ -977,6 +977,42 @@ void dump_bpf_progs(int fd, a64 list, a64 lock, sa64 delta, std::map<void *, std
     printf("\n");
     printf("  type: %d %s\n", curr->prog_type, get_bpf_prog_type_name(curr->prog_type));
     printf("  expected_attach_type: %d %s\n", curr->expected_attach_type, get_bpf_attach_type_name(curr->expected_attach_type));
+    if ( curr->used_map_cnt )
+    {
+      // dump body
+      const size_t args_len = sizeof(unsigned long) * 4;
+      size_t body_len = curr->used_map_cnt * sizeof(void *);
+      if ( body_len < args_len )
+        body_len = args_len;
+      unsigned long *l = (unsigned long *)malloc(body_len);
+      if ( !l )
+      {
+        printf("cannot alloc memory for bpf used maps\n");
+        return;
+      }
+      dumb_free<unsigned long> tmp(l);
+      l[0] = list + delta;
+      l[1] = lock + delta;
+      l[2] = (unsigned long)curr->prog;
+      l[3] = body_len;
+      int err = ioctl(fd, IOCTL_GET_BPF_USED_MAPS, (int *)l);
+      if ( err )
+      {
+        printf("IOCTL_GET_BPF_USED_MAPS failed, error %d (%s)\n", errno, strerror(errno));
+        return;
+      }
+      // dump used maps
+      printf("  used maps:\n");
+      for ( int i = 0; i < curr->used_map_cnt; i++ )
+      {
+        void *map_addr = (void *)l[i];
+        auto mi = map_names.find(map_addr);
+        if ( mi == map_names.end() )
+          printf("   [%d] %p\n", i, map_addr);
+        else
+          printf("   [%d] %p - %s\n", i, map_addr, mi->second.c_str());
+      }      
+    }
     if ( curr->bpf_func && curr->jited_len )
     {
       dump_kptr2((unsigned long)curr->bpf_func, "  bpf_func", delta);
@@ -1033,6 +1069,7 @@ void dump_bpf_progs(int fd, a64 list, a64 lock, sa64 delta, std::map<void *, std
       }
       HexDump((unsigned char *)l, curr->len * 8);
     }
+    printf("\n");
    }
   );
 }
