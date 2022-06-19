@@ -3140,6 +3140,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
        }
      break; /* IOCTL_GET_NL_SK */
 
+    case IOCTL_GET_BPF_USED_MAPS:
     case IOCTL_GET_BPF_OPCODES:
     case IOCTL_GET_BPF_PROG_BODY:
        if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 4) > 0 )
@@ -3161,6 +3162,8 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
            {
              if ( IOCTL_GET_BPF_PROG_BODY == ioctl_num )
                body = (char *)prog->bpf_func;
+             else if ( IOCTL_GET_BPF_USED_MAPS == ioctl_num && prog->aux )
+               body = (char *)prog->aux->used_maps;
              else
                body = (char *)&prog->insnsi;
              break;
