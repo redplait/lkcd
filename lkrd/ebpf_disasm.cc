@@ -58,7 +58,7 @@ static void jmp(FILE *fp, const char *name, const struct bpf_insn *op)
 
 static void call(FILE *fp, const char *name, const struct bpf_insn *op)
 {
-  fprintf(fp, "%s %d\n", name, op->imm);
+  fprintf(fp, "%s 0x%X\n", name, op->imm);
 }
 
 static void jmp_reg_imm(FILE *fp, const char *name, const struct bpf_insn *op)
@@ -101,6 +101,19 @@ void init_ops()
   s_ops[0xbf] = { "mov", reg2 };
   s_ops[0xc7] = { "arsh", reg_imm };
   s_ops[0xcf] = { "arsh", reg2 };
+  // alu32
+  s_ops[0x04] = { "add", reg_imm };
+  s_ops[0x14] = { "sub", reg_imm };
+  s_ops[0x24] = { "mul", reg_imm };
+  s_ops[0x34] = { "div", reg_imm };
+  s_ops[0x44] = { "or", reg_imm };
+  s_ops[0x54] = { "and", reg_imm };
+  s_ops[0x64] = { "lsh", reg_imm };
+  s_ops[0x74] = { "rsh", reg_imm };
+  s_ops[0x84] = { "neg", reg1 };
+  s_ops[0x94] = { "mod", reg_imm };
+  s_ops[0xa4] = { "xor", reg_imm };
+  s_ops[0xb4] = { "mov", reg_imm };
   // byteswap
   s_ops[0xd4] = { "le", reg_imm };
   s_ops[0xdc] = { "be", reg_imm };
@@ -150,6 +163,7 @@ void init_ops()
   s_ops[0xa5] = { "jlt", jmp_reg_imm };
   s_ops[0xad] = { "jlt", jmp_reg_reg };
   s_ops[0xc5] = { "jslt", jmp_reg_imm };
+  s_ops[0xd5] = { "jsle", jmp_reg_imm };
   // call
   s_ops[0x85] = { "call", call };
   // retn
@@ -167,8 +181,19 @@ void ebpf_disasm(unsigned char *buf, long len, FILE *out_fp)
      if ( li == s_ops.end() )
        fprintf(out_fp, "%ld %2.2X %2.2X %2.2X %2.2X %2.2X %2.2X %2.2X %2.2X invalid opcode %X\n", i, buf[0], buf[1], buf[2], buf[3], buf[4], buf[5], buf[6], buf[7], op->code);
      else {
-       fprintf(out_fp, "%ld %2.2X %2.2X %2.2X %2.2X %2.2X %2.2X %2.2X %2.2X ", i, buf[0], buf[1], buf[2], buf[3], buf[4], buf[5], buf[6], buf[7]);
-       li->second.dump(out_fp, li->second.name, op);
+       if ( op->code == 0x18 )
+       {
+         fprintf(out_fp, "%ld %2.2X %2.2X %2.2X %2.2X %2.2X %2.2X %2.2X %2.2X %2.2X %2.2X %2.2X %2.2X %2.2X %2.2X %2.2X %2.2X ", i, buf[0], buf[1], buf[2], buf[3], buf[4], buf[5], buf[6], buf[7],
+           buf[8], buf[9], buf[10], buf[11], buf[12], buf[13], buf[14], buf[15]
+         );
+         li->second.dump(out_fp, li->second.name, op);
+         ++i;
+         buf += sizeof(bpf_insn);
+       } else
+       {
+         fprintf(out_fp, "%ld %2.2X %2.2X %2.2X %2.2X %2.2X %2.2X %2.2X %2.2X ", i, buf[0], buf[1], buf[2], buf[3], buf[4], buf[5], buf[6], buf[7]);
+         li->second.dump(out_fp, li->second.name, op);
+       }
      }
   }
 }
