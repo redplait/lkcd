@@ -8,6 +8,14 @@ struct bpf_op
   void (*dump)(FILE *, const char *, const struct bpf_insn *);
 };
 
+static void reg_imm64(FILE *fp, const char *name, const struct bpf_insn *op)
+{
+  unsigned int vlow = (unsigned int)op->imm;
+  unsigned long vhigh = (unsigned long)op[1].imm << 32;
+  unsigned long val = vlow | vhigh;
+  fprintf(fp, "%s r%d, %lX\n", name, op->dst_reg, val);
+}
+
 static void reg_imm(FILE *fp, const char *name, const struct bpf_insn *op)
 {
   fprintf(fp, "%s r%d, %d\n", name, op->dst_reg, op->imm);
@@ -118,7 +126,7 @@ void init_ops()
   s_ops[0xd4] = { "le", reg_imm };
   s_ops[0xdc] = { "be", reg_imm };
   // mem
-  s_ops[0x18] = { "lddw", reg_imm };
+  s_ops[0x18] = { "lddw", reg_imm64 };
   s_ops[0x20] = { "ldaw", phrase_imm },
   s_ops[0x28] = { "ldah", phrase_imm },
   s_ops[0x30] = { "ldab", phrase_imm },
@@ -163,7 +171,9 @@ void init_ops()
   s_ops[0xa5] = { "jlt", jmp_reg_imm };
   s_ops[0xad] = { "jlt", jmp_reg_reg };
   s_ops[0xc5] = { "jslt", jmp_reg_imm };
+  s_ops[0xcd] = { "jslt", jmp_reg_reg };
   s_ops[0xd5] = { "jsle", jmp_reg_imm };
+  s_ops[0xdd] = { "jsle", jmp_reg_reg };
   // call
   s_ops[0x85] = { "call", call };
   // retn
