@@ -11,6 +11,8 @@
 #include <stdio.h>
 #include <assert.h>
 
+#define PTR_ALIGN(p, a)		((typeof(p))ALIGN((unsigned long)(p), (a)))
+
 #define ENOTSUPP	524	/* Operation is not supported */
 
 #define BUG_ON(__BUG_ON_cond) assert(!(__BUG_ON_cond))

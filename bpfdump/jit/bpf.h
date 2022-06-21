@@ -581,3 +581,6 @@ bpf_jit_binary_alloc(unsigned int proglen, u8 **image_ptr,
 void bpf_jit_binary_free(struct bpf_binary_header *hdr);
 void bpf_jit_binary_lock_ro(struct bpf_binary_header *hdr);
 void bpf_jit_prog_release_other(struct bpf_prog *fp, struct bpf_prog *fp_other);
+
+// for x86
+void text_poke_bp(void *addr, const void *opcode, size_t len, const void *emulate);
