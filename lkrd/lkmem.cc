@@ -25,6 +25,7 @@
 #include "kmods.h"
 #include "lk.h"
 #include "minfo.h"
+#include "ujit.h"
 #endif
 
 int g_opt_v = 0;
@@ -52,6 +53,7 @@ void usage(const char *prog)
   printf("-f - dump ftraces\n");  
   printf("-g - dump cgroups\n");
   printf("-h - hexdump\n");
+  printf("-j jit.so\n");
   printf("-H - dump BPF opcodes\n");
   printf("-k - dump kprobes\n");
   printf("-n - dump nets\n");
@@ -1071,6 +1073,7 @@ void dump_bpf_progs(int fd, a64 list, a64 lock, sa64 delta, std::map<void *, std
       if ( g_dump_bpf_ops )
         HexDump((unsigned char *)l, curr->len * 8);
       ebpf_disasm((unsigned char *)l, curr->len, stdout);
+      ujit(idx, (unsigned char *)l, curr->len);
     }
     printf("\n");
    }
@@ -2725,12 +2728,18 @@ int main(int argc, char **argv)
    int fd = 0;
    while (1)
    {
-     c = getopt(argc, argv, "BbcdFfghHknrSstuv");
+     c = getopt(argc, argv, "BbcdFfghHknrSstuvj:");
      if (c == -1)
 	break;
 
      switch (c)
      {
+#ifndef _MSC_VER
+        case 'j':
+          if ( !ujit_open(optarg) )
+           fprintf(stderr, "cannot dlopen %s, err %d\n", optarg, errno);
+         break;
+#endif /* _MSC_VER */
         case 'B':
           opt_B = 1;
          break;

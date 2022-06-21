@@ -5,6 +5,9 @@
 #include "libudis86/extern.h"
 #include "libudis86/itab.h"
 
+#undef HAS_ELFIO
+#include "ksyms.h"
+
 template <typename V>
 class used_regs
 {
