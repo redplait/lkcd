@@ -1,4 +1,6 @@
 #include <map>
+#include <elfio/elfio_dump.hpp>
+#include "ksyms.h"
 #include "ebpf_disasm.h"
 
 // most of code ripped from https://github.com/cylance/eBPF_processor
@@ -64,9 +66,19 @@ static void jmp(FILE *fp, const char *name, const struct bpf_insn *op)
   fprintf(fp, "%s %d\n", name, op->off);
 }
 
-static void call(FILE *fp, const char *name, const struct bpf_insn *op)
+static void call(FILE *fp, const char *op_name, const struct bpf_insn *op)
 {
-  fprintf(fp, "%s 0x%X\n", name, op->imm);
+  a64 base = get_addr("__bpf_call_base");
+  if ( base )
+  {
+    a64 addr = base + (int)op->imm;
+    const char *name = name_by_addr(addr);
+    if ( name != NULL )
+      fprintf(fp, "%s 0x%X ; %s\n", op_name, op->imm, name);
+    else
+      fprintf(fp, "%s 0x%X ; %lX\n", op_name, op->imm, addr);
+  } else
+    fprintf(fp, "%s 0x%X\n", op_name, op->imm);
 }
 
 static void jmp_reg_imm(FILE *fp, const char *name, const struct bpf_insn *op)
