@@ -1331,7 +1331,7 @@ emit_jmp:
 	}
 
 	if (image && excnt != bpf_prog->aux->num_exentries) {
-		pr_err("extable is not populated\n");
+		pr_err("extable is not populated, excnt %d, num_exentries %d\n", excnt, bpf_prog->aux->num_exentries);
 		return -EFAULT;
 	}
 	return proglen;

@@ -37,14 +37,23 @@ int bpf_jit_enable = 1;
 u64 __bpf_call_base = 0;
 void *__bpf_prog_enter = 0;
 void *__bpf_prog_exit = 0;
+// absolute values in real kernel
+static u64 _base = 0;
+static u64 _enter = 0;
+static u64 _ex = 0;
+static char *original_jit_addr = NULL;
 
 void put_call_base(u64 addr, u64 enter, u64 ex)
 {
-  __bpf_call_base = addr;
-  __bpf_prog_enter = (void *)enter;
-  __bpf_prog_exit = (void *)ex;
+  _base = addr;
+  _enter = enter;
+  _ex = ex;
 }
 
+void put_original_jit_addr(void *addr)
+{
+  original_jit_addr = (char *)addr;
+}
 
 void *kzalloc(size_t size, int flags)
 {
@@ -671,17 +680,26 @@ bpf_jit_binary_alloc(unsigned int proglen, u8 **image_ptr,
 		     bpf_jit_fill_hole_t bpf_fill_ill_insns)
 {
   struct bpf_binary_header *hdr;
-  u32 size, hole, start = 0;
+  u32 size, start = 0;
+  ptrdiff_t off;
+
   size = round_up(proglen + sizeof(*hdr) + 128, PAGE_SIZE);
   hdr = malloc(size);
 printf("bpf_jit_binary_alloc(%X) %p\n", size, hdr); fflush(stdout);
   if ( !hdr )
     return NULL;
   hdr->size = size;
-  hole = min(size - (proglen + sizeof(*hdr)), PAGE_SIZE - sizeof(*hdr));
+//  hole = min(size - (proglen + sizeof(*hdr)), PAGE_SIZE - sizeof(*hdr));
 
-  /* Leave a random number of instructions before BPF code. */
   *image_ptr = &hdr->image[start];
+  /* adjust __bpf_call_base */
+  off = original_jit_addr - (char *)*image_ptr;
+#ifdef _DEBUG
+ printf("original_jit_addr %p off %lX\n", original_jit_addr, off);
+#endif
+  __bpf_call_base = _base - off;
+  __bpf_prog_enter = (char *)_enter - off;
+  __bpf_prog_exit = (char *)_ex - off;
   return hdr;  
 }
 
