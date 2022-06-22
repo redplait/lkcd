@@ -38,6 +38,14 @@ u64 __bpf_call_base = 0;
 void *__bpf_prog_enter = 0;
 void *__bpf_prog_exit = 0;
 
+void put_call_base(u64 addr, u64 enter, u64 ex)
+{
+  __bpf_call_base = addr;
+  __bpf_prog_enter = (void *)enter;
+  __bpf_prog_exit = (void *)ex;
+}
+
+
 void *kzalloc(size_t size, int flags)
 {
   void *res = malloc(size);
