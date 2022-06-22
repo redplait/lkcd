@@ -11,7 +11,10 @@
 #include <stdio.h>
 #include <assert.h>
 
+#define __ALIGN_KERNEL_MASK(x, mask)	(((x) + (mask)) & ~(mask))
+#define ALIGN(x, a)		__ALIGN_KERNEL_MASK(x, (typeof(x))(a) - 1)
 #define PTR_ALIGN(p, a)		((typeof(p))ALIGN((unsigned long)(p), (a)))
+#define READ_ONCE(x)		(*(const volatile typeof(x) *)&(x))
 
 #define ENOTSUPP	524	/* Operation is not supported */
 
@@ -359,6 +362,8 @@ void kfree(void *ptr);
 void *kzalloc(size_t size, int);
 void *kcalloc(size_t n, size_t size, int flags);
 void *kmalloc_array(size_t n, size_t size, int flags);
+void *kvcalloc(size_t n, size_t size, int flags);
+void kvfree(void *addr);
 bool IS_ERR(const void *ptr);
 
 #endif /*  __ASSEMBLY__ */

@@ -571,6 +571,7 @@ void bpf_prog_fill_jited_linfo(struct bpf_prog *prog,
 void bpf_jit_binary_free(struct bpf_binary_header *hdr);
 void flush_icache_range(unsigned long start, unsigned long end);
 void bpf_jit_dump(unsigned int flen, unsigned int proglen, u32 pass, void *image);
+void print_fn_code(unsigned char *code, unsigned long len);
 
 typedef void (*bpf_jit_fill_hole_t)(void *area, unsigned int size);
 
@@ -583,4 +584,8 @@ void bpf_jit_binary_lock_ro(struct bpf_binary_header *hdr);
 void bpf_jit_prog_release_other(struct bpf_prog *fp, struct bpf_prog *fp_other);
 
 // for x86
+#define WARN_ON_ONCE(condition)  (condition)
+
 void text_poke_bp(void *addr, const void *opcode, size_t len, const void *emulate);
+int is_kernel_text(unsigned long addr);
+extern void * __bpf_prog_enter, *__bpf_prog_exit;

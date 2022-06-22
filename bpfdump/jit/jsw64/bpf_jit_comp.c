@@ -120,6 +120,9 @@ static inline u32 sw64_bpf_gen_format_simple_alu_imm(int opcode, enum sw64_bpf_r
 
 static inline void emit(const u32 insn, struct jit_ctx *ctx)
 {
+#ifdef _DEBUG
+ printf("emit %p\n", ctx->image); fflush(stdout);
+#endif
 	if (ctx->image != NULL)
 		ctx->image[ctx->idx] = insn;
 
@@ -308,7 +311,9 @@ static void build_prologue(struct jit_ctx *ctx, bool was_classic)
 	const int fp = bpf2sw64[BPF_REG_FP];
 	const int tcc = bpf2sw64[TCALL_CNT];
 	const int tmp1 = bpf2sw64[TMP_REG_1];
-
+#ifdef _DEBUG
+ printf("build_prologue %p\n", ctx->image); fflush(stdout);
+#endif
 	/* Save callee-saved registers */
 	emit(SW64_BPF_SUBL_REG(SW64_BPF_REG_SP, 56, SW64_BPF_REG_SP), ctx);
 	emit(SW64_BPF_STL(r6, SW64_BPF_REG_SP, 0), ctx);
@@ -899,7 +904,9 @@ struct bpf_prog *bpf_int_jit_compile(struct bpf_prog *prog)
 	}
 
 	/* 1. Initial fake pass to compute ctx->idx. */
-
+#ifdef _DEBUG
+ printf("before build_prologue %p\n", ctx.image); 
+#endif
 	/* Fake pass to fill in ctx->offset. */
 	build_prologue(&ctx, was_classic);
 

@@ -35,6 +35,8 @@ static inline void *ERR_PTR(long error)
 
 int bpf_jit_enable = 1;
 u64 __bpf_call_base = 0;
+void *__bpf_prog_enter = 0;
+void *__bpf_prog_exit = 0;
 
 void *kzalloc(size_t size, int flags)
 {
@@ -57,6 +59,16 @@ void *kcalloc(size_t n, size_t size, int flags)
 void *kmalloc_array(size_t n, size_t size, int flags)
 {
   return malloc(n * size);
+}
+
+void *kvcalloc(size_t n, size_t size, int flags)
+{
+  return calloc(n, size);
+}
+
+void kvfree(void *addr)
+{
+  free(addr);
 }
 
 static inline bool bpf_pseudo_func(const struct bpf_insn *insn)
@@ -442,6 +454,7 @@ static int bpf_jit_blind_insn(const struct bpf_insn *from,
 out:
 	return to - to_buff;
 }
+
 struct bpf_prog *bpf_jit_blind_constants(struct bpf_prog *prog)
 {
 	struct bpf_insn insn_buff[16], aux[2];
@@ -536,6 +549,39 @@ void bpf_prog_fill_jited_linfo(struct bpf_prog *prog,
 			insn_to_jit_off[linfo[i].insn_off - insn_start - 1];
 }
 
+int bpf_jit_get_func_addr(const struct bpf_prog *prog,
+			  const struct bpf_insn *insn, bool extra_pass,
+			  u64 *func_addr, bool *func_addr_fixed)
+{
+	s16 off = insn->off;
+	s32 imm = insn->imm;
+	u8 *addr;
+
+	*func_addr_fixed = insn->src_reg != BPF_PSEUDO_CALL;
+	if (!*func_addr_fixed) {
+		/* Place-holder address till the last pass has collected
+		 * all addresses for JITed subprograms in which case we
+		 * can pick them up from prog->aux.
+		 */
+		if (!extra_pass)
+			addr = NULL;
+		else if (prog->aux->func &&
+			 off >= 0 && off < prog->aux->func_cnt)
+			addr = (u8 *)prog->aux->func[off]->bpf_func;
+		else
+			return -EINVAL;
+	} else {
+		/* Address of a BPF helper call. Since part of the core
+		 * kernel, it's always at a fixed location. __bpf_call_base
+		 * and the helper with imm relative to it are both in core
+		 * kernel.
+		 */
+		addr = (u8 *)__bpf_call_base + imm;
+	}
+
+	*func_addr = (unsigned long)addr;
+	return 0;
+}
 void flush_icache_range(unsigned long start, unsigned long end)
 {
 }
@@ -588,6 +634,10 @@ void bpf_jit_dump(unsigned int flen, unsigned int proglen, u32 pass, void *image
   HexDump(image, proglen);
 }
 
+void print_fn_code(unsigned char *code, unsigned long len)
+{
+}
+
 void cond_resched()
 {
 }
@@ -605,6 +655,7 @@ bpf_jit_binary_alloc(unsigned int proglen, u8 **image_ptr,
   u32 size, hole, start = 0;
   size = round_up(proglen + sizeof(*hdr) + 128, PAGE_SIZE);
   hdr = malloc(size);
+printf("bpf_jit_binary_alloc(%X) %p\n", size, hdr); fflush(stdout);
   if ( !hdr )
     return NULL;
   hdr->size = size;
@@ -618,4 +669,9 @@ bpf_jit_binary_alloc(unsigned int proglen, u8 **image_ptr,
 void bpf_jit_binary_free(struct bpf_binary_header *hdr)
 {
   free(hdr);
+}
+
+int is_kernel_text(unsigned long addr)
+{
+  return 0;
 }
