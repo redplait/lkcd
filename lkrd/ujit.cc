@@ -54,6 +54,8 @@ int ujit(int idx, unsigned char *body, long len, unsigned int stack_depth)
   prog->pages = len * 8 / 0x1000;
   prog->aux->prog = prog;
   prog->aux->jit_data = NULL;
+  prog->aux->func = NULL;
+  prog->aux->func_cnt = 0;
   prog->aux->stack_depth = stack_depth;
   prog->bpf_func = NULL;
   prog->jit_requested = 1;
