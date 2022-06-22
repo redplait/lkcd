@@ -46,6 +46,7 @@ int ujit(int idx, unsigned char *body, long len, unsigned int stack_depth)
   size_t asize = sizeof(bpf_prog) + 8 * len;
   bpf_prog *prog = (bpf_prog *)malloc(asize);
   struct bpf_prog_aux aux;
+  memset(&aux, 0, sizeof(aux));
   // copy ebpf opcodes
   memcpy(prog->insnsi, body, len * 8);
   prog->len = len;
@@ -53,7 +54,6 @@ int ujit(int idx, unsigned char *body, long len, unsigned int stack_depth)
   prog->aux = &aux;
   prog->pages = len * 8 / 0x1000;
   prog->aux->prog = prog;
-  prog->aux->jit_data = NULL;
   prog->aux->stack_depth = stack_depth;
   prog->bpf_func = NULL;
   prog->jit_requested = 1;
