@@ -369,6 +369,9 @@ void kvfree(void *addr);
 bool IS_ERR(const void *ptr);
 
 void smp_wmb();
+int test_bit(int nr, const volatile unsigned long *addr);
+unsigned long __ffs(unsigned long word);
+void __set_bit(unsigned int nr, volatile unsigned long *addr);
 
 #endif /*  __ASSEMBLY__ */
 #endif /* _LINUX_TYPES_H */
