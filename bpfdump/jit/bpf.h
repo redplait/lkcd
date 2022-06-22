@@ -582,6 +582,7 @@ bpf_jit_binary_alloc(unsigned int proglen, u8 **image_ptr,
 void bpf_jit_binary_free(struct bpf_binary_header *hdr);
 void bpf_jit_binary_lock_ro(struct bpf_binary_header *hdr);
 void bpf_jit_prog_release_other(struct bpf_prog *fp, struct bpf_prog *fp_other);
+void bpf_prog_unlock_free(struct bpf_prog *fp);
 
 // for x86
 #define WARN_ON_ONCE(condition)  (condition)

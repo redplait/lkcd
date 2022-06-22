@@ -29,7 +29,9 @@ do {									\
 	void *__mptr = (void *)(ptr);					\
 	((type *)(__mptr - offsetof(type, member))); })
 
-#define pr_err(...) fprintf (stderr, __VA_ARGS__)
+#define pr_err(...) fprintf(stderr,  __VA_ARGS__)
+#define pr_info(...) fprintf(stderr, __VA_ARGS__)
+#define pr_err_ratelimited(...) fprintf(stderr, __VA_ARGS__)
 #define BUILD_BUG_ON(x)
 
 #define GFP_KERNEL 0
@@ -365,6 +367,8 @@ void *kmalloc_array(size_t n, size_t size, int flags);
 void *kvcalloc(size_t n, size_t size, int flags);
 void kvfree(void *addr);
 bool IS_ERR(const void *ptr);
+
+void smp_wmb();
 
 #endif /*  __ASSEMBLY__ */
 #endif /* _LINUX_TYPES_H */

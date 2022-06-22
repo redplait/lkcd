@@ -86,6 +86,11 @@ void __bpf_prog_free(struct bpf_prog *fp)
 	free(fp);
 }
 
+void bpf_prog_unlock_free(struct bpf_prog *fp)
+{
+ __bpf_prog_free(fp);
+}
+
 static void bpf_prog_clone_free(struct bpf_prog *fp)
 {
 	/* aux was stolen by the other clone, so we cannot free
@@ -674,4 +679,8 @@ void bpf_jit_binary_free(struct bpf_binary_header *hdr)
 int is_kernel_text(unsigned long addr)
 {
   return 0;
+}
+
+void smp_wmb()
+{
 }
