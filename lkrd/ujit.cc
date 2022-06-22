@@ -54,7 +54,7 @@ int ujit_open(const char *fname)
   return 1;
 }
 
-int ujit(int idx, unsigned char *body, long len, unsigned int stack_depth)
+int ujit2file(int idx, unsigned char *body, long len, unsigned int stack_depth)
 {
   if ( s_j == NULL )
     return -1;
@@ -98,4 +98,46 @@ int ujit(int idx, unsigned char *body, long len, unsigned int stack_depth)
   fclose(fp);
   free(prog);
   return 0;
+}
+
+int ujit2mem(unsigned char *body, long len, unsigned int stack_depth, size_t &out_size, unsigned char **out_buf)
+{
+  if ( s_j == NULL )
+    return -1;
+  // make new bpf_prog
+  size_t asize = sizeof(bpf_prog) + 8 * len;
+  bpf_prog *prog = (bpf_prog *)malloc(asize);
+  struct bpf_prog_aux aux;
+  memset(&aux, 0, sizeof(aux));
+  // copy ebpf opcodes
+  memcpy(prog->insnsi, body, len * 8);
+  prog->len = len;
+  prog->jited_len = 0;
+  prog->aux = &aux;
+  prog->pages = len * 8 / 0x1000;
+  prog->aux->prog = prog;
+  prog->aux->jit_data = NULL;
+  prog->aux->func = NULL;
+  prog->aux->func_cnt = 0;
+  prog->aux->stack_depth = stack_depth;
+  prog->bpf_func = NULL;
+  prog->jit_requested = 1;
+  printf("s_j %p\n", s_j); fflush(stdout);
+  auto f = s_j(prog);
+  if ( !f )
+  {
+    fprintf(stderr, "bpf_int_jit_compile failed\n");
+    free(prog);
+    return 0;
+  }
+  printf("jited_len %d bpf_func %p\n", f->jited_len, f->bpf_func);
+  out_size = f->jited_len;
+  if ( !out_size )
+  {
+    free(prog);
+    return 0;
+  }
+  *out_buf = (unsigned char *)f->bpf_func;
+  free(prog);
+  return 1;
 }

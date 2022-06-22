@@ -1075,7 +1075,7 @@ void dump_bpf_progs(int fd, a64 list, a64 lock, sa64 delta, std::map<void *, std
       if ( g_dump_bpf_ops )
         HexDump((unsigned char *)l, curr->len * 8);
       ebpf_disasm((unsigned char *)l, curr->len, stdout);
-      ujit(idx, (unsigned char *)l, curr->len, curr->stack_depth);
+      ujit2file(idx, (unsigned char *)l, curr->len, curr->stack_depth);
     }
     printf("\n");
    }
