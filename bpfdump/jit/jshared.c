@@ -651,6 +651,12 @@ void bpf_jit_binary_lock_ro(struct bpf_binary_header *hdr)
 {
 }
 
+bool is_bpf_text_address(unsigned long addr)
+{
+  printf("is_bpf_text_address(%lX)\n", addr);
+  return false;
+}
+
 struct bpf_binary_header *
 bpf_jit_binary_alloc(unsigned int proglen, u8 **image_ptr,
 		     unsigned int alignment,

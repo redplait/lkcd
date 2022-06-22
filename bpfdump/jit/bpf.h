@@ -583,6 +583,7 @@ void bpf_jit_binary_free(struct bpf_binary_header *hdr);
 void bpf_jit_binary_lock_ro(struct bpf_binary_header *hdr);
 void bpf_jit_prog_release_other(struct bpf_prog *fp, struct bpf_prog *fp_other);
 void bpf_prog_unlock_free(struct bpf_prog *fp);
+bool is_bpf_text_address(unsigned long addr);
 
 // for x86
 #define WARN_ON_ONCE(condition)  (condition)
