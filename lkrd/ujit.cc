@@ -6,9 +6,16 @@
 #include "../bpfdump/jit/bpf.h"
 
 typedef struct bpf_prog *(*jit_compile)(struct bpf_prog *prog);
+typedef void (*set_kdata)(unsigned long base, unsigned long enter, unsigned long ex);
 
 jit_compile s_j = NULL;
+set_kdata s_kdata = NULL;
 void *s_jm = NULL;
+
+int ujit_opened()
+{
+  return s_jm != NULL;
+}
 
 void ujit_close()
 {
@@ -17,6 +24,14 @@ void ujit_close()
     dlclose(s_jm);
     s_jm = NULL;
   }
+}
+
+int put_kdata(unsigned long base, unsigned long enter, unsigned long ex)
+{
+  if ( !s_kdata )
+   return 0;
+  s_kdata(base, enter, ex);
+  return 1;
 }
 
 int ujit_open(const char *fname)
@@ -35,6 +50,7 @@ int ujit_open(const char *fname)
     fprintf(stderr, "cannot find bpf_int_jit_compile\n");
     return 0;
   }
+  s_kdata = (set_kdata)dlsym(s_jm, "put_call_base");
   return 1;
 }
 
@@ -46,6 +62,7 @@ int ujit(int idx, unsigned char *body, long len, unsigned int stack_depth)
   size_t asize = sizeof(bpf_prog) + 8 * len;
   bpf_prog *prog = (bpf_prog *)malloc(asize);
   struct bpf_prog_aux aux;
+  memset(&aux, 0, sizeof(aux));
   // copy ebpf opcodes
   memcpy(prog->insnsi, body, len * 8);
   prog->len = len;

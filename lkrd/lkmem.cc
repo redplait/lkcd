@@ -979,6 +979,7 @@ void dump_bpf_progs(int fd, a64 list, a64 lock, sa64 delta, std::map<void *, std
       printf(" %2.2X", curr->tag[i]);
     printf("\n");
     printf("  stack_depth: %d\n", curr->stack_depth);
+    printf("  num_exentries: %d\n", curr->num_exentries);
     printf("  type: %d %s\n", curr->prog_type, get_bpf_prog_type_name(curr->prog_type));
     printf("  expected_attach_type: %d %s\n", curr->expected_attach_type, get_bpf_attach_type_name(curr->expected_attach_type));
     if ( curr->used_map_cnt )
@@ -3266,6 +3267,17 @@ end:
                tgm = get_addr("map_idr_lock");
                dump_bpf_maps(fd, entry, tgm, delta, names);
                // bpf progs
+               if ( ujit_opened() )
+               {
+                 a64 base = get_addr("__bpf_call_base");
+                 a64 enter = get_addr("__bpf_prog_enter");
+                 a64 ex = get_addr("__bpf_prog_exit");
+                 if ( base && enter && ex )
+                 {
+                   printf("__bpf_call_base %lX\n", base + delta);
+                   put_kdata(base + delta, enter + delta, ex + delta);
+                 }
+               }
                entry = get_addr("prog_idr");
                tgm = get_addr("prog_idr_lock");
                dump_bpf_progs(fd, entry, tgm, delta, names);
