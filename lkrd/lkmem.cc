@@ -978,6 +978,7 @@ void dump_bpf_progs(int fd, a64 list, a64 lock, sa64 delta, std::map<void *, std
     for ( int i = 0; i < 8; i++ )
       printf(" %2.2X", curr->tag[i]);
     printf("\n");
+    printf("  stack_depth: %d\n", curr->stack_depth);
     printf("  type: %d %s\n", curr->prog_type, get_bpf_prog_type_name(curr->prog_type));
     printf("  expected_attach_type: %d %s\n", curr->expected_attach_type, get_bpf_attach_type_name(curr->expected_attach_type));
     if ( curr->used_map_cnt )
@@ -1073,7 +1074,7 @@ void dump_bpf_progs(int fd, a64 list, a64 lock, sa64 delta, std::map<void *, std
       if ( g_dump_bpf_ops )
         HexDump((unsigned char *)l, curr->len * 8);
       ebpf_disasm((unsigned char *)l, curr->len, stdout);
-      ujit(idx, (unsigned char *)l, curr->len);
+      ujit(idx, (unsigned char *)l, curr->len, curr->stack_depth);
     }
     printf("\n");
    }

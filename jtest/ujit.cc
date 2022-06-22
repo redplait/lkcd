@@ -38,7 +38,7 @@ int ujit_open(const char *fname)
   return 1;
 }
 
-int ujit(int idx, unsigned char *body, long len)
+int ujit(int idx, unsigned char *body, long len, unsigned int stack_depth)
 {
   if ( s_j == NULL )
     return -1;
@@ -54,6 +54,7 @@ int ujit(int idx, unsigned char *body, long len)
   prog->pages = len * 8 / 0x1000;
   prog->aux->prog = prog;
   prog->aux->jit_data = NULL;
+  prog->aux->stack_depth = stack_depth;
   prog->bpf_func = NULL;
   prog->jit_requested = 1;
   printf("s_j %p\n", s_j); fflush(stdout);

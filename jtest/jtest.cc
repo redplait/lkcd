@@ -13,6 +13,6 @@ int main()
     printf("cannot open libjsw64.so\n");
     return -1;
   }
-  ujit(0, test_body, 2);
+  ujit(0, test_body, 2, 32);
   return 0;
 }
