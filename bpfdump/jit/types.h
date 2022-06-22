@@ -30,6 +30,7 @@ do {									\
 	((type *)(__mptr - offsetof(type, member))); })
 
 #define pr_err(...) fprintf(stderr,  __VA_ARGS__)
+#define pr_err_once(...) fprintf(stderr,  __VA_ARGS__)
 #define pr_info(...) fprintf(stderr, __VA_ARGS__)
 #define pr_err_ratelimited(...) fprintf(stderr, __VA_ARGS__)
 #define BUILD_BUG_ON(x)
