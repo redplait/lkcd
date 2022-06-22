@@ -865,9 +865,10 @@ void fill_bpf_prog(struct one_bpf_prog *curr, struct bpf_prog *prog)
     curr->used_map_cnt = prog->aux->used_map_cnt;
     curr->used_btf_cnt = prog->aux->used_btf_cnt;
     curr->func_cnt = prog->aux->func_cnt;
+    curr->stack_depth = prog->aux->stack_depth;
   } else {
     curr->aux_id = 0;
-    curr->used_map_cnt = curr->used_btf_cnt = curr->func_cnt = 0;
+    curr->used_map_cnt = curr->used_btf_cnt = curr->func_cnt = curr->stack_depth = 0;
   }
 }
 

@@ -672,6 +672,7 @@ struct one_bpf_prog
   unsigned int used_map_cnt;
   unsigned int used_btf_cnt;
   unsigned int func_cnt;
+  unsigned int stack_depth;
 };
 
 struct one_bpf_links
