@@ -957,6 +957,25 @@ void dump_registered_trace_event_calls(int fd, sa64 delta)
   }
 }
 
+void dump_bpf_ksyms(int fd, a64 list, a64 lock, sa64 delta)
+{
+  if ( !list )
+  {
+    printf("cannot find bpf_kallsyms\n");
+    return;
+  }
+  if ( !lock )
+  {
+    printf("cannot find bpf_lock\n");
+    return;
+  }
+  dump_data2arg<one_bpf_ksym>(fd, list, lock, delta, IOCTL_GET_BPF_KSYMS, "bpf_kallsyms", "IOCTL_GET_BPF_KSYMS", "bpf_ksyms",
+   [](size_t idx, const one_bpf_ksym *curr) {
+     printf(" [%ld] ksym %p %p %p %d %s\n", idx, curr->addr, (void *)curr->start, (void *)curr->end, curr->prog ? 1 : 0, curr->name);
+   }
+  );
+}
+
 void dump_bpf_progs(int fd, a64 list, a64 lock, sa64 delta, std::map<void *, std::string> &map_names)
 {
   if ( !list )
@@ -1075,6 +1094,7 @@ void dump_bpf_progs(int fd, a64 list, a64 lock, sa64 delta, std::map<void *, std
       if ( g_dump_bpf_ops )
         HexDump((unsigned char *)l, curr->len * 8);
       ebpf_disasm((unsigned char *)l, curr->len, stdout);
+      put_orig_jit_addr(curr->bpf_func);
       ujit2file(idx, (unsigned char *)l, curr->len, curr->stack_depth);
     }
     printf("\n");
@@ -3266,6 +3286,10 @@ end:
                auto entry = get_addr("map_idr");
                tgm = get_addr("map_idr_lock");
                dump_bpf_maps(fd, entry, tgm, delta, names);
+               // bpf ksyms
+               entry = get_addr("bpf_kallsyms");
+               tgm = get_addr("bpf_lock");
+               dump_bpf_ksyms(fd, entry, tgm, delta);
                // bpf progs
                if ( ujit_opened() )
                {

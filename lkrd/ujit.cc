@@ -7,9 +7,11 @@
 
 typedef struct bpf_prog *(*jit_compile)(struct bpf_prog *prog);
 typedef void (*set_kdata)(unsigned long base, unsigned long enter, unsigned long ex);
+typedef void (*set_orig_jit_addr)(void *);
 
 jit_compile s_j = NULL;
 set_kdata s_kdata = NULL;
+set_orig_jit_addr s_orig = NULL;
 void *s_jm = NULL;
 
 int ujit_opened()
@@ -23,7 +25,17 @@ void ujit_close()
   {
     dlclose(s_jm);
     s_jm = NULL;
+    s_kdata = NULL;
+    s_orig = NULL;
   }
+}
+
+int put_orig_jit_addr(void *addr)
+{
+  if ( !s_orig )
+    return 0;
+  s_orig(addr);
+  return 1;
 }
 
 int put_kdata(unsigned long base, unsigned long enter, unsigned long ex)
@@ -51,6 +63,7 @@ int ujit_open(const char *fname)
     return 0;
   }
   s_kdata = (set_kdata)dlsym(s_jm, "put_call_base");
+  s_orig = (set_orig_jit_addr)dlsym(s_jm, "put_original_jit_addr");
   return 1;
 }
 
