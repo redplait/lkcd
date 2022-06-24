@@ -866,9 +866,10 @@ void fill_bpf_prog(struct one_bpf_prog *curr, struct bpf_prog *prog)
     curr->used_btf_cnt = prog->aux->used_btf_cnt;
     curr->func_cnt = prog->aux->func_cnt;
     curr->stack_depth = prog->aux->stack_depth;
+    curr->num_exentries = prog->aux->num_exentries;
   } else {
     curr->aux_id = 0;
-    curr->used_map_cnt = curr->used_btf_cnt = curr->func_cnt = curr->stack_depth = 0;
+    curr->used_map_cnt = curr->used_btf_cnt = curr->func_cnt = curr->stack_depth = curr->num_exentries = 0;
   }
 }
 
@@ -3648,6 +3649,55 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
           }
         }
      break; /* IOCTL_GET_BPF_REGS */
+
+    case IOCTL_GET_BPF_KSYMS:
+        if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 3) > 0 )
+  	  return -EFAULT;
+  	else {
+          struct list_head *head = (struct list_head *)ptrbuf[0];
+          spinlock_t *lock = (spinlock_t *)ptrbuf[1];
+          unsigned long cnt = 0;
+          struct bpf_ksym *ti;
+          if ( !ptrbuf[2] )
+          {
+            spin_lock_bh(lock);
+            list_for_each_entry(ti, head, lnode)
+              cnt++;
+            spin_unlock_bh(lock);
+            if (copy_to_user((void*)ioctl_param, (void*)&cnt, sizeof(cnt)) > 0)
+              return -EFAULT;
+          } else {
+            struct one_bpf_ksym *curr;
+            size_t kbuf_size = sizeof(unsigned long) + sizeof(struct one_bpf_ksym) * ptrbuf[2];
+            unsigned long *buf = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL);
+            if ( !buf )
+              return -ENOMEM;
+            curr = (struct one_bpf_ksym *)(buf + 1);
+            spin_lock_bh(lock);
+            list_for_each_entry(ti, head, lnode)
+            {
+              if ( cnt >= ptrbuf[2] )
+                break;
+              curr->addr = ti;
+              curr->start = ti->start;
+              curr->end = ti->end;
+              curr->prog = ti->prog;
+              strlcpy(curr->name, ti->name, sizeof(curr->name));
+              curr++;
+              cnt++;
+            }
+            spin_unlock_bh(lock);
+            buf[0] = cnt;
+            kbuf_size = sizeof(unsigned long) + sizeof(struct one_bpf_ksym) * cnt;
+            if (copy_to_user((void*)ioctl_param, (void*)buf, kbuf_size) > 0)
+            {
+              kfree(buf);
+              return -EFAULT;
+            }
+            kfree(buf);
+          }
+       }
+     break; /* IOCTL_GET_BPF_KSYMS */
 
     case IOCTL_GET_LSM_HOOKS:
         if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 2) > 0 )

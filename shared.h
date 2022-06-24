@@ -673,6 +673,7 @@ struct one_bpf_prog
   unsigned int used_btf_cnt;
   unsigned int func_cnt;
   unsigned int stack_depth;
+  unsigned int num_exentries;
 };
 
 struct one_bpf_links
@@ -863,5 +864,23 @@ struct one_bpf_map
 // out params
 //  unsigned long + N * one_bpf_map
 #define IOCTL_GET_BPF_MAPS             _IOR(IOCTL_NUM, 0x3D, int*)
+
+struct one_bpf_ksym
+{
+  void *addr;
+  char name[128];
+  unsigned long start;
+  unsigned long end;
+  int prog;
+};
+
+// read bpf ksyms
+// in params:
+//  0 - address of bpf_kallsyms
+//  1 - address of bpf_lock
+//  2 - cnt
+// out params
+//  unsigned long + N * one_bpf_ksym
+#define IOCTL_GET_BPF_KSYMS            _IOR(IOCTL_NUM, 0x3E, int*)
 
 #endif /* LKCD_SHARED_H */
