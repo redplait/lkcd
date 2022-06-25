@@ -1290,6 +1290,19 @@ void dump_jit_option(int fd, a64 addr, sa64 delta, const char *fmt)
   printf(fmt, val);
 }
 
+void dump_ftrace_options(int fd, sa64 delta)
+{
+  auto addr = get_addr("ftrace_enabled");
+  if ( addr )
+    dump_jit_option<int>(fd, addr, delta, "ftrace_enabled: %d\n");
+  addr = get_addr("ftrace_disabled");
+  if ( addr )
+    dump_jit_option<int>(fd, addr, delta, "ftrace_disabled: %d\n");
+  addr = get_addr("last_ftrace_enabled");
+  if ( addr )
+    dump_jit_option<int>(fd, addr, delta, "last_ftrace_enabled: %d\n");
+}
+
 void dump_jit_options(int fd, sa64 delta)
 {
   auto addr = get_addr("bpf_jit_enable");
@@ -3200,6 +3213,7 @@ end:
 #endif /* _MSC_VER */
            free(tsyms);
          }
+         dump_ftrace_options(fd, delta);
          auto ev_start = get_addr("__start_ftrace_events");
          auto ev_stop  = get_addr("__stop_ftrace_events");
          if ( !ev_start )
