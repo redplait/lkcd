@@ -743,6 +743,74 @@ void dump_trace_exports(int fd, a64 list, a64 lock, sa64 delta)
   );
 }
 
+void dump_pmus(int fd, a64 list, a64 lock, sa64 delta)
+{
+  if ( !list )
+  {
+    printf("cannot find pmu_idr\n");
+    return;
+  }
+  if ( !lock )
+  {
+    printf("cannot find pmus_lock\n");
+    return;
+  }
+  dump_data2arg<one_pmu>(fd, list, lock, delta, IOCTL_GET_PMUS, "pmus", "IOCTL_GET_PMUS", "pmus",
+   [=](size_t idx, const one_pmu *curr) {
+     printf(" [%ld] type %X capabilities %X at ", idx, curr->type, curr->capabilities);
+     dump_unnamed_kptr((unsigned long)curr->addr, delta);
+     if ( curr->pmu_enable )
+       dump_kptr((unsigned long)curr->pmu_enable, "  pmu_enable", delta);
+     if ( curr->pmu_disable )
+       dump_kptr((unsigned long)curr->pmu_disable, "  pmu_disable", delta);
+     if ( curr->event_init )
+       dump_kptr((unsigned long)curr->event_init, "  event_init", delta);
+     if ( curr->event_mapped )
+       dump_kptr((unsigned long)curr->event_mapped, "  event_mapped", delta);
+     if ( curr->event_unmapped )
+       dump_kptr((unsigned long)curr->event_unmapped, "  event_unmapped", delta);
+     if ( curr->add )
+       dump_kptr((unsigned long)curr->add, "  add", delta);
+     if ( curr->del )
+       dump_kptr((unsigned long)curr->del, "  del", delta);
+     if ( curr->start )
+       dump_kptr((unsigned long)curr->start, "  start", delta);
+     if ( curr->stop )
+       dump_kptr((unsigned long)curr->stop, "  stop", delta);
+     if ( curr->read )
+       dump_kptr((unsigned long)curr->read, "  read", delta);
+     if ( curr->start_txn )
+       dump_kptr((unsigned long)curr->start_txn, "  start_txn", delta);
+     if ( curr->commit_txn )
+       dump_kptr((unsigned long)curr->commit_txn, "  commit_txn", delta);
+     if ( curr->cancel_txn )
+       dump_kptr((unsigned long)curr->cancel_txn, "  cancel_txn", delta);
+     if ( curr->event_idx )
+       dump_kptr((unsigned long)curr->event_idx, "  event_idx", delta);
+     if ( curr->sched_task )
+       dump_kptr((unsigned long)curr->sched_task, "  sched_task", delta);
+     if ( curr->swap_task_ctx )
+       dump_kptr((unsigned long)curr->swap_task_ctx, "  swap_task_ctx", delta);
+     if ( curr->setup_aux )
+       dump_kptr((unsigned long)curr->setup_aux, "  setup_aux", delta);
+     if ( curr->free_aux )
+       dump_kptr((unsigned long)curr->free_aux, "  free_aux", delta);
+     if ( curr->snapshot_aux )
+       dump_kptr((unsigned long)curr->snapshot_aux, "  snapshot_aux", delta);
+     if ( curr->addr_filters_validate )
+       dump_kptr((unsigned long)curr->addr_filters_validate, "  addr_filters_validate", delta);
+     if ( curr->addr_filters_sync )
+       dump_kptr((unsigned long)curr->addr_filters_sync, "  addr_filters_sync", delta);
+     if ( curr->aux_output_match )
+       dump_kptr((unsigned long)curr->aux_output_match, "  aux_output_match", delta);
+     if ( curr->filter_match )
+       dump_kptr((unsigned long)curr->filter_match, "  filter_match", delta);
+     if ( curr->check_period )
+       dump_kptr((unsigned long)curr->check_period, "  check_period", delta);
+   }
+  );
+}
+
 void dump_event_cmds(int fd, a64 list, a64 lock, sa64 delta)
 {
   if ( !list )
@@ -3166,6 +3234,9 @@ end:
 #ifndef _MSC_VER
          if ( opt_c )
          {
+           auto idr = get_addr("pmu_idr");
+           auto m = get_addr("pmus_lock");
+           dump_pmus(fd, idr, m, delta);
            // registered trace_event_calls
            dump_registered_trace_event_calls(fd, delta);
            // event cmds
