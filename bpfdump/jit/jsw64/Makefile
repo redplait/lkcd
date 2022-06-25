@@ -1,5 +1,5 @@
 libjsw64.so: bpf_jit_comp.o ../jshared.o ../jmem.o
-	gcc -shared -o $@ $^
+	gcc -shared -o $@ $^ -lstdc++
 
 ../jshared.o: ../jshared.c
 	gcc -g -c -fPIC ../jshared.c -o $@

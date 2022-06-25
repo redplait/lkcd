@@ -1,5 +1,5 @@
 libjppc.so: bpf_jit_comp64.o ../jshared.o ../jmem.o
-	gcc -shared -o $@ $^
+	gcc -shared -o $@ $^ -lstdc++
 
 ../jshared.o: ../jshared.c
 	gcc -c -fPIC ../jshared.c -o $@

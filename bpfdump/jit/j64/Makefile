@@ -1,5 +1,5 @@
 libjx64.so: bpf_jit_comp.o ../jshared.o sort.o j64.o ../jmem.o
-	gcc -shared -o $@ $^
+	gcc -shared -o $@ $^ -lstdc++
 
 ../jshared.o: ../jshared.c
 	gcc -c -fPIC ../jshared.c -o $@
