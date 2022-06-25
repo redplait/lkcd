@@ -1328,6 +1328,9 @@ void dump_ftrace_options(int fd, sa64 delta)
   addr = get_addr("ftrace_profile_enabled");
   if ( addr )
     dump_jit_option<int>(fd, addr, delta, "ftrace_profile_enabled: %d\n");
+  addr = get_addr("ftrace_graph_active");
+  if ( addr )
+    dump_jit_option<int>(fd, addr, delta, "ftrace_graph_active: %d\n");
 }
 
 void dump_jit_options(int fd, sa64 delta)
@@ -1347,6 +1350,30 @@ void dump_jit_options(int fd, sa64 delta)
   addr = get_addr("bpf_jit_limit_max");
   if ( addr )
     dump_jit_option<long>(fd, addr, delta, "bpf_jit_limit_max: %ld\n");
+}
+
+void dump_bpf_raw_events(int fd, a64 start, a64 end, sa64 delta)
+{
+  if ( !start )
+  {
+    printf("cannot find __start__bpf_raw_tp\n");
+    return;
+  }
+  if ( !end )
+  {
+    printf("cannot find __stop__bpf_raw_tp\n");
+    return;
+  }
+  dump_data2arg<one_bpf_raw_event>(fd, start, end, delta, IOCTL_GET_BPF_RAW_EVENTS, "bpf_raw_tps", "IOCTL_GET_BPF_RAW_EVENTS", "bpf_raw_tps",
+   [=](size_t idx, const one_bpf_raw_event *curr) {
+     printf(" [%ld] num_args %d ", idx, curr->num_args);
+     dump_kptr2((unsigned long)curr->addr, "addr", delta);
+     if ( curr->tp )
+       dump_kptr((unsigned long)curr->tp, "  tp", delta);
+     if ( curr->func )
+       dump_kptr((unsigned long)curr->func, "  func", delta);
+   }
+  );
 }
 
 void dump_bpf_maps(int fd, a64 list, a64 lock, sa64 delta, std::map<void *, std::string> &map_names)
@@ -3241,6 +3268,10 @@ end:
            free(tsyms);
          }
          dump_ftrace_options(fd, delta);
+         // dump bpf raw events
+         auto start = get_addr("__start__bpf_raw_tp");
+         auto end   = get_addr("__stop__bpf_raw_tp");
+         dump_bpf_raw_events(fd, start, end, delta);
          // dump ftrace_ops
          auto fops = get_addr("ftrace_ops_list");
          auto m = get_addr("ftrace_lock");
