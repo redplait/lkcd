@@ -62,6 +62,7 @@ struct rw_semaphore *s_net = 0;
 rwlock_t *s_dev_base_lock = 0;
 struct sock_diag_handler **s_sock_diag_handlers = 0;
 struct mutex *s_sock_diag_table_mutex = 0;
+struct ftrace_ops *s_ftrace_end = 0;
 
 #ifdef __x86_64__
 #define KPROBE_HASH_BITS 6
@@ -3433,6 +3434,62 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
         }
      break; /* IOCTL_GET_TRACE_EXPORTS */
 
+    case IOCTL_GET_FTRACE_OPS:
+        if ( !s_ftrace_end )
+          return -ENOCSI;
+        if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 3) > 0 )
+  	  return -EFAULT;
+  	else
+  	{
+          struct ftrace_ops **head = (struct ftrace_ops **)ptrbuf[0];
+          struct mutex *m = (struct mutex *)ptrbuf[1];
+          struct ftrace_ops *p;
+          unsigned long cnt = 0;
+          if ( !ptrbuf[2] )
+          {
+            // lock
+            mutex_lock(m);
+            for ( p = *head; p != s_ftrace_end; p = p->next )
+              cnt++;
+            // unlock
+            mutex_unlock(m);
+            if (copy_to_user((void*)ioctl_param, (void*)&cnt, sizeof(cnt)) > 0)
+              return -EFAULT;
+          } else {
+            struct one_ftrace_ops *curr;
+            size_t kbuf_size = sizeof(unsigned long) + sizeof(struct one_ftrace_ops) * ptrbuf[2];
+            unsigned long *buf = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL);
+            if ( !buf )
+              return -ENOMEM;
+            curr = (struct one_ftrace_ops *)(buf + 1);
+            // lock
+            mutex_lock(m);
+            // iterate
+            for ( p = *head; p != s_ftrace_end; p = p->next )
+            {
+              if ( cnt >= ptrbuf[2] )
+                break;
+              curr->addr = (void *)p;
+              curr->func = (void *)p->func;
+              curr->saved_func = (void *)p->saved_func;
+              curr->flags = p->flags;
+              curr++;
+              cnt++;
+            }
+            // unlock
+            mutex_unlock(m);
+            buf[0] = cnt;
+            kbuf_size = sizeof(unsigned long) + sizeof(struct one_ftrace_ops) * cnt;
+            if (copy_to_user((void*)ioctl_param, (void*)buf, kbuf_size) > 0)
+            {
+              kfree(buf);
+              return -EFAULT;
+            }
+            kfree(buf);
+          }
+        }
+     break; /* IOCTL_GET_FTRACE_OPS */
+
     case IOCTL_GET_FTRACE_CMDS:
         if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 3) > 0 )
   	  return -EFAULT;
@@ -4004,6 +4061,9 @@ init_module (void)
   if ( !s_sock_diag_table_mutex )
     printk("cannot find sock_diag_table_mutex\n");
   // trace events data
+  s_ftrace_end = (struct ftrace_ops *)lkcd_lookup_name("ftrace_list_end");
+  if ( !s_ftrace_end )
+    printk("cannot find ftrace_list_end\n");
   s_trace_event_sem = (struct rw_semaphore *)lkcd_lookup_name("trace_event_sem");
   if ( !s_trace_event_sem )
     printk("cannot find trace_event_sem\n");

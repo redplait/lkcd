@@ -924,4 +924,21 @@ struct one_pmu
 //  unsigned long + N * one_bpf_ksym
 #define IOCTL_GET_PMUS                 _IOR(IOCTL_NUM, 0x3F, int*)
 
+struct one_ftrace_ops
+{
+  void *addr;
+  void *func;
+  void *saved_func;
+  unsigned long	flags;
+};
+
+// read registered ftrace_ops
+// in params:
+//  0 - address of ftrace_ops_list
+//  1 - address of ftrace_lock - mutex
+//  2 - cnt
+// out params
+//  unsigned long + N * one_ftrace_ops
+#define IOCTL_GET_FTRACE_OPS           _IOR(IOCTL_NUM, 0x40, int*)
+
 #endif /* LKCD_SHARED_H */
