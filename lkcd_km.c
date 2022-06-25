@@ -2744,6 +2744,88 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
         }
       break; /* IOCTL_DEL_CGROUP_BPF */
 
+    case IOCTL_GET_PMUS:
+        if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 3) > 0 )
+  	  return -EFAULT;
+  	else
+        {
+          struct idr *pmus = (struct idr *)ptrbuf[0];
+          struct mutex *m = (struct mutex *)ptrbuf[1];
+          unsigned int id;
+          struct pmu *pmu;
+          // check cnt
+          if ( !ptrbuf[2] )
+          {
+            ptrbuf[0] = 0;
+            // lock
+            mutex_lock(m);
+            // iterate
+            idr_for_each_entry(pmus, pmu, id)
+              ptrbuf[0]++;
+            // unlock
+            mutex_unlock(m);
+            if (copy_to_user((void*)ioctl_param, (void*)ptrbuf, sizeof(ptrbuf[0])) > 0)
+              return -EFAULT;
+          } else {
+            unsigned long cnt = 0;
+            size_t kbuf_size = sizeof(unsigned long) + ptrbuf[2] * sizeof(struct one_pmu);
+            struct one_pmu *curr;
+            unsigned long *buf = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL  | __GFP_ZERO);
+            if ( !buf )
+              return -ENOMEM;
+            curr = (struct one_pmu *)(buf + 1);
+            // lock
+            mutex_lock(m);
+            // iterate
+            idr_for_each_entry(pmus, pmu, id)
+            {
+              if ( cnt < ptrbuf[2] )
+              {
+                curr->addr = (void *)pmu;
+                curr->type = pmu->type;
+                curr->capabilities = pmu->capabilities;
+                curr->pmu_enable = (void *)pmu->pmu_enable;
+                curr->pmu_disable = (void *)pmu->pmu_disable;
+                curr->event_init = (void *)pmu->event_init;
+                curr->event_mapped = (void *)pmu->event_mapped;
+                curr->event_unmapped = (void *)pmu->event_unmapped;
+                curr->add = (void *)pmu->add;
+                curr->del = (void *)pmu->del;
+                curr->start = (void *)pmu->start;
+                curr->stop = (void *)pmu->stop;
+                curr->read = (void *)pmu->read;
+                curr->start_txn = (void *)pmu->start_txn;
+                curr->commit_txn = (void *)pmu->commit_txn;
+                curr->cancel_txn = (void *)pmu->cancel_txn;
+                curr->event_idx = (void *)pmu->event_idx;
+                curr->sched_task = (void *)pmu->sched_task;
+                curr->swap_task_ctx = (void *)pmu->swap_task_ctx;
+                curr->setup_aux = (void *)pmu->setup_aux;
+                curr->free_aux = (void *)pmu->free_aux;
+                curr->snapshot_aux = (void *)pmu->snapshot_aux;
+                curr->addr_filters_validate = (void *)pmu->addr_filters_validate;
+                curr->addr_filters_sync = (void *)pmu->addr_filters_sync;
+                curr->aux_output_match = (void *)pmu->aux_output_match;
+                curr->filter_match = (void *)pmu->filter_match;
+                curr->check_period = (void *)pmu->check_period;
+                curr++;
+              }
+              cnt++;
+            }
+            // unlock
+            mutex_unlock(m);
+            // copy to user
+            buf[0] = cnt;
+            if (copy_to_user((void*)ioctl_param, (void*)buf, kbuf_size) > 0)
+            {
+               kfree(buf);
+               return -EFAULT;
+            }
+            kfree(buf);
+          }
+        }
+      break; /* IOCTL_GET_PMUS */
+
     case IOCTL_GET_BPF_MAPS:
       if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 3) > 0 )
         return -EFAULT;

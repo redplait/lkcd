@@ -883,4 +883,45 @@ struct one_bpf_ksym
 //  unsigned long + N * one_bpf_ksym
 #define IOCTL_GET_BPF_KSYMS            _IOR(IOCTL_NUM, 0x3E, int*)
 
+struct one_pmu
+{
+  void *addr;
+  int type;
+  int capabilities;
+  // callbacks
+  void *pmu_enable;
+  void *pmu_disable;
+  void *event_init;
+  void *event_mapped;
+  void *event_unmapped;
+  void *add;
+  void *del;
+  void *start;
+  void *stop;
+  void *read;
+  void *start_txn;
+  void *commit_txn;
+  void *cancel_txn;
+  void *event_idx;
+  void *sched_task;
+  void *swap_task_ctx;
+  void *setup_aux;
+  void *free_aux;
+  void *snapshot_aux;
+  void *addr_filters_validate;
+  void *addr_filters_sync;
+  void *aux_output_match;
+  void *filter_match;
+  void *check_period;
+};
+
+// read registered PMUs
+// in params:
+//  0 - address of pmu_idr
+//  1 - address of pmus_lock
+//  2 - cnt
+// out params
+//  unsigned long + N * one_bpf_ksym
+#define IOCTL_GET_PMUS                 _IOR(IOCTL_NUM, 0x3F, int*)
+
 #endif /* LKCD_SHARED_H */
