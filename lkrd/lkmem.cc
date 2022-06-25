@@ -669,6 +669,30 @@ void dump_data2arg(int fd, a64 list, a64 lock, sa64 delta, int code, const char 
   }
 }
 
+void dump_ftrace_ops(int fd, a64 list, a64 lock, sa64 delta)
+{
+  if ( !list )
+  {
+    printf("cannot find ftrace_ops_list\n");
+    return;
+  }
+  if ( !lock )
+  {
+    printf("cannot find ftrace_lock\n");
+    return;
+  }
+  dump_data2arg<one_ftrace_ops>(fd, list, lock, delta, IOCTL_GET_FTRACE_OPS, "ftrace_ops_list", "IOCTL_GET_FTRACE_OPS", "ftrace_ops",
+   [=](size_t idx, const one_ftrace_ops *curr) {
+    printf(" [%ld] flags %lX at", idx, curr->flags);
+    dump_unnamed_kptr((unsigned long)curr->addr, delta);
+    if ( curr->func )
+      dump_kptr((unsigned long)curr->func, "  func", delta);
+    if ( curr->saved_func )
+      dump_kptr((unsigned long)curr->saved_func, "  saved_func", delta);
+   }
+  );
+}
+
 void dump_dynevents_ops(int fd, a64 list, a64 lock, sa64 delta)
 {
   if ( !list )
@@ -1301,6 +1325,9 @@ void dump_ftrace_options(int fd, sa64 delta)
   addr = get_addr("last_ftrace_enabled");
   if ( addr )
     dump_jit_option<int>(fd, addr, delta, "last_ftrace_enabled: %d\n");
+  addr = get_addr("ftrace_profile_enabled");
+  if ( addr )
+    dump_jit_option<int>(fd, addr, delta, "ftrace_profile_enabled: %d\n");
 }
 
 void dump_jit_options(int fd, sa64 delta)
@@ -3214,6 +3241,11 @@ end:
            free(tsyms);
          }
          dump_ftrace_options(fd, delta);
+         // dump ftrace_ops
+         auto fops = get_addr("ftrace_ops_list");
+         auto m = get_addr("ftrace_lock");
+         dump_ftrace_ops(fd, fops, m, delta);
+         // dump ftrace events
          auto ev_start = get_addr("__start_ftrace_events");
          auto ev_stop  = get_addr("__stop_ftrace_events");
          if ( !ev_start )
