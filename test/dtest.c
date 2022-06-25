@@ -9,7 +9,7 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include <errno.h>
-#include <linux/getlink.h>
+#include <linux/genetlink.h>
 #include <net/if.h>
 #include "shared.h"
 #include "kmods.h"
@@ -57,6 +57,11 @@ static const struct chains s_chains[] = {
  { "register_memory_notifier", "memory_chain" },
  { "usb_register_notify", "usb_notifier_list" },
  { "cpufreq_register_notifier", "cpufreq_policy_notifier_list" },
+ { "ghes_register_vendor_record_notifier", "vendor_record_notify_list" },
+ { "nvmem_register_notifier", "nvmem_notifier" },
+ { "netlink_register_notifier", "netlink_chain" },
+ { "register_inetaddr_notifier", "inetaddr_chain" },
+ { "register_switchdev_blocking_notifier", "switchdev_blocking_notif_chain" },
 };
 
 // registered with atomic_notifier_chain_register
