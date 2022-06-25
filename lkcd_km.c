@@ -3434,6 +3434,48 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
         }
      break; /* IOCTL_GET_TRACE_EXPORTS */
 
+    case IOCTL_GET_BPF_RAW_EVENTS:
+        if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 3) > 0 )
+  	  return -EFAULT;
+  	else {
+          struct bpf_raw_event_map *start = (struct bpf_raw_event_map *)ptrbuf[0];
+          struct bpf_raw_event_map *end = (struct bpf_raw_event_map *)ptrbuf[1];
+          unsigned long cnt = 0;
+          if ( !ptrbuf[2] )
+          {
+            cnt = end - start;
+            if (copy_to_user((void*)ioctl_param, (void*)&cnt, sizeof(cnt)) > 0)
+              return -EFAULT;
+          } else {
+            struct one_bpf_raw_event *curr;
+            size_t kbuf_size = sizeof(unsigned long) + sizeof(struct one_bpf_raw_event) * ptrbuf[2];
+            unsigned long *buf = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL);
+            if ( !buf )
+              return -ENOMEM;
+            curr = (struct one_bpf_raw_event *)(buf + 1);
+            for ( ; start < end; start++ )
+            {
+              if ( cnt >= ptrbuf[2] )
+                break;
+              curr->addr = (void *)start;
+              curr->tp = (void *)start->tp;
+              curr->func = (void *)start->bpf_func;
+              curr->num_args = start->num_args;
+              curr++;
+              cnt++;
+            }
+            buf[0] = cnt;
+            kbuf_size = sizeof(unsigned long) + sizeof(struct one_bpf_raw_event) * cnt;
+            if (copy_to_user((void*)ioctl_param, (void*)buf, kbuf_size) > 0)
+            {
+              kfree(buf);
+              return -EFAULT;
+            }
+            kfree(buf);
+          }
+        }
+     break; /* IOCTL_GET_BPF_RAW_EVENTS */
+
     case IOCTL_GET_FTRACE_OPS:
         if ( !s_ftrace_end )
           return -ENOCSI;

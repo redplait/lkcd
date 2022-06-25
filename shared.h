@@ -941,4 +941,21 @@ struct one_ftrace_ops
 //  unsigned long + N * one_ftrace_ops
 #define IOCTL_GET_FTRACE_OPS           _IOR(IOCTL_NUM, 0x40, int*)
 
+struct one_bpf_raw_event
+{
+  void *addr;
+  void *tp; // tracepoint
+  void *func;
+  unsigned int num_args;
+};
+
+// read bpf_raw_event_map between __start__bpf_raw_tp & __stop__bpf_raw_tp
+// in params:
+//  0 - address of __start__bpf_raw_tp
+//  1 - address of __stop__bpf_raw_tp
+//  2 - cnt
+// out params
+//  unsigned long + N * one_bpf_raw_event
+#define IOCTL_GET_BPF_RAW_EVENTS       _IOR(IOCTL_NUM, 0x41, int*)
+
 #endif /* LKCD_SHARED_H */
