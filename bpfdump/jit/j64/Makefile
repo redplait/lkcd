@@ -1,4 +1,4 @@
-libjx64.so: bpf_jit_comp.o ../jshared.o sort.o j64.o
+libjx64.so: bpf_jit_comp.o ../jshared.o sort.o j64.o ../jmem.o
 	gcc -shared -o $@ $^
 
 ../jshared.o: ../jshared.c
@@ -6,6 +6,9 @@ libjx64.so: bpf_jit_comp.o ../jshared.o sort.o j64.o
 
 %.o: %.c
 	$(COMPILE.c) -fPIC $(OUTPUT_OPTION) $<
+
+%.o: %.cc
+	$(COMPILE.cc) -fPIC $(OUTPUT_OPTION) $<
 
 clean:
 	rm -f *.o *.so

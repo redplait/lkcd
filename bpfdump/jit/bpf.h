@@ -568,7 +568,6 @@ static inline bool insn_is_zext(const struct bpf_insn *insn)
 void bpf_prog_fill_jited_linfo(struct bpf_prog *prog,
 			       const u32 *insn_to_jit_off);
 
-void bpf_jit_binary_free(struct bpf_binary_header *hdr);
 void flush_icache_range(unsigned long start, unsigned long end);
 void bpf_jit_dump(unsigned int flen, unsigned int proglen, u32 pass, void *image);
 void print_fn_code(unsigned char *code, unsigned long len);

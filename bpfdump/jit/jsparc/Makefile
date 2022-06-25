@@ -1,4 +1,4 @@
-libjsparc.so: bpf_jit_comp_64.o ../jshared.o
+libjsparc.so: bpf_jit_comp_64.o ../jshared.o ../jmem.o
 	gcc -shared -o $@ $^
 
 ../jshared.o: ../jshared.c
@@ -6,6 +6,9 @@ libjsparc.so: bpf_jit_comp_64.o ../jshared.o
 
 bpf_jit_comp_64.o: bpf_jit_comp_64.c
 	gcc -c -fPIC $^
+
+%.o: %.cc
+	$(COMPILE.cc) -fPIC $(OUTPUT_OPTION) $<
 
 clean:
 	rm -f *.o *.so

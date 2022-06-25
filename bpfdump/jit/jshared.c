@@ -1,6 +1,7 @@
 #include "types.h"
 #include "bpf.h"
 #include <stdlib.h>
+#include "jmem.h"
 
 #define PAGE_SIZE 	0x1000
 #define MAX_ERRNO	4095
@@ -688,6 +689,7 @@ bpf_jit_binary_alloc(unsigned int proglen, u8 **image_ptr,
 printf("bpf_jit_binary_alloc(%X) %p\n", size, hdr); fflush(stdout);
   if ( !hdr )
     return NULL;
+  jmem_store(hdr);
   hdr->size = size;
 //  hole = min(size - (proglen + sizeof(*hdr)), PAGE_SIZE - sizeof(*hdr));
 
@@ -705,6 +707,7 @@ printf("bpf_jit_binary_alloc(%X) %p\n", size, hdr); fflush(stdout);
 
 void bpf_jit_binary_free(struct bpf_binary_header *hdr)
 {
+  jmem_remove(hdr);
   free(hdr);
 }
 

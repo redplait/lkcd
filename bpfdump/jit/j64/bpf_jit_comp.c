@@ -258,7 +258,7 @@ static int emit_patch(u8 **pprog, void *func, void *ip, u8 opcode)
 
 	offset = func - (ip + X86_PATCH_SIZE);
 	if (!is_simm32(offset)) {
-		pr_err("Target call %p is out of range\n", func);
+		pr_err("Target call %p is out of range, ip %p, offset %lX, opcode %X\n", func, ip, offset, opcode);
 		return -ERANGE;
 	}
 	EMIT1_off32(opcode, offset);
@@ -329,7 +329,9 @@ int bpf_arch_text_poke(void *ip, enum bpf_text_poke_type t,
 	    !is_bpf_text_address((long)ip))
 		/* BPF poking in modules is not supported */
 		return -EINVAL;
-
+#ifdef _DEBUG
+ printf("bpf_arch_text_poke %p\n", ip);
+#endif
 	return __bpf_arch_text_poke(ip, t, old_addr, new_addr, true);
 }
 
