@@ -3612,5 +3612,6 @@ end:
 #ifndef _MSC_VER
    if ( fd )
      close(fd);
+   ujit_close();
 #endif /* _MSC_VER */
 }

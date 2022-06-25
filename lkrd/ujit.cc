@@ -8,11 +8,13 @@
 typedef struct bpf_prog *(*jit_compile)(struct bpf_prog *prog);
 typedef void (*set_kdata)(unsigned long base, unsigned long enter, unsigned long ex);
 typedef void (*set_orig_jit_addr)(void *);
+typedef void (*jmem_clear)();
 
 jit_compile s_j = NULL;
 set_kdata s_kdata = NULL;
 set_orig_jit_addr s_orig = NULL;
 void *s_jm = NULL;
+jmem_clear s_clear = NULL;
 
 int ujit_opened()
 {
@@ -23,10 +25,13 @@ void ujit_close()
 {
   if ( s_jm )
   {
+    if ( s_clear != NULL )
+      s_clear();
     dlclose(s_jm);
     s_jm = NULL;
     s_kdata = NULL;
     s_orig = NULL;
+    s_clear = NULL;
   }
 }
 
@@ -64,6 +69,7 @@ int ujit_open(const char *fname)
   }
   s_kdata = (set_kdata)dlsym(s_jm, "put_call_base");
   s_orig = (set_orig_jit_addr)dlsym(s_jm, "put_original_jit_addr");
+  s_clear = (jmem_clear)dlsym(s_jm, "jmem_clear");
   return 1;
 }
 
@@ -98,6 +104,11 @@ int ujit2file(int idx, unsigned char *body, long len, unsigned int stack_depth)
     return 0;
   }
   printf("jited_len %d bpf_func %p\n", f->jited_len, f->bpf_func);
+  if ( !f->jited_len )
+  {
+    free(prog);
+    return 0;
+  }
   char fn[256];
   snprintf(fn, sizeof(fn), "%d.bin", idx);
   FILE *fp = fopen(fn, "wb");
