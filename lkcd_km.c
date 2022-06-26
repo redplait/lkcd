@@ -3245,6 +3245,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
          {
            if ( prog == target )
            {
+             bpf_prog_inc(prog);
              if ( IOCTL_GET_BPF_PROG_BODY == ioctl_num )
                body = (char *)prog->bpf_func;
              else if ( IOCTL_GET_BPF_USED_MAPS == ioctl_num && prog->aux )
@@ -3259,7 +3260,11 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
            return -ENOENT;
          // copy to user
          if (copy_to_user((void*)ioctl_param, (void*)body, ptrbuf[3]) > 0)
+         {
+           bpf_prog_put(prog);
            return -EFAULT;
+         }
+         bpf_prog_put(prog);
        }
      break; /* IOCTL_GET_BPF_PROG_BODY */
 
