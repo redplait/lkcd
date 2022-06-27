@@ -958,4 +958,12 @@ struct one_bpf_raw_event
 //  unsigned long + N * one_bpf_raw_event
 #define IOCTL_GET_BPF_RAW_EVENTS       _IOR(IOCTL_NUM, 0x41, int*)
 
+// read dyn events
+// in params:
+//  0 - address of dyn_event_list
+//  1 - cnt
+// out params
+//  unsigned long + N * one_tracepoint_func
+#define IOCTL_GET_DYN_EVENTS           _IOR(IOCTL_NUM, 0x42, int*)
+
 #endif /* LKCD_SHARED_H */

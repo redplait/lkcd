@@ -14,3 +14,9 @@ struct und_uprobe {
 	loff_t			ref_ctr_offset;
 	unsigned long		flags;
 };
+
+// ripped from https://elixir.bootlin.com/linux/latest/source/kernel/trace/trace_dynevent.h#L61
+struct dyn_event {
+	struct list_head		list;
+	void *ops;
+};

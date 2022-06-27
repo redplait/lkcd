@@ -3584,6 +3584,49 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
         }
      break; /* IOCTL_GET_FTRACE_CMDS */
 
+    case IOCTL_GET_DYN_EVENTS:
+        if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 2) > 0 )
+  	  return -EFAULT;
+  	else {
+  	  unsigned int cnt = 0;
+          struct dyn_event *pos;
+          struct list_head *head = (struct list_head *)ptrbuf[0];
+          if ( !ptrbuf[1] )
+          {
+            list_for_each_entry(pos, head, list)
+            {
+              cnt++;
+            }
+            printk("IOCTL_GET_DYN_EVENTS %d\n", cnt);
+            if (copy_to_user((void*)ioctl_param, (void*)&cnt, sizeof(cnt)) > 0)
+              return -EFAULT;
+          } else {
+            struct one_tracepoint_func *curr;
+            size_t kbuf_size = sizeof(unsigned long) + sizeof(struct one_tracepoint_func) * ptrbuf[1];
+            unsigned long *buf = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL);
+            if ( !buf )
+              return -ENOMEM;
+            curr = (struct one_tracepoint_func *)(buf + 1);
+            buf[0] = 0;
+            list_for_each_entry(pos, head, list)
+            {
+              if ( buf[0] >= ptrbuf[1] )
+                break;
+              curr->addr = (unsigned long)pos;
+              curr->data = (unsigned long)pos->ops;
+              curr++;
+              buf[0]++;
+            }
+            if (copy_to_user((void*)ioctl_param, (void*)buf, kbuf_size) > 0)
+            {
+              kfree(buf);
+              return -EFAULT;
+            }
+            kfree(buf);
+          }
+        }
+     break; /* IOCTL_GET_DYN_EVENTS */
+
     case IOCTL_GET_DYN_EVT_OPS:
         if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 3) > 0 )
   	  return -EFAULT;
