@@ -961,7 +961,8 @@ struct one_bpf_raw_event
 // read dyn events
 // in params:
 //  0 - address of dyn_event_list
-//  1 - cnt
+//  1 - address of event_mutex
+//  2 - cnt
 // out params
 //  unsigned long + N * one_tracepoint_func
 #define IOCTL_GET_DYN_EVENTS           _IOR(IOCTL_NUM, 0x42, int*)
