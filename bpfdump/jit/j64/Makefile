@@ -5,7 +5,7 @@ libjx64.so: bpf_jit_comp.o ../jshared.o sort.o j64.o ../jmem.o
 	gcc -c -fPIC ../jshared.c -o $@
 
 %.o: %.c
-	$(COMPILE.c) -fPIC $(OUTPUT_OPTION) $<
+	$(COMPILE.c) -fPIC -D_DEBUG $(OUTPUT_OPTION) $<
 
 %.o: %.cc
 	$(COMPILE.cc) -fPIC $(OUTPUT_OPTION) $<

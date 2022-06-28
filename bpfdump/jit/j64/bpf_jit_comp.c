@@ -259,7 +259,7 @@ static int emit_patch(u8 **pprog, void *func, void *ip, u8 opcode)
 	offset = func - (ip + X86_PATCH_SIZE);
 	if (!is_simm32(offset)) {
 		pr_err("Target call %p is out of range, ip %p, offset %lX, opcode %X\n", func, ip, offset, opcode);
-		return -ERANGE;
+//		return -ERANGE;
 	}
 	EMIT1_off32(opcode, offset);
 	*pprog = prog;
@@ -1101,6 +1101,9 @@ xadd:			if (is_imm8(insn->off))
 			/* call */
 		case BPF_JMP | BPF_CALL:
 			func = (u8 *) __bpf_call_base + imm32;
+#ifdef _DEBUG
+                        printf("func %p imm32 %X __bpf_call_base %p\n", func, imm32, __bpf_call_base);
+#endif
 			if (!imm32 || emit_call(&prog, func, image + addrs[i - 1]))
 				return -EINVAL;
 			break;
@@ -1377,6 +1380,10 @@ static int invoke_bpf(const struct btf_func_model *m, u8 **pprog,
 {
 	u8 *prog = *pprog;
 	int cnt = 0, i;
+
+#ifdef _DEBUG
+ printf("invoke_bpf prog %p prog_cnt %d\n", prog, prog_cnt);
+#endif
 
 	for (i = 0; i < prog_cnt; i++) {
 		if (emit_call(&prog, __bpf_prog_enter, prog))
