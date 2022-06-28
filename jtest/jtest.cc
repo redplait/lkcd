@@ -43,9 +43,9 @@ char *read_file(const char *fname, size_t &fsize)
 
 int main(int argc, char **argv)
 {
-  if ( !ujit_open("./libjsw64.so") )
+  if ( !ujit_open("./libjx64.so") )
   {
-    printf("cannot open libjsw64.so\n");
+    printf("cannot open libjx64.so\n");
     return -1;
   }
   if ( argc > 1 )
@@ -55,10 +55,11 @@ int main(int argc, char **argv)
     if ( !buf )
       printf("cannot open %s\n", argv[1]);
     else {
-      ujit(0, (unsigned char *)buf, fsize / 8, 32);
+      ujit2file(0, (unsigned char *)buf, fsize / 8, 32);
       free(buf);
     }
   } else 
-    ujit(0, fault_body, sizeof(fault_body) / 8, 32);
+    ujit2file(0, fault_body, sizeof(fault_body) / 8, 32);
+  ujit_close();
   return 0;
 }
