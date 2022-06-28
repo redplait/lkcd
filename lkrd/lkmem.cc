@@ -632,6 +632,43 @@ size_t calc_data_size(size_t n)
 }
 
 template <typename T, typename F>
+void dump_data1arg(int fd, a64 list, sa64 delta, int code, const char *header, const char *ioctl_name, const char *bname, F func)
+{
+  unsigned long args[2] = { list + delta, 0 };
+  int err = ioctl(fd, code, (int *)args);
+  if ( err )
+  {
+    printf("%s count failed, error %d (%s)\n", ioctl_name, errno, strerror(errno));
+    return;
+  }
+  printf("\n%s at %p: %ld\n", header, (void *)(list + delta), args[0]);
+  if ( !args[0] )
+    return;
+  size_t size = calc_data_size<T>(args[0]);
+  unsigned long *buf = (unsigned long *)malloc(size);
+  if ( !buf )
+  {
+    printf("cannot alloc buffer for %s, len %lX\n", bname, size);
+    return;
+  }
+  dumb_free<unsigned long> tmp(buf);
+  buf[0] = list + delta;
+  buf[1] = args[0];
+  err = ioctl(fd, code, (int *)buf);
+  if ( err )
+  {
+    printf("%s failed, error %d (%s)\n", ioctl_name, errno, strerror(errno));
+    return;
+  }
+  size = buf[0];
+  T *curr = (T *)(buf + 1);
+  for ( size_t idx = 0; idx < size; idx++, curr++ )
+  {
+    func(idx, curr);
+  }
+}
+
+template <typename T, typename F>
 void dump_data2arg(int fd, a64 list, a64 lock, sa64 delta, int code, const char *header, const char *ioctl_name, const char *bname, F func)
 {
   unsigned long args[3] = { list + delta, lock + delta, 0 };
@@ -690,6 +727,28 @@ void dump_ftrace_ops(int fd, a64 list, a64 lock, sa64 delta)
     if ( curr->saved_func )
       dump_kptr((unsigned long)curr->saved_func, "  saved_func", delta);
    }
+  );
+}
+
+void dump_dynamic_events(int fd, a64 list, a64 lock, sa64 delta)
+{
+  if ( !list )
+  {
+    printf("cannot find dyn_event_list\n");
+    return;
+  }
+  if ( !lock )
+  {
+    printf("cannot find event_mutex\n");
+    return;
+  }
+  dump_data2arg<one_tracepoint_func>(fd, list, lock, delta, IOCTL_GET_DYN_EVENTS, "dyn_event_list", "IOCTL_GET_DYN_EVENTS", "dyn_event_list",
+   [=](size_t idx, const one_tracepoint_func *curr) {
+    printf(" [%ld] at", idx);
+    dump_unnamed_kptr((unsigned long)curr->addr, delta);
+    if ( curr->data )
+      dump_kptr((unsigned long)curr->data, "  ops", delta);
+    }
   );
 }
 
@@ -1129,6 +1188,9 @@ void dump_bpf_progs(int fd, a64 list, a64 lock, sa64 delta, std::map<void *, std
           printf("   [%d] %p - %s\n", i, map_addr, mi->second.c_str());
       }      
     }
+    unsigned long *jit_body = NULL;
+    unsigned char *curr_jit;
+    dumb_free<unsigned long> jit_tmp;
     if ( curr->bpf_func && curr->jited_len )
     {
       dump_kptr2((unsigned long)curr->bpf_func, "  bpf_func", delta);
@@ -1137,26 +1199,27 @@ void dump_bpf_progs(int fd, a64 list, a64 lock, sa64 delta, std::map<void *, std
       size_t body_len = curr->jited_len;
       if ( body_len < args_len )
         body_len = args_len;
-      unsigned long *l = (unsigned long *)malloc(body_len);
-      if ( !l )
+      jit_body = (unsigned long *)malloc(body_len);
+      if ( !jit_body )
       {
         printf("cannot alloc memory for bpf jit code\n");
         return;
       }
-      dumb_free<unsigned long> tmp(l);
-      l[0] = list + delta;
-      l[1] = lock + delta;
-      l[2] = (unsigned long)curr->prog;
-      l[3] = curr->jited_len;
-      int err = ioctl(fd, IOCTL_GET_BPF_PROG_BODY, (int *)l);
+      jit_tmp = jit_body;
+      curr_jit = (unsigned char *)jit_body;
+      jit_body[0] = list + delta;
+      jit_body[1] = lock + delta;
+      jit_body[2] = (unsigned long)curr->prog;
+      jit_body[3] = curr->jited_len;
+      int err = ioctl(fd, IOCTL_GET_BPF_PROG_BODY, (int *)jit_body);
       if ( err )
       {
         printf("IOCTL_GET_BPF_PROG_BODY failed, error %d (%s)\n", errno, strerror(errno));
         return;
       }
       if ( g_opt_h )
-        HexDump((unsigned char *)l, curr->jited_len);
-      x64_jit_disasm dis((a64)curr->bpf_func, (const char *)l, curr->jited_len);
+        HexDump(curr_jit, curr->jited_len);
+      x64_jit_disasm dis((a64)curr->bpf_func, (const char *)curr_jit, curr->jited_len);
       dis.disasm(delta, map_names);
     }
     if ( curr->len )
@@ -1187,7 +1250,25 @@ void dump_bpf_progs(int fd, a64 list, a64 lock, sa64 delta, std::map<void *, std
         HexDump((unsigned char *)l, curr->len * 8);
       ebpf_disasm((unsigned char *)l, curr->len, stdout);
       put_orig_jit_addr(curr->bpf_func);
-      ujit2file(idx, (unsigned char *)l, curr->len, curr->stack_depth);
+      if ( jit_body )
+      {
+        jitted_code jc;
+        ujit2mem((unsigned char *)l, curr->len, curr->stack_depth, jc);
+        if ( jc.size != curr->jited_len )
+          printf("jit id %ld has different length - in kernel %d, jitted %ld\n", idx, curr->jited_len, jc.size);
+        else {
+          int patched = 0;
+          for ( size_t i = 0; i < jc.size; i++ )
+          {
+            if ( jc.body[i] != curr_jit[i] )
+            {
+              patched++;
+              printf(" patched at %ld, %X - %X\n", i, jc.body[i], curr_jit[i]);
+            }
+          }
+        }
+      } else
+        ujit2file(idx, (unsigned char *)l, curr->len, curr->stack_depth);
     }
     printf("\n");
    }
@@ -3332,6 +3413,10 @@ end:
            ecl = get_addr("dyn_event_ops_list");
            ecm = get_addr("dyn_event_ops_mutex");
            dump_dynevents_ops(fd, ecl, ecm, delta);
+           // dump dynamic events
+           ecl = get_addr("dyn_event_list");
+           ecm = get_addr("event_mutex");
+           dump_dynamic_events(fd, ecl, ecm, delta);
          }
 #endif /* _MSC_VER */
        }

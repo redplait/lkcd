@@ -4,6 +4,7 @@
 #include <stdlib.h>
 #include "../bpfdump/jit/types.h"
 #include "../bpfdump/jit/bpf.h"
+#include "ujit.h"
 
 typedef struct bpf_prog *(*jit_compile)(struct bpf_prog *prog);
 typedef void (*set_kdata)(unsigned long base, unsigned long enter, unsigned long ex);
@@ -80,6 +81,7 @@ int ujit2file(int idx, unsigned char *body, long len, unsigned int stack_depth)
   // make new bpf_prog
   size_t asize = sizeof(bpf_prog) + 8 * len;
   bpf_prog *prog = (bpf_prog *)malloc(asize);
+  memset(prog, 0, sizeof(bpf_prog));
   struct bpf_prog_aux aux;
   memset(&aux, 0, sizeof(aux));
   // copy ebpf opcodes
@@ -124,13 +126,14 @@ int ujit2file(int idx, unsigned char *body, long len, unsigned int stack_depth)
   return 0;
 }
 
-int ujit2mem(unsigned char *body, long len, unsigned int stack_depth, size_t &out_size, unsigned char **out_buf)
+int ujit2mem(unsigned char *body, long len, unsigned int stack_depth, jitted_code &jc)
 {
   if ( s_j == NULL )
     return -1;
   // make new bpf_prog
   size_t asize = sizeof(bpf_prog) + 8 * len;
   bpf_prog *prog = (bpf_prog *)malloc(asize);
+  memset(prog, 0, sizeof(bpf_prog));
   struct bpf_prog_aux aux;
   memset(&aux, 0, sizeof(aux));
   // copy ebpf opcodes
@@ -154,14 +157,14 @@ int ujit2mem(unsigned char *body, long len, unsigned int stack_depth, size_t &ou
     free(prog);
     return 0;
   }
-  printf("jited_len %d bpf_func %p\n", f->jited_len, f->bpf_func);
-  out_size = f->jited_len;
-  if ( !out_size )
+  printf("ujit2mem: jited_len %d bpf_func %p\n", f->jited_len, f->bpf_func);
+  jc.size = f->jited_len;
+  if ( !f->jited_len )
   {
     free(prog);
     return 0;
   }
-  *out_buf = (unsigned char *)f->bpf_func;
+  jc.body = (unsigned char *)f->bpf_func;
   free(prog);
   return 1;
 }
