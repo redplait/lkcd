@@ -442,3 +442,22 @@ int x64_disasm::process(a64 addr, std::map<a64, a64> &skip, std::set<a64> &out_r
   }
   return res;
 }
+
+int x64_jit_nops::skip(const char *body, unsigned long len)
+{
+   ud_init(&ud_obj);
+   ud_set_mode(&ud_obj, 64);
+   ud_set_input_buffer(&ud_obj, (uint8_t *)body, len);
+   ud_set_pc(&ud_obj, (uint64_t)body);
+   int curr_len, total = 0;
+   for ( ; total < len; total += curr_len )
+   {
+     curr_len = ud_disassemble(&ud_obj);
+     if ( !curr_len )
+       return 0;
+     if ( ud_obj.mnemonic == UD_Inop )
+       continue;
+     return total + curr_len;
+   }
+   return total;
+}

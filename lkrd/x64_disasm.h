@@ -104,6 +104,13 @@ class used_regs
     std::map<ud_type, V> m_regs;
 };
 
+struct x64_jit_nops
+{
+  int skip(const char *body, unsigned long len);
+  protected:
+   ud_t ud_obj;
+};
+
 class x64_jit_disasm
 {
   public:
