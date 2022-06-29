@@ -1127,6 +1127,13 @@ void dump_bpf_ksyms(int fd, a64 list, a64 lock, sa64 delta)
   );
 }
 
+void dump_holes(const char *body, std::list<const char *> *holes)
+{
+  printf("holes %ld\n", holes->size());
+  for ( auto c: *holes )
+   printf("%p %lX\n", c, c - body);
+}
+
 void dump_bpf_progs(int fd, a64 list, a64 lock, sa64 delta, std::map<void *, std::string> &map_names)
 {
   if ( !list )
@@ -1191,6 +1198,7 @@ void dump_bpf_progs(int fd, a64 list, a64 lock, sa64 delta, std::map<void *, std
     unsigned long *jit_body = NULL;
     unsigned char *curr_jit;
     dumb_free<unsigned long> jit_tmp;
+    std::list<const char *> holes;
     if ( curr->bpf_func && curr->jited_len )
     {
       dump_kptr2((unsigned long)curr->bpf_func, "  bpf_func", delta);
@@ -1220,7 +1228,8 @@ void dump_bpf_progs(int fd, a64 list, a64 lock, sa64 delta, std::map<void *, std
       if ( g_opt_h )
         HexDump(curr_jit, curr->jited_len);
       x64_jit_disasm dis((a64)curr->bpf_func, (const char *)curr_jit, curr->jited_len);
-      dis.disasm(delta, map_names);
+      dis.disasm(delta, map_names, &holes);
+      dump_holes((const char *)curr_jit, &holes);
     }
     if ( curr->len )
     {
@@ -1265,9 +1274,10 @@ void dump_bpf_progs(int fd, a64 list, a64 lock, sa64 delta, std::map<void *, std
         {
           printf("jit id %ld has different length - in kernel %d, jitted %ld\n", idx, curr->jited_len, jc.size);
           x64_jit_disasm dis((a64)curr->bpf_func, (const char *)jc.body, jc.size);
-          dis.disasm(delta, map_names);
+          dis.disasm(delta, map_names, NULL);
         } else {
           int patched = 0;
+          std::list<const char *>::iterator hiter = holes.begin();
           for ( size_t i = 0; i < jc.size; i++ )
           {
             if ( jc.body[i] != curr_jit[i] )
@@ -1275,7 +1285,14 @@ void dump_bpf_progs(int fd, a64 list, a64 lock, sa64 delta, std::map<void *, std
               patched++;
               printf(" patched at %p, %X - %X\n", i + orig_skip + (char *)curr->bpf_func, jc.body[i], curr_jit[i]);
             }
+            if ( hiter != holes.end() && (const char *)(curr_jit + i) == *hiter )
+            {
+              i += 4;
+              ++hiter;
+            }
           }
+          if ( patched )
+            printf("total %d bytes patched\n", patched);
         }
       } else
         ujit2file(idx, (unsigned char *)l, curr->len, curr->stack_depth);

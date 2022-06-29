@@ -1,4 +1,5 @@
 #pragma once
+#include <list>
 #include "dis_base.h"
 #define __UD_STANDALONE__
 #include "libudis86/types.h"
@@ -116,21 +117,32 @@ class x64_jit_disasm
   public:
    x64_jit_disasm(a64 addr, const char *body, unsigned long len)
    {
+      start = addr;
+      m_body = body;
       ud_init(&ud_obj);
       ud_set_mode(&ud_obj, 64);
       ud_set_syntax(&ud_obj, UD_SYN_INTEL);
       ud_set_input_buffer(&ud_obj, (uint8_t *)body, len);
       ud_set_pc(&ud_obj, (uint64_t)addr);
    }
-   void disasm(sa64 delta, std::map<void *, std::string> &map_names)
+   void disasm(sa64 delta, std::map<void *, std::string> &map_names, std::list<const char *> *holes)
    {
-     while (ud_disassemble(&ud_obj))
+     int curr_len;
+     while (curr_len = ud_disassemble(&ud_obj))
      {
        printf("%016lx ", ud_insn_off(&ud_obj));
        const char* hex1 = ud_insn_hex(&ud_obj);
        const char *name = NULL;
        if ( ud_obj.mnemonic == UD_Icall && ud_obj.operand[0].type == UD_OP_JIMM )
        {
+         // fill holes
+         if ( holes != NULL )
+         {
+#ifdef _DEBUG
+           printf("add hole at %p, body %p off %X\n", m_body + ud_obj.pc - start - curr_len, m_body, ud_obj.pc - start - curr_len);
+#endif /* _DEBUG */
+           holes->push_back(m_body + ud_obj.pc - start - curr_len);
+         }
          a64 addr = 0;
          switch(ud_obj.operand[0].size)
          {
@@ -163,6 +175,8 @@ class x64_jit_disasm
    }
   protected:
    ud_t ud_obj;
+   a64 start;
+   const char *m_body;
 };
 
 class x64_disasm: public dis_base
