@@ -1265,11 +1265,13 @@ void dump_bpf_progs(int fd, a64 list, a64 lock, sa64 delta, std::map<void *, std
         x64_jit_nops skipper;
         ujit2mem((unsigned char *)l, curr->len, curr->stack_depth, jc);
         int orig_skip = skipper.skip((const char *)curr_jit, curr->jited_len);
-        int my_skip = skipper.skip((const char *)jc.body, jc.size);
         curr_jit += orig_skip;
-        jc.size -= my_skip;
-        jc.body += my_skip;
-
+        if ( jc.body )
+        {
+          int my_skip = skipper.skip((const char *)jc.body, jc.size);
+          jc.size -= my_skip;
+          jc.body += my_skip;
+        }
         if ( jc.size != curr->jited_len - orig_skip)
         {
           printf("jit id %ld has different length - in kernel %d, jitted %ld\n", idx, curr->jited_len, jc.size);

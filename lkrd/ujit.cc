@@ -74,6 +74,31 @@ int ujit_open(const char *fname)
   return 1;
 }
 
+void free_prog(bpf_prog *fp)
+{
+  if (fp->aux) 
+  {
+    if ( fp->aux->poke_tab )
+      free(fp->aux->poke_tab);
+  }
+  free(fp);
+}
+
+int dump_jit2file(int idx, unsigned char *body, long len)
+{
+  char fn[256];
+  snprintf(fn, sizeof(fn), "%d.bin", idx);
+  FILE *fp = fopen(fn, "wb");
+  if ( fp == NULL )
+  {
+    printf("cannot open file %s\n", fn);
+    return 0;
+  }
+  fwrite(body, len, 1, fp);
+  fclose(fp);
+  return 1;
+}
+
 int ujit2file(int idx, unsigned char *body, long len, unsigned int stack_depth)
 {
   if ( s_j == NULL )
@@ -102,28 +127,18 @@ int ujit2file(int idx, unsigned char *body, long len, unsigned int stack_depth)
   if ( !f )
   {
     fprintf(stderr, "bpf_int_jit_compile failed\n");
-    free(prog);
+    free_prog(prog);
     return 0;
   }
   printf("jited_len %d bpf_func %p\n", f->jited_len, f->bpf_func);
   if ( !f->jited_len )
   {
-    free(prog);
+    free_prog(prog);
     return 0;
   }
-  char fn[256];
-  snprintf(fn, sizeof(fn), "%d.bin", idx);
-  FILE *fp = fopen(fn, "wb");
-  if ( fp == NULL )
-  {
-    printf("cannot open file %s\n", fn);
-    free(prog);
-    return 0;
-  }
-  fwrite((void *)f->bpf_func, f->jited_len, 1, fp);
-  fclose(fp);
-  free(prog);
-  return 0;
+  int res = dump_jit2file(idx, (unsigned char *)f->bpf_func, f->jited_len);
+  free_prog(prog);
+  return res;
 }
 
 int ujit2mem(unsigned char *body, long len, unsigned int stack_depth, jitted_code &jc)
@@ -154,17 +169,17 @@ int ujit2mem(unsigned char *body, long len, unsigned int stack_depth, jitted_cod
   if ( !f )
   {
     fprintf(stderr, "bpf_int_jit_compile failed\n");
-    free(prog);
+    free_prog(prog);
     return 0;
   }
   printf("ujit2mem: jited_len %d bpf_func %p\n", f->jited_len, f->bpf_func);
   jc.size = f->jited_len;
   if ( !f->jited_len )
   {
-    free(prog);
+    free_prog(prog);
     return 0;
   }
   jc.body = (unsigned char *)f->bpf_func;
-  free(prog);
+  free_prog(prog);
   return 1;
 }
