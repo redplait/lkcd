@@ -111,8 +111,10 @@ static inline bool bpf_pseudo_func(const struct bpf_insn *insn)
 void __bpf_prog_free(struct bpf_prog *fp)
 {
 	if (fp->aux) {
+	  if ( fp->aux->poke_tab )
 		free(fp->aux->poke_tab);
-		free(fp->aux);
+// aux located at stack inside ujit2file/ujit2mem
+//		free(fp->aux);
 	}
 	free(fp);
 }
