@@ -38,6 +38,10 @@ int bpf_jit_enable = 1;
 u64 __bpf_call_base = 0;
 void *__bpf_prog_enter = 0;
 void *__bpf_prog_exit = 0;
+void *__bpf_prog_enter_sleepable = 0;
+void *__bpf_prog_exit_sleepable = 0;
+void *__bpf_tramp_enter = 0;
+void *__bpf_tramp_exit = 0;
 // absolute values in real kernel
 static u64 _base = 0;
 static u64 _enter = 0;
@@ -77,6 +81,15 @@ void *kcalloc(size_t n, size_t size, int flags)
 void *kmalloc_array(size_t n, size_t size, int flags)
 {
   return malloc(n * size);
+}
+
+void *kvmalloc_array(size_t n, size_t size, int flags)
+{
+  void *res = malloc(n * size);
+  if ( !res )
+    return res;
+   memset(res, 0, n * size);
+   return res;
 }
 
 void *kvcalloc(size_t n, size_t size, int flags)
@@ -711,6 +724,11 @@ void bpf_jit_binary_free(struct bpf_binary_header *hdr)
   free(hdr);
 }
 
+void text_poke_bp(void *addr, const void *opcode, size_t len, const void *emulate)
+{
+  printf("text_poke_bp called, addr %p, len %lX\n", addr, len);
+}
+
 int is_kernel_text(unsigned long addr)
 {
   return 0;
@@ -761,4 +779,42 @@ unsigned long __ffs(unsigned long word)
 	if ((word & 0x1) == 0)
 		num += 1;
 	return num;
+}
+
+unsigned long __fls(unsigned long word)
+{
+ 	int num = BITS_PER_LONG - 1;
+
+#if BITS_PER_LONG == 64
+	if (!(word & (~0ul << 32))) {
+		num -= 32;
+		word <<= 32;
+	}
+#endif
+	if (!(word & (~0ul << (BITS_PER_LONG-16)))) {
+		num -= 16;
+		word <<= 16;
+	}
+	if (!(word & (~0ul << (BITS_PER_LONG-8)))) {
+		num -= 8;
+		word <<= 8;
+	}
+	if (!(word & (~0ul << (BITS_PER_LONG-4)))) {
+		num -= 4;
+		word <<= 4;
+	}
+	if (!(word & (~0ul << (BITS_PER_LONG-2)))) {
+		num -= 2;
+		word <<= 2;
+	}
+	if (!(word & (~0ul << (BITS_PER_LONG-1))))
+		num -= 1;
+	return num;
+}
+
+int fls64(__u64 x)
+{
+	if (x == 0)
+		return 0;
+	return __fls(x) + 1;
 }

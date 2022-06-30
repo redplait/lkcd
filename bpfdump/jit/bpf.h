@@ -7,6 +7,16 @@ extern u64 __bpf_call_base;
 #define MAX_BPF_FUNC_REG_ARGS 5
 #define MAX_BPF_FUNC_ARGS 12
 
+#define BPF_FETCH	0x01
+#define BPF_XCHG	(0xe0 | BPF_FETCH)
+#define BPF_CMPXCHG	(0xf0 | BPF_FETCH)
+#define BPF_ATOMIC	0xc0
+
+struct bpf_tramp_image {
+ void *ip_after_call;
+ void *ip_epilogue;
+};
+
 struct btf_func_model {
 	u8 ret_size;
 	u8 nr_args;
@@ -41,6 +51,9 @@ struct bpf_map {
 };
 
 struct bpf_jit_poke_descriptor {
+        void *tailcall_target;
+	void *tailcall_bypass;
+	void *bypass_addr;
 	void *ip;
 	union {
 		struct {
@@ -48,9 +61,11 @@ struct bpf_jit_poke_descriptor {
 			u32 key;
 		} tail_call;
 	};
+	bool tailcall_target_stable;
 	bool ip_stable;
 	u8 adj_off;
 	u16 reason;
+	u32 insn_idx;
 };
 
 enum bpf_text_poke_type {
@@ -109,9 +124,16 @@ struct bpf_binary_header {
 
 struct bpf_prog;
 
+#define BPF_MAX_TRAMP_PROGS 38
+struct bpf_tramp_progs {
+	struct bpf_prog *progs[BPF_MAX_TRAMP_PROGS];
+	int nr_progs;
+};
+
 enum bpf_tramp_prog_type {
 	BPF_TRAMP_FENTRY,
 	BPF_TRAMP_FEXIT,
+	BPF_TRAMP_MODIFY_RETURN,
 	BPF_TRAMP_MAX,
 	BPF_TRAMP_REPLACE, /* more than MAX */
 };
@@ -132,6 +154,8 @@ struct bpf_prog_aux {
 	bool offload_requested;
 	bool attach_btf_trace; /* true if attaching to BTF-enabled raw tp */
 	bool func_proto_unreliable;
+	bool sleepable;
+	bool tail_call_reachable;
 	enum bpf_tramp_prog_type trampoline_prog_type;
 	struct bpf_trampoline *trampoline;
 //	struct hlist_node tramp_hlist;
@@ -583,10 +607,16 @@ void bpf_jit_binary_lock_ro(struct bpf_binary_header *hdr);
 void bpf_jit_prog_release_other(struct bpf_prog *fp, struct bpf_prog *fp_other);
 void bpf_prog_unlock_free(struct bpf_prog *fp);
 bool is_bpf_text_address(unsigned long addr);
+void text_poke_bp(void *addr, const void *opcode, size_t len, const void *emulate);
+
+int bpf_jit_get_func_addr(const struct bpf_prog *prog,
+			  const struct bpf_insn *insn, bool extra_pass,
+			  u64 *func_addr, bool *func_addr_fixed);
 
 // for x86
 #define WARN_ON_ONCE(condition)  (condition)
+#define WARN_ON(condition)  (condition)
 
 void text_poke_bp(void *addr, const void *opcode, size_t len, const void *emulate);
 int is_kernel_text(unsigned long addr);
-extern void * __bpf_prog_enter, *__bpf_prog_exit;
+extern void * __bpf_prog_enter, *__bpf_prog_exit, *__bpf_prog_enter_sleepable, *__bpf_prog_exit_sleepable, *__bpf_tramp_enter, *__bpf_tramp_exit;
