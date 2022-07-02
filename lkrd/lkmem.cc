@@ -1441,6 +1441,12 @@ void dump_ftrace_options(int fd, sa64 delta)
   addr = get_addr("ftrace_graph_active");
   if ( addr )
     dump_jit_option<int>(fd, addr, delta, "ftrace_graph_active: %d\n");
+  addr = get_addr("ftrace_direct_func_count");
+  if ( addr )
+    dump_jit_option<int>(fd, addr, delta, "ftrace_direct_func_count: %d\n");
+  addr = get_addr("ftrace_number_of_groups");
+  if ( addr )
+    dump_jit_option<int>(fd, addr, delta, "ftrace_number_of_groups: %d\n");
 }
 
 void dump_jit_options(int fd, sa64 delta)
