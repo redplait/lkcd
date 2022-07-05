@@ -1275,8 +1275,11 @@ void dump_bpf_progs(int fd, a64 list, a64 lock, sa64 delta, std::map<void *, std
         if ( jc.size != curr->jited_len - orig_skip)
         {
           printf("jit id %ld has different length - in kernel %d, jitted %ld\n", idx, curr->jited_len, jc.size);
-          x64_jit_disasm dis((a64)curr->bpf_func, (const char *)jc.body, jc.size);
-          dis.disasm(delta, map_names, NULL);
+          if ( jc.size )
+          {
+            x64_jit_disasm dis((a64)curr->bpf_func, (const char *)jc.body, jc.size);
+            dis.disasm(delta, map_names, NULL);
+          }
         } else {
           int patched = 0;
           std::list<const char *>::iterator hiter = holes.begin();
