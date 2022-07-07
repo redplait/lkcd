@@ -15,6 +15,12 @@ struct und_uprobe {
 	unsigned long		flags;
 };
 
+// ripped from https://elixir.bootlin.com/linux/v5.13/source/kernel/events/uprobes.c#L80
+struct delayed_uprobe {
+  struct list_head list;
+  struct und_uprobe *uprobe;
+};
+
 // ripped from https://elixir.bootlin.com/linux/latest/source/kernel/trace/trace_dynevent.h#L61
 struct dyn_event {
 	struct list_head		list;

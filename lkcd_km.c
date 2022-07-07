@@ -248,6 +248,20 @@ static int close_lkcd(struct inode *inode, struct file *file)
   return 0;
 } 
 
+const char *get_ioctl_name(unsigned int num)
+{
+  switch(num)
+  {
+    case IOCTL_GET_BPF_USED_MAPS:
+      return "IOCTL_GET_BPF_USED_MAPS";
+    case IOCTL_GET_BPF_OPCODES:
+      return "IOCTL_GET_BPF_OPCODES";
+    case IOCTL_GET_BPF_PROG_BODY:
+      return "IOCTL_GET_BPF_PROG_BODY";
+  }
+  return "unknown";
+}
+
 // ripped from https://stackoverflow.com/questions/1184274/read-write-files-within-a-linux-kernel-module
 struct file *file_open(const char *path, int flags, int rights, int *err) 
 {
@@ -1765,6 +1779,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
            struct und_uprobe *up = rb_entry(iter, struct und_uprobe, rb_node);
            curr[cnt].addr = up;
            curr[cnt].inode = up->inode;
+           curr[cnt].ref_ctr_offset = up->ref_ctr_offset;
            curr[cnt].offset = up->offset;
            curr[cnt].i_no = 0;
            curr[cnt].flags = up->flags;
@@ -3258,6 +3273,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
          spin_unlock_bh(lock);
          if ( !body )
            return -ENOENT;
+         printk("ioctl %s body %p size %ld\n", get_ioctl_name(ioctl_num), body, ptrbuf[3]);
          // copy to user
          if (copy_to_user((void*)ioctl_param, (void*)body, ptrbuf[3]) > 0)
          {

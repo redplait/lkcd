@@ -169,6 +169,7 @@ struct one_uprobe
   unsigned long cons_cnt;
   unsigned long i_no; // from inode
   unsigned long offset;
+  unsigned long ref_ctr_offset;
   unsigned long flags;
   char name[256];
 };
