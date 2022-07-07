@@ -1037,6 +1037,51 @@ void show_bpf_progs(size_t bpf_size, const one_bpf_prog *curr, sa64 delta)
   }
 }
 
+void dump_trace_event_call(int fd, size_t idx, one_trace_event_call *curr, sa64 delta, int dump_bpf = 0)
+{
+    if ( curr->bpf_prog )
+    {
+      if ( curr->perf_cnt )
+        printf(" [%ld] flags %X filter %p perf_cnt %ld bpf_cnt %d at", idx, curr->flags, curr->filter, curr->perf_cnt, curr->bpf_cnt);
+      else
+        printf(" [%ld] flags %X filter %p bpf_cnt %d at", idx, curr->flags, curr->filter, curr->bpf_cnt);
+    } else {
+      if ( curr->perf_cnt )
+        printf(" [%ld] flags %X filter %p perf_cnt %ld at", idx, curr->flags, curr->filter, curr->perf_cnt);
+      else
+        printf(" [%ld] flags %X filter %p at", idx, curr->flags, curr->filter);
+    }
+    dump_unnamed_kptr((unsigned long)curr->addr, delta);
+    if ( curr->evt_class )
+      dump_kptr((unsigned long)curr->evt_class, "  evt_class", delta);
+    if ( curr->tp && (curr->flags & 0x10) )
+      dump_kptr((unsigned long)curr->tp, "  tp", delta);
+    if ( curr->perf_perm )
+      dump_kptr((unsigned long)curr->perf_perm, "  perf_perm", delta);
+    if ( dump_bpf && curr->bpf_prog )
+    {
+      printf("  bpf_prog %p\n", (void *)curr->bpf_prog);
+      return;
+    }
+    if ( !curr->bpf_cnt )
+      return;
+    size_t bpf_size = calc_data_size<one_bpf_prog>(curr->bpf_cnt);
+    unsigned long *bpf_buf = (unsigned long *)malloc(bpf_size);
+    if ( !bpf_buf )
+      return;
+    dumb_free<unsigned long> tmp2(bpf_buf);
+    bpf_buf[0] = (unsigned long)curr->addr;
+    bpf_buf[1] = curr->bpf_cnt;
+    int err = ioctl(fd, IOCTL_GET_EVT_CALLS, (int *)bpf_buf);
+    if ( err )
+    {
+      printf("IOCTL_GET_EVT_CALLS for bpf_progs failed, error %d (%s)\n", errno, strerror(errno));
+      return;
+    }
+    one_bpf_prog *curr2 = (one_bpf_prog *)(bpf_buf + 1);
+    show_bpf_progs(bpf_buf[0], curr2, delta);
+}
+
 void dump_registered_trace_event_calls(int fd, sa64 delta)
 {
   unsigned long args[2] = { 0, 0 };
@@ -1069,42 +1114,7 @@ void dump_registered_trace_event_calls(int fd, sa64 delta)
   one_trace_event_call *curr = (one_trace_event_call *)(buf + 1);
   for ( size_t idx = 0; idx < size; idx++, curr++ )
   {
-    if ( curr->bpf_prog )
-    {
-      if ( curr->perf_cnt )
-        printf(" [%ld] flags %X filter %p perf_cnt %ld bpf_cnt %d at", idx, curr->flags, curr->filter, curr->perf_cnt, curr->bpf_cnt);
-      else
-        printf(" [%ld] flags %X filter %p bpf_cnt %d at", idx, curr->flags, curr->filter, curr->bpf_cnt);
-    } else {
-      if ( curr->perf_cnt )
-        printf(" [%ld] flags %X filter %p perf_cnt %ld at", idx, curr->flags, curr->filter, curr->perf_cnt);
-      else
-        printf(" [%ld] flags %X filter %p at", idx, curr->flags, curr->filter);
-    }
-    dump_unnamed_kptr((unsigned long)curr->addr, delta);
-    if ( curr->evt_class )
-      dump_kptr((unsigned long)curr->evt_class, "  evt_class", delta);
-    if ( curr->tp && (curr->flags & 0x10) )
-      dump_kptr((unsigned long)curr->tp, "  tp", delta);
-    if ( curr->perf_perm )
-      dump_kptr((unsigned long)curr->perf_perm, "  perf_perm", delta);
-    if ( !curr->bpf_cnt )
-      continue;
-    size_t bpf_size = calc_data_size<one_bpf_prog>(curr->bpf_cnt);
-    unsigned long *bpf_buf = (unsigned long *)malloc(bpf_size);
-    if ( !bpf_buf )
-      continue;
-    dumb_free<unsigned long> tmp2(bpf_buf);
-    bpf_buf[0] = (unsigned long)curr->addr;
-    bpf_buf[1] = curr->bpf_cnt;
-    err = ioctl(fd, IOCTL_GET_EVT_CALLS, (int *)bpf_buf);
-    if ( err )
-    {
-      printf("IOCTL_GET_EVT_CALLS for bpf_progs failed, error %d (%s)\n", errno, strerror(errno));
-      continue;
-    }
-    one_bpf_prog *curr2 = (one_bpf_prog *)(bpf_buf + 1);
-    show_bpf_progs(bpf_buf[0], curr2, delta);
+    dump_trace_event_call(fd, idx, curr, delta);
   }
 }
 
@@ -1727,6 +1737,7 @@ void dump_groups(int fd, sa64 delta)
 
 void dump_uprobes(int fd, sa64 delta)
 {
+  unsigned long ud = get_addr("uprobe_dispatcher");
   unsigned long a1 = get_addr("uprobes_tree");
   if ( !a1 )
   {
@@ -1769,8 +1780,8 @@ void dump_uprobes(int fd, sa64 delta)
   one_uprobe *up = (one_uprobe *)(buf + 1);
   for ( auto cnt = 0; cnt < buf[0]; cnt++ )
   {
-      printf("[%d] addr %p inode %p ino %ld clnts %ld offset %lX flags %lX %s\n", 
-        cnt, up[cnt].addr, up[cnt].inode, up[cnt].i_no, up[cnt].cons_cnt, up[cnt].offset, up[cnt].flags, up[cnt].name);
+      printf("[%d] addr %p inode %p ino %ld clnts %ld offset %lX ref_ctr_offset %lX flags %lX %s\n", 
+        cnt, up[cnt].addr, up[cnt].inode, up[cnt].i_no, up[cnt].cons_cnt, up[cnt].offset, up[cnt].ref_ctr_offset, up[cnt].flags, up[cnt].name);
       if ( !up[cnt].cons_cnt )
         continue;
       size_t client_size = calc_data_size<one_uprobe_consumer>(up[cnt].cons_cnt);
@@ -1803,6 +1814,29 @@ void dump_uprobes(int fd, sa64 delta)
           dump_kptr((unsigned long)uc[cnt2].ret_handler, "  ret_handler", delta);
         if ( uc[cnt2].filter )
           dump_kptr((unsigned long)uc[cnt2].filter, "  filter", delta);
+        if ( !ud )
+          continue;
+        if ( (unsigned long)uc[cnt2].handler != ud + delta )
+          continue;
+        printf("IOCTL_TRACE_UPROBE required\n");
+        size_t ut_size = sizeof(one_trace_event_call);
+        if ( ut_size < 4 * sizeof(unsigned long) )
+          ut_size = 4 * sizeof(unsigned long);
+        unsigned long *cbuf = (unsigned long *)malloc(ut_size);
+        if ( !cbuf )
+          continue;
+        dumb_free<unsigned long> tmp3(cbuf);
+        cbuf[0] = a1 + delta;
+        cbuf[1] = a2 + delta;
+        cbuf[2] = (unsigned long)up[cnt].addr;
+        cbuf[3] = (unsigned long)uc[cnt2].addr;
+        err = ioctl(fd, IOCTL_TRACE_UPROBE, (int *)cbuf);
+        if ( err )
+        {
+          printf("IOCTL_TRACE_UPROBE for %p failed, error %d (%s)\n", up[cnt].addr, errno, strerror(errno));
+          continue;
+        }
+        dump_trace_event_call(fd, cnt2, (one_trace_event_call *)cbuf, delta, 1);
       }
   }
 }
