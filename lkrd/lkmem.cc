@@ -1164,9 +1164,13 @@ void dump_bpf_progs(int fd, a64 list, a64 lock, sa64 delta, std::map<void *, std
       // dump body
       const size_t args_len = sizeof(unsigned long) * 4;
       size_t body_len = curr->used_map_cnt * sizeof(void *);
+      size_t len = body_len;
+#ifdef _DEBUG
+      printf("body_len %ld\n", body_len);
+#endif /* _DEBUG */
       if ( body_len < args_len )
-        body_len = args_len;
-      unsigned long *l = (unsigned long *)malloc(body_len);
+        len = args_len;
+      unsigned long *l = (unsigned long *)malloc(len);
       if ( !l )
       {
         printf("cannot alloc memory for bpf used maps\n");
