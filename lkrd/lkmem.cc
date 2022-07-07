@@ -1037,7 +1037,7 @@ void show_bpf_progs(size_t bpf_size, const one_bpf_prog *curr, sa64 delta)
   }
 }
 
-void dump_trace_event_call(int fd, size_t idx, one_trace_event_call *curr, sa64 delta, int dump_bpf = 0)
+void dump_trace_event_call(int fd, size_t idx, one_trace_event_call *curr, sa64 delta, int no_evt_call = 0)
 {
     if ( curr->bpf_prog )
     {
@@ -1058,11 +1058,10 @@ void dump_trace_event_call(int fd, size_t idx, one_trace_event_call *curr, sa64 
       dump_kptr((unsigned long)curr->tp, "  tp", delta);
     if ( curr->perf_perm )
       dump_kptr((unsigned long)curr->perf_perm, "  perf_perm", delta);
-    if ( dump_bpf && curr->bpf_prog )
-    {
-      printf("  bpf_prog %p\n", (void *)curr->bpf_prog);
+    if ( curr->bpf_prog )
+      printf("   bpf_prog: %p\n", (void *)curr->bpf_prog);
+    if ( no_evt_call )
       return;
-    }
     if ( !curr->bpf_cnt )
       return;
     size_t bpf_size = calc_data_size<one_bpf_prog>(curr->bpf_cnt);
@@ -1818,7 +1817,9 @@ void dump_uprobes(int fd, sa64 delta)
           continue;
         if ( (unsigned long)uc[cnt2].handler != ud + delta )
           continue;
+#ifdef _DEBUG
         printf("IOCTL_TRACE_UPROBE required\n");
+#endif /* _DEBUG */
         size_t ut_size = sizeof(one_trace_event_call);
         if ( ut_size < 4 * sizeof(unsigned long) )
           ut_size = 4 * sizeof(unsigned long);
