@@ -3647,7 +3647,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
         if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 3) > 0 )
   	  return -EFAULT;
   	else {
-  	  unsigned int cnt = 0;
+  	  unsigned long cnt = 0;
           struct dyn_event *pos;
           struct list_head *head = (struct list_head *)ptrbuf[0];
           struct mutex *m = (struct mutex *)ptrbuf[1];
@@ -3657,7 +3657,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
             list_for_each_entry(pos, head, list)
               cnt++;
             mutex_unlock(m);
-            printk("IOCTL_GET_DYN_EVENTS %d\n", cnt);
+            printk("IOCTL_GET_DYN_EVENTS %ld\n", cnt);
             if (copy_to_user((void*)ioctl_param, (void*)&cnt, sizeof(cnt)) > 0)
               return -EFAULT;
           } else {
