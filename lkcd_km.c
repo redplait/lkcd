@@ -16,7 +16,6 @@
 #include <linux/rbtree.h>
 #include <linux/uprobes.h>
 #include <linux/kprobes.h>
-#include "uprobes.h"
 #endif
 #ifdef CONFIG_FSNOTIFY
 #include <linux/fsnotify_backend.h>
@@ -35,6 +34,7 @@
 #include <linux/vmalloc.h>
 #include <linux/trace.h>
 #include <linux/trace_events.h>
+#include "uprobes.h"
 #include <linux/tracepoint-defs.h>
 #include <net/net_namespace.h>
 #include <net/sock.h>
@@ -820,6 +820,7 @@ static void copy_trace_event_call(const struct trace_event_call *c, struct one_t
   out_data->filter = (void *)c->filter;
   out_data->flags = c->flags;
   out_data->perf_cnt = 0;
+  out_data->bpf_cnt = 0;
 #ifdef CONFIG_PERF_EVENTS
   out_data->perf_perm = (void *)c->perf_perm;
   if ( c->prog_array )
@@ -1694,6 +1695,48 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
            return -EFAULT;
        }
        break; /* IOCTL_CNT_UPROBES */
+
+     case IOCTL_TRACE_UPROBE:
+        if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 4) > 0 )
+          return -EFAULT;
+        else {
+          struct rb_root *root = (struct rb_root *)ptrbuf[0];
+          spinlock_t *lock = (spinlock_t *)ptrbuf[1];
+          struct trace_uprobe *tup = NULL;
+          struct rb_node *iter;
+          struct one_trace_event_call buf;
+          // lock
+          spin_lock(lock);
+          for ( iter = rb_first(root); iter != NULL; iter = rb_next(iter) )
+          {
+            struct uprobe_consumer *con;
+            struct und_uprobe *up = rb_entry(iter, struct und_uprobe, rb_node);
+            if ( (unsigned long)up != ptrbuf[2] )
+              continue;
+            down_write(&up->consumer_rwsem);
+            for (con = up->consumers; con; con = con->next )
+            {
+              if ( (unsigned long)con != ptrbuf[3] )
+                continue;
+              tup = container_of(con, struct trace_uprobe, consumer);
+              break;
+            }
+            if ( tup != NULL )
+            {
+              copy_trace_event_call(&tup->tp.event->call, &buf);
+            }
+            up_write(&up->consumer_rwsem);
+            break;
+          }
+          // unlock
+          spin_unlock(lock);
+          if ( tup == NULL )
+            return -ENOENT;
+          // copy to usermode
+          if (copy_to_user((void*)ioctl_param, (void*)&buf, sizeof(buf)) > 0)
+            return -EFAULT;
+        }
+       break; /* IOCTL_TRACE_UPROBE */
 
      case IOCTL_UPROBES_CONS:
        if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 4) > 0 )

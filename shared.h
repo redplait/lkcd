@@ -968,4 +968,13 @@ struct one_bpf_raw_event
 //  unsigned long + N * one_tracepoint_func
 #define IOCTL_GET_DYN_EVENTS           _IOR(IOCTL_NUM, 0x42, int*)
 
+// read trace_uprobe for some uprobe consumer
+//  0 - uprobes_tree address
+//  1 - uprobes_treelock address
+//  2 - address of uprobe. it can be removed so return error ENOENT
+//  3 - address of consumer
+// out params
+//  one_trace_event_call
+#define IOCTL_TRACE_UPROBE             _IOR(IOCTL_NUM, 0x43, int*)
+
 #endif /* LKCD_SHARED_H */
