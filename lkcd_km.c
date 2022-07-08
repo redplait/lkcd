@@ -811,6 +811,24 @@ static void count_lrn(void *info)
 }
 #endif /* __x86_64__ */
 
+// assumed that all locks was taken before calling of this function
+static unsigned long copy_trace_bpfs(const struct trace_event_call *c, unsigned long lim, unsigned long *out_buf)
+{
+  unsigned long cnt, i;
+  out_buf[0] = 0;
+  if ( !c->prog_array )
+    return 0;
+  cnt = bpf_prog_array_length_ptr(c->prog_array);
+  for ( i = 0; i < cnt; ++i )
+  {
+    if ( i >= lim )
+      return lim;
+    out_buf[i + 1] = (unsigned long)c->prog_array->items[i].prog;
+    out_buf[0]++;
+  }
+  return i;
+}
+
 static void copy_trace_event_call(const struct trace_event_call *c, struct one_trace_event_call *out_data)
 {
   struct hlist_head *list;
@@ -1696,6 +1714,55 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
        }
        break; /* IOCTL_CNT_UPROBES */
 
+     case IOCTL_TRACE_UPROBE_BPFS:
+        if ( !bpf_prog_array_length_ptr )
+          return -ENOCSI;
+        if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 5) > 0 )
+          return -EFAULT;
+        else {
+          struct rb_root *root = (struct rb_root *)ptrbuf[0];
+          spinlock_t *lock = (spinlock_t *)ptrbuf[1];
+          struct trace_uprobe *tup = NULL;
+          struct rb_node *iter;
+          unsigned long kbuf_size = (1 + ptrbuf[4]) * sizeof(unsigned long);
+          unsigned long *buf = (unsigned long *)kzalloc(kbuf_size, GFP_KERNEL | __GFP_ZERO);
+          if ( !buf )
+            return -ENOMEM;
+          // lock
+          spin_lock(lock);
+          for ( iter = rb_first(root); iter != NULL; iter = rb_next(iter) )
+          {
+            struct uprobe_consumer *con;
+            struct und_uprobe *up = rb_entry(iter, struct und_uprobe, rb_node);
+            if ( (unsigned long)up != ptrbuf[2] )
+              continue;
+            down_write(&up->consumer_rwsem);
+            for (con = up->consumers; con; con = con->next )
+            {
+              if ( (unsigned long)con != ptrbuf[3] )
+                continue;
+              tup = container_of(con, struct trace_uprobe, consumer);
+              break;
+            }
+            if ( tup != NULL )
+              copy_trace_bpfs(&tup->tp.event->call, ptrbuf[4], buf);
+            up_write(&up->consumer_rwsem);
+            break;
+          }
+          // unlock
+          spin_unlock(lock);
+          if ( tup == NULL )
+            return -ENOENT;
+          // copy to usermode
+          if (copy_to_user((void*)ioctl_param, (void*)buf, kbuf_size) > 0)
+          {
+            kfree(buf);
+            return -EFAULT;
+          }
+          kfree(buf);
+        }
+       break; /* IOCTL_TRACE_UPROBE_BPFS */
+
      case IOCTL_TRACE_UPROBE:
         if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 4) > 0 )
           return -EFAULT;
@@ -1722,9 +1789,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
               break;
             }
             if ( tup != NULL )
-            {
               copy_trace_event_call(&tup->tp.event->call, &buf);
-            }
             up_write(&up->consumer_rwsem);
             break;
           }
@@ -3657,7 +3722,9 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
             list_for_each_entry(pos, head, list)
               cnt++;
             mutex_unlock(m);
+#ifdef _DEBUG
             printk("IOCTL_GET_DYN_EVENTS %ld\n", cnt);
+#endif /* _DEBUG */
             if (copy_to_user((void*)ioctl_param, (void*)&cnt, sizeof(cnt)) > 0)
               return -EFAULT;
           } else {

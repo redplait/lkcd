@@ -969,6 +969,7 @@ struct one_bpf_raw_event
 #define IOCTL_GET_DYN_EVENTS           _IOR(IOCTL_NUM, 0x42, int*)
 
 // read trace_uprobe for some uprobe consumer
+// in params:
 //  0 - uprobes_tree address
 //  1 - uprobes_treelock address
 //  2 - address of uprobe. it can be removed so return error ENOENT
@@ -976,5 +977,16 @@ struct one_bpf_raw_event
 // out params
 //  one_trace_event_call
 #define IOCTL_TRACE_UPROBE             _IOR(IOCTL_NUM, 0x43, int*)
+
+// read all bpf progs from some uprobe
+// in params:
+//  0 - uprobes_tree address
+//  1 - uprobes_treelock address
+//  2 - address of uprobe. it can be removed so return error ENOENT
+//  3 - address of consumer
+//  4 - count (taken from one_trace_event_call->bpf_cnt)
+// out params
+//  N + bpf_prog* * N
+#define IOCTL_TRACE_UPROBE_BPFS        _IOR(IOCTL_NUM, 0x44, int*)
 
 #endif /* LKCD_SHARED_H */
