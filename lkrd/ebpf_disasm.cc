@@ -1,4 +1,5 @@
 #include <map>
+#include <list>
 #include <elfio/elfio_dump.hpp>
 #include "ksyms.h"
 #include "ebpf_disasm.h"

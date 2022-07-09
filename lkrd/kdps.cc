@@ -9,6 +9,7 @@
 #include <unistd.h>
 #include <errno.h>
 #include <elfio/elfio_dump.hpp>
+#include <list>
 #include "ksyms.h"
 #include "../shared.h"
 #include "kmods.h"

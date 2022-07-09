@@ -13,6 +13,7 @@
 #endif
 
 #include <iostream>
+#include <list>
 #include <elfio/elfio_dump.hpp>
 #include "ksyms.h"
 #include "getopt.h"
@@ -703,6 +704,27 @@ void dump_data2arg(int fd, a64 list, a64 lock, sa64 delta, int code, const char 
   for ( size_t idx = 0; idx < size; idx++, curr++ )
   {
     func(idx, curr);
+  }
+}
+
+void check_bpf_protos(int fd, sa64 delta)
+{
+  std::list<one_bpf_proto> bpf_protos;
+  if ( !fill_bpf_protos(bpf_protos) )
+    return;
+  for ( auto &c: bpf_protos )
+  {    
+    char *ptr = (char *)c.proto.addr + delta;
+    char *arg = ptr;
+    int err = ioctl(fd, IOCTL_READ_PTR, (int *)&arg);
+    if ( err )
+    {
+       printf("read at %p failed, error %d (%s)\n", ptr, errno, strerror(errno));
+       continue;
+    }
+    char *real = (char *)c.func.addr + delta;
+    if ( real != arg )
+      printf("proto %s at %p patched, func %s at %p must be %p\n", c.proto.name, (char *)c.proto.addr + delta, c.func.name, arg, (char *)c.func.addr + delta);
   }
 }
 
@@ -3616,6 +3638,8 @@ end:
           }
           if ( opt_B || opt_t )
           {
+            // read bpf_protos
+            check_bpf_protos(fd, delta);
             // find bpf targets
             auto entry = get_addr("bpf_iter_reg_target");
             auto mlock = get_addr("mutex_lock");
