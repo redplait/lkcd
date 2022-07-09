@@ -248,7 +248,10 @@ init_module (void)
   for ( i = 0; i < 1024; ++i, ++ptr )
   {
     if ( *ptr == 0xc3 )
+    {
       ret = ptr;
+      break;
+    }
   }
   if ( !ret )
   {
