@@ -7,8 +7,16 @@ struct addr_sym
   a64 addr;
 };
 
+struct one_bpf_proto
+{
+  struct addr_sym proto;
+  struct addr_sym func;
+};
+
 // plain C interface to /proc/kallsyms
 #ifdef __cplusplus
+size_t fill_bpf_protos(std::list<one_bpf_proto> &out_res);
+
 extern "C" {
 #endif
 

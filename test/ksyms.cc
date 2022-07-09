@@ -7,6 +7,7 @@
 #include <vector>
 #include <algorithm>
 #include <cstring>
+#include <regex>
 #include <sys/utsname.h>
 #ifdef HAS_ELFIO
 #include "elfio/elfio_dump.hpp"
@@ -68,6 +69,7 @@ class ksym_holder
     }
     struct addr_sym *get_in_range(a64 start, a64 end, size_t *count);
     struct addr_sym *start_with(const char *prefix, a64 start, a64 end, size_t *count);
+    size_t fill_bpf_protos(std::list<one_bpf_proto> &out_res);
   protected:
     std::list<one_sym> m_syms;
     std::map<const char *, one_sym *, namesComparer> m_names;
@@ -76,6 +78,31 @@ class ksym_holder
 
     void make_addresses();
 };
+
+size_t ksym_holder::fill_bpf_protos(std::list<one_bpf_proto> &out_res)
+{
+  size_t res = 0;
+  std::regex bpf_regex("^bpf_.*_proto$");
+  for ( const auto name: m_names )
+  {
+    if ( !std::regex_search(name.first, bpf_regex) )
+      continue;
+    // try to find function from proto
+    size_t len = strlen(name.first);
+    std::string fname(name.first, name.first + len - 6);
+    auto fiter = m_names.find(fname.c_str());
+    if ( fiter == m_names.end() )
+      continue;
+    one_bpf_proto tmp;
+    tmp.proto.name = name.first;
+    tmp.proto.addr = name.second->addr;
+    tmp.func.name = fiter->first;
+    tmp.func.addr = fiter->second->addr;
+    out_res.push_back(tmp);
+    res++;
+  }
+  return res;
+}
 
 const char *ksym_holder::name_by_addr(a64 addr)
 {
@@ -353,6 +380,11 @@ int read_system_map()
   std::string cname = "/boot/System.map-";
   cname += luname.release;
   return read_ksyms(cname.c_str());
+}
+
+size_t fill_bpf_protos(std::list<one_bpf_proto> &out_res)
+{
+  return s_ksyms.fill_bpf_protos(out_res);
 }
 
 a64 get_addr(const char *name)
