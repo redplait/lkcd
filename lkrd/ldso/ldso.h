@@ -12,6 +12,15 @@ class ldso: public x64_disasm
     }
     int process();
     void dump() const;
+    // getters
+    inline ptrdiff_t get_ldp() const
+    {
+      return library_path;
+    }
+    inline ptrdiff_t get_rtld() const
+    {
+      return rtld_search_dirs;
+    }
   protected:
     int find_lpath(ptrdiff_t off);
     ptrdiff_t next_call(ptrdiff_t off);
