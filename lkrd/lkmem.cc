@@ -2840,6 +2840,65 @@ void dump_kprobes(int fd, sa64 delta)
         if ( kp[idx].kret_entry_handler )
           dump_kptr((unsigned long)kp[idx].kret_entry_handler, " kret_entry_handler", delta);
       }
+      // dump aggregated kprobes
+      if ( kp[idx].is_aggr )
+      {
+        unsigned long cbuf[5] = { 
+          a1 + delta,
+          a2 + delta,
+          (unsigned long)i,
+          (unsigned long)kp[idx].kaddr,
+          0
+        };
+        err = ioctl(fd, IOCTL_GET_AGGR_KPROBE, (int *)cbuf);
+        if ( err )
+        {
+          printf("IOCTL_GET_AGGR_KPROBE cnt for %p failed, error %d (%s)\n", kp[idx].kaddr, errno, strerror(errno));
+          continue;
+        }
+        if ( !cbuf[0] )
+          continue;
+        printf("  %ld aggregated kprobes:\n", cbuf[0]);
+        auto isize = calc_data_size<one_kprobe>(cbuf[0]);
+        unsigned long *ibuf = (unsigned long *)malloc(isize);
+        if ( !ibuf )
+          continue;
+        dumb_free<unsigned long> itmp(ibuf);
+        // fill params for real aggregated kprobes extracting
+        ibuf[0] = a1 + delta;
+        ibuf[1] = a2 + delta;
+        ibuf[2] = (unsigned long)i;
+        ibuf[3] = (unsigned long)kp[idx].kaddr;
+        ibuf[4] = cbuf[0];
+        err = ioctl(fd, IOCTL_GET_AGGR_KPROBE, (int *)ibuf);
+        if ( err )
+        {
+          printf("IOCTL_GET_AGGR_KPROBE for %p failed, error %d (%s)\n", kp[idx].kaddr, errno, strerror(errno));
+          continue;
+        }
+        auto agsize = ibuf[0];
+        struct one_kprobe *kp = (struct one_kprobe *)(ibuf + 1);
+        for ( size_t idx2 = 0; idx2 < agsize; idx2++ )
+        {
+          printf("  [%ld] at %p", idx2, kp[idx2].kaddr);
+          if ( kp[idx2].is_retprobe )
+            printf(" kretprobe");
+          printf("\n");
+          if ( kp[idx2].pre_handler )
+            dump_kptr((unsigned long)kp[idx2].pre_handler, "    pre_handler", delta);
+          if ( kp[idx2].post_handler )
+            dump_kptr((unsigned long)kp[idx2].post_handler, "    post_handler", delta);
+          if ( kp[idx2].fault_handler )
+            dump_kptr((unsigned long)kp[idx2].fault_handler, "    fault_handler", delta);
+          if ( kp[idx2].is_retprobe )
+          {
+            if ( kp[idx2].kret_handler )
+              dump_kptr((unsigned long)kp[idx2].kret_handler, "    kret_handler", delta);
+            if ( kp[idx2].kret_entry_handler )
+              dump_kptr((unsigned long)kp[idx2].kret_entry_handler, "    kret_entry_handler", delta);
+          }
+        }
+      }
     }
   }
   if ( buf != NULL )
