@@ -1,6 +1,8 @@
 #include <sys/ioctl.h>
 #include <sys/types.h>
 #include <sys/stat.h>
+#include <net/if.h>
+#include <linux/genetlink.h>
 #include <libgen.h>
 #include <fcntl.h>
 #include <stdio.h>
