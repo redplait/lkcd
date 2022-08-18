@@ -2013,7 +2013,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
          if ( !ptrbuf[4] )
          {
            // lock
-	   mutex_lock(m);
+	         mutex_lock(m);
            // traverse
            hlist_for_each_entry(p, head, hlist)
            {
@@ -2040,20 +2040,20 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
             unsigned long *buf = NULL;
             unsigned long curr = 0;
             kbuf_size = sizeof(unsigned long) + ptrbuf[4] * sizeof(struct one_kprobe);
-            buf = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL);
+            buf = (unsigned long *)kzalloc(kbuf_size, GFP_KERNEL | __GFP_ZERO);
             if ( !buf )
               return -ENOMEM;
             out_buf = (struct one_kprobe *)(buf + 1);
             // lock
-	    mutex_lock(m);
+	          mutex_lock(m);
             // traverse
             hlist_for_each_entry(p, head, hlist)
             {
               if ( (unsigned long)p != ptrbuf[3] )
                 continue;
-              found++;
               if ( !is_krpobe_aggregated(p) )
                 break;
+              found++;
               // found our aggregated krobe
               list_for_each_entry_rcu(kp, &p->list, list)
               {
@@ -2063,8 +2063,22 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
                 out_buf[curr].addr = (void *)kp->addr;
                 out_buf[curr].pre_handler = (void *)kp->pre_handler;
                 out_buf[curr].post_handler = (void *)kp->post_handler;
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5,14,0)
+                out_buf[curr].fault_handler = (void *)kp->fault_handler;
+#endif
                 out_buf[curr].flags = (unsigned int)kp->flags;
                 out_buf[curr].is_aggr = is_krpobe_aggregated(kp);
+                // check for kretprobe
+                if ( !out_buf[curr].is_aggr && kp->pre_handler == k_pre_handler_kretprobe )
+                {
+                  struct kretprobe *rkp = container_of(kp, struct kretprobe, kp);
+                  out_buf[curr].is_retprobe = 1;
+                  if ( rkp )
+                  {
+                    out_buf[curr].kret_handler = rkp->handler;
+                    out_buf[curr].kret_entry_handler = rkp->entry_handler;
+                  }
+                }
                 curr++;
               }
               break;
@@ -2100,7 +2114,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
            break;
          // alloc enough memory
          kbuf_size = sizeof(unsigned long) + ptrbuf[3] * sizeof(struct one_kprobe);
-         buf = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL);
+         buf = (unsigned long *)kzalloc(kbuf_size, GFP_KERNEL | __GFP_ZERO);
          if ( !buf )
            return -ENOMEM;
          else {
@@ -2110,8 +2124,8 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
            struct mutex *m = (struct mutex *)ptrbuf[1];
            struct one_kprobe *out_buf = (struct one_kprobe *)(buf + 1);
            // lock
-	   mutex_lock(m);
-	   head = (struct hlist_head *)ptrbuf[0] + ptrbuf[2];
+	         mutex_lock(m);
+	         head = (struct hlist_head *)ptrbuf[0] + ptrbuf[2];
            // traverse
            hlist_for_each_entry(p, head, hlist)
            {
@@ -2121,8 +2135,22 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
              out_buf[curr].addr = (void *)p->addr;
              out_buf[curr].pre_handler = (void *)p->pre_handler;
              out_buf[curr].post_handler = (void *)p->post_handler;
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5,14,0)
+             out_buf[curr].fault_handler = (void *)p->fault_handler;
+#endif             
              out_buf[curr].flags = (unsigned int)p->flags;
              out_buf[curr].is_aggr = is_krpobe_aggregated(p);
+             // check for kretprobe
+             if ( !out_buf[curr].is_aggr && out_buf[curr].pre_handler == k_pre_handler_kretprobe )
+             {
+                  struct kretprobe *rkp = container_of(p, struct kretprobe, kp);
+                  out_buf[curr].is_retprobe = 1;
+                  if ( rkp )
+                  {
+                    out_buf[curr].kret_handler = rkp->handler;
+                    out_buf[curr].kret_entry_handler = rkp->entry_handler;
+                  }
+             }
              curr++;
            }
            // unlock

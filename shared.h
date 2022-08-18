@@ -128,6 +128,10 @@ struct one_kprobe
   void *fault_handler; // was removed in 5.14
   unsigned int flags;
   int is_aggr;
+  int is_retprobe;
+  // from kretprobe
+  void *kret_handler;
+  void *kret_entry_handler;
 };
 
 // get kprobes for kprobe_table[index]
