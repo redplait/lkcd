@@ -125,6 +125,7 @@ struct one_kprobe
   void *addr;  // kprobe.addr
   void *pre_handler;
   void *post_handler;
+  void *fault_handler; // was removed in 5.14
   unsigned int flags;
   int is_aggr;
 };

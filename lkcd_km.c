@@ -283,6 +283,7 @@ void file_close(struct file *file)
 
 const struct file_operations *s_dbg_open = 0;
 const struct file_operations *s_dbg_full = 0;
+void *k_pre_handler_kretprobe = 0;
 
 int is_dbgfs(const struct file_operations *in)
 {
@@ -723,10 +724,12 @@ static void handler_post(struct kprobe *p, struct pt_regs *regs,
 #endif
 }
 
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5,14,0)
 /*
  * fault_handler: this is called if an exception is generated for any
  * instruction within the pre- or post-handler, or when Kprobes
  * single-steps the probed instruction.
+ * Was removed in kernel 5.14
  */
 static int handler_fault(struct kprobe *p, struct pt_regs *regs, int trapnr)
 {
@@ -735,11 +738,14 @@ static int handler_fault(struct kprobe *p, struct pt_regs *regs, int trapnr)
 	/* Return 0 because we don't handle the fault. */
 	return 0;
 }
+#endif
 
 static struct kprobe test_kp = {
 	.pre_handler = handler_pre,
 	.post_handler = handler_post,
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5,14,0)  
 	.fault_handler = handler_fault,
+#endif
 	.symbol_name	= "__x64_sys_fork", // try better do_int3, he-he
 };
 
@@ -4256,6 +4262,9 @@ init_module (void)
     printk("Unable to register the lkcd device\n");
     return ret;
   }
+  k_pre_handler_kretprobe = (void *)lkcd_lookup_name("pre_handler_kretprobe");
+  if ( !k_pre_handler_kretprobe )
+    printk("cannot find pre_handler_kretprobe\n");
   s_dbg_open = (const struct file_operations *)lkcd_lookup_name("debugfs_open_proxy_file_operations");
   if ( !s_dbg_open )
     printk("cannot find debugfs_open_proxy_file_operations\n");
