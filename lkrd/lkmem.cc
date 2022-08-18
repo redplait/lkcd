@@ -2820,13 +2820,26 @@ void dump_kprobes(int fd, sa64 delta)
     {
       if ( kp[idx].is_aggr )
         printf(" kprobe at %p flags %X aggregated\n", kp[idx].kaddr, kp[idx].flags);
-      else
-        printf(" kprobe at %p flags %X\n", kp[idx].kaddr, kp[idx].flags);
+      else {
+        if ( kp[idx].is_retprobe )
+          printf(" kprobe at %p flags %X retprobe\n", kp[idx].kaddr, kp[idx].flags);
+        else
+          printf(" kprobe at %p flags %X\n", kp[idx].kaddr, kp[idx].flags);
+      }
       dump_kptr((unsigned long)kp[idx].addr, " addr", delta);
       if ( kp[idx].pre_handler )
         dump_kptr((unsigned long)kp[idx].pre_handler, " pre_handler", delta);
       if ( kp[idx].post_handler )
         dump_kptr((unsigned long)kp[idx].post_handler, " post_handler", delta);
+      if ( kp[idx].fault_handler )
+        dump_kptr((unsigned long)kp[idx].fault_handler, " fault_handler", delta);
+      if ( kp[idx].is_retprobe )
+      {
+        if ( kp[idx].kret_handler )
+          dump_kptr((unsigned long)kp[idx].kret_handler, " kret_handler", delta);
+        if ( kp[idx].kret_entry_handler )
+          dump_kptr((unsigned long)kp[idx].kret_entry_handler, " kret_entry_handler", delta);
+      }
     }
   }
   if ( buf != NULL )
