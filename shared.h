@@ -994,4 +994,29 @@ struct one_bpf_raw_event
 //  N + bpf_prog* * N
 #define IOCTL_TRACE_UPROBE_BPFS        _IOR(IOCTL_NUM, 0x44, int*)
 
+// most fields ripped from https://elixir.bootlin.com/linux/latest/source/include/linux/console.h#L140
+struct one_console
+{
+  void *addr;
+  char name[16];
+  void *write;
+  void *read;
+  void *device;
+  void *unblank;
+  void *setup;
+  void *exit;
+  void *match;
+  // unsigned long dropped;
+  short flags;
+  short index;
+  // int cflags;
+};
+
+// read consoles list
+// in params
+//  0 - count
+// out params
+// N + one_console * N
+#define IOCTL_READ_CONSOLES            _IOR(IOCTL_NUM, 0x45, int*)
+
 #endif /* LKCD_SHARED_H */

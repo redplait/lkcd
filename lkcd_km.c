@@ -10,6 +10,7 @@
 #include <linux/debugfs.h>
 #include <linux/namei.h>
 #include <linux/kernfs.h>
+#include <linux/console.h>
 #ifdef __x86_64__
 #include <asm/segment.h>
 #include <asm/uaccess.h>
@@ -2247,13 +2248,78 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
       break; /* IOCTL_RNL_PER_CPU */
 #endif /* __x86_64__ */
 
+     case IOCTL_READ_CONSOLES:
+       // read cnt
+       if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long)) > 0 )
+  	      return -EFAULT;
+       if ( !ptrbuf[0] )
+       {
+         // just count amount of registered consoles
+         struct console *con;
+         console_lock();
+         // achtung! don`t try to use printk or something like this until console_unlock call
+         for_each_console(con)
+         {
+          ptrbuf[0]++;
+         }
+         // unlock
+         console_unlock();
+         // copy to user-mode
+         if ( copy_to_user( (void*)ioctl_param, (void*)ptrbuf, sizeof(long)) > 0 )
+  	      return -EFAULT;
+       } else {
+         unsigned long cnt = 0;
+         struct console *con;
+         size_t kbuf_size = sizeof(unsigned long) + ptrbuf[0] * sizeof(struct one_console);
+         struct one_console *curr;
+         unsigned long *buf = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL | __GFP_ZERO);
+         if ( !buf )
+           return -ENOMEM;
+         curr = (struct one_console *)(buf + 1);
+         console_lock();
+         // achtung! don`t try to use printk or something like this until console_unlock call
+         for_each_console(con)
+         {
+          cnt++;
+          if ( cnt > ptrbuf[0] )
+            break;
+          curr->addr = con;
+          strlcpy(curr->name, con->name, 16);
+          curr->write = con->write;
+          curr->read  = con->read;
+          curr->device = con->device;
+          curr->unblank = con->unblank;
+          curr->setup = con->setup;
+          curr->exit = con->exit;
+          curr->match = con->match;
+          // curr->dropped = con->dropped;
+          curr->flags = con->flags;
+          curr->index = con->index;
+          // curr->cflags = con->cflags;
+          // for next console
+          curr++;
+         }
+         // unlock
+         console_unlock();
+         // copy to user mode
+         buf[0] = cnt;
+         kbuf_size = sizeof(unsigned long) + cnt * sizeof(struct one_console);
+         if (copy_to_user((void*)ioctl_param, (void*)buf, kbuf_size) > 0)
+         {
+           kfree(buf);
+           return -EFAULT;
+         }
+         kfree(buf);
+       }
+       break; /* IOCTL_READ_CONSOLES */
+
      case IOCTL_GET_SOCK_DIAG:
         // check pre-req
         if ( !s_sock_diag_handlers || !s_sock_diag_table_mutex )
           return -ENOCSI;
         // read index
         if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long)) > 0 )
-  	  return -EFAULT;
+  	      return -EFAULT;
   	if ( ptrbuf[0] >= AF_MAX)
           return -EINVAL;
         else {
