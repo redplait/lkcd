@@ -49,6 +49,7 @@ void usage(const char *prog)
   printf("-B - dump BPF\n");
   printf("-b - check .bss section\n");
   printf("-c - check memory. Achtung - you must first load lkcd driver\n");
+  printf("-C - dump consoles\n");
   printf("-d - use disasm\n");
   printf("-F - dump super-blocks\n");
   printf("-f - dump ftraces\n");  
@@ -630,6 +631,57 @@ template <typename T>
 size_t calc_data_size(size_t n)
 {
   return n * sizeof(T) + sizeof(unsigned long);
+}
+
+void dump_consoles(int fd, sa64 delta)
+{
+  unsigned long cnt = 0;
+  int err = ioctl(fd, IOCTL_READ_CONSOLES, (int *)&cnt);
+  if ( err )
+  {
+    printf("IOCTL_READ_CONSOLES count failed, error %d (%s)\n", errno, strerror(errno));
+    return;
+  }
+  printf("registered consoles: %ld\n", cnt);
+  if ( !cnt )
+    return;
+  // alloc enough memory
+  size_t size = calc_data_size<one_console>(cnt);
+  unsigned long *buf = (unsigned long *)malloc(size);
+  if ( !buf )
+  {
+    printf("cannot alloc buffer for consoles, len %lX\n", size);
+    return;
+  }
+  dumb_free<unsigned long> tmp(buf);
+  buf[0] = cnt;
+  err = ioctl(fd, IOCTL_READ_CONSOLES, (int *)buf);
+  if ( err )
+  {
+    printf("IOCTL_READ_CONSOLES failed, error %d (%s)\n", errno, strerror(errno));
+    return;
+  }
+  // dump
+  size = buf[0];
+  one_console *curr = (one_console *)(buf + 1);
+  for ( size_t idx = 0; idx < size; idx++, curr++ )
+  {
+    printf("[%ld] %s at %p flags %X index %d\n", idx, curr->name, curr->addr, curr->flags, curr->index);
+    if ( curr->write )
+      dump_kptr((unsigned long)curr->write, "  write", delta);
+    if ( curr->read )
+      dump_kptr((unsigned long)curr->read, "  read", delta);
+    if ( curr->device )
+      dump_kptr((unsigned long)curr->device, "  device", delta);
+    if ( curr->unblank )
+      dump_kptr((unsigned long)curr->unblank, "  unblank", delta);
+    if ( curr->setup )
+      dump_kptr((unsigned long)curr->setup, "  setup", delta);
+    if ( curr->exit )
+      dump_kptr((unsigned long)curr->exit, "  exit", delta);
+    if ( curr->match )
+      dump_kptr((unsigned long)curr->match, "  match", delta);
+  }
 }
 
 template <typename T, typename F>
@@ -3165,6 +3217,7 @@ int main(int argc, char **argv)
        opt_g = 0,
        opt_d = 0,
        opt_c = 0,
+       opt_C = 0,
        opt_k = 0,
        opt_n = 0,
        opt_r = 0,
@@ -3178,7 +3231,7 @@ int main(int argc, char **argv)
    int fd = 0;
    while (1)
    {
-     c = getopt(argc, argv, "BbcdFfghHknrSstuvj:");
+     c = getopt(argc, argv, "BbCcdFfghHknrSstuvj:");
      if (c == -1)
 	break;
 
@@ -3216,6 +3269,9 @@ int main(int argc, char **argv)
          break;
         case 'd':
           opt_d = 1;
+         break;
+        case 'C':
+          opt_C = 1;
          break;
         case 'c':
           opt_c = 1;
@@ -3333,6 +3389,9 @@ int main(int argc, char **argv)
          printf("delta: %lX\n", delta);
        }
      }
+     // dump consoles
+     if ( opt_c && opt_C )
+       dump_consoles(fd, delta);
      // dump kprobes
      if ( opt_k && opt_c )
      {
