@@ -14,6 +14,7 @@ Small pet project to find and dump some linux kernel guts like
 * security hooks (-c -S options)
 * eBPF programs (-c -B options)
 * cgroups (-c -g options)
+* registered consoles (-c -C options)
  
 etc etc
 
@@ -22,6 +23,12 @@ Sure contains poorly written buggy driver
 Sample of checking on x64 5.8.0-63
 
 ```
+registered consoles: 1
+[0] tty at 0xffffffffbd6fbde0 flags 7 index 0
+   write: 0xffffffffbbde6510 - kernel!vt_console_print
+   device: 0xffffffffbbde30a0 - kernel!vt_console_device
+   unblank: 0xffffffffbbde5a70 - kernel!unblank_screen
+...
 uprobes: 1
 [0] addr 0xffffa008c309bc00 inode 0xffffa008c12d61a0 ino 1043126 clnts 1 offset 4710 flags 0 
  consumer[0] at 0xffffffffc0605100
