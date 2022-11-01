@@ -53,7 +53,7 @@ static const struct chains s_chains[] = {
  { "register_acpi_notifier", "acpi_chain_head" },
  { "acpi_lid_notifier_register", "acpi_lid_notifier" },
  { "register_acpi_hed_notifier", "acpi_hed_notify_list" },
- { "unregister_xenstore_notifier", "xenstore_chain" },
+ { "register_xenstore_notifier", "xenstore_chain" },
  { "register_memory_notifier", "memory_chain" },
  { "usb_register_notify", "usb_notifier_list" },
  { "cpufreq_register_notifier", "cpufreq_policy_notifier_list" },
@@ -62,6 +62,8 @@ static const struct chains s_chains[] = {
  { "netlink_register_notifier", "netlink_chain" },
  { "register_inetaddr_notifier", "inetaddr_chain" },
  { "register_switchdev_blocking_notifier", "switchdev_blocking_notif_chain" },
+ { "of_reconfig_notifier_register", "of_reconfig_chain" },
+ { "of_overlay_notifier_register", "overlay_notify_chain" },
 };
 
 // registered with atomic_notifier_chain_register
@@ -78,6 +80,8 @@ static const struct chains a_chains[] = {
  { "register_inet6addr_notifier", "inet6addr_chain" },
  { "register_dcbevent_notifier", "dcbevent_notif_chain" },
  { "register_switchdev_notifier", "switchdev_notif_chain" },
+ { "cpu_pm_register_notifier", "cpu_pm_notifier_chain" },
+ { "register_lsm_notifier", "lsm_notifier_chain" },
 };
 
 // registered with srcu_notifier_chain_register
