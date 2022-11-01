@@ -990,6 +990,47 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
        }
       break; /* IOCTL_GET_NETDEV_CHAIN */
 
+    case READ_CPUFREQ_NTFY:
+       if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 3) > 0 )
+         return -EFAULT;
+        else {
+          struct cpufreq_policy *cf = cpufreq_cpu_get(ptrbuf[0]);
+          struct notifier_block *b;
+          struct blocking_notifier_head *head;
+          unsigned long *out_buf;
+          unsigned long size, i;
+          if ( !cf )
+           return -ENODATA;
+          // cals size
+          size = (1 + ptrbuf[1]) * sizeof(unsigned long);
+          out_buf = (unsigned long *)kmalloc(size, GFP_KERNEL);
+          if ( !out_buf )
+          {
+            cpufreq_cpu_put(cf);  
+            return -ENOMEM;
+          }
+          if ( !ptrbuf[2] )
+            head = &cf->constraints.min_freq_notifiers;
+          else
+            head = &cf->constraints.max_freq_notifiers;
+          down_write(&head->rwsem);
+          out_buf[0] = 0;
+          for ( b = head->head; i < ptrbuf[1] && b != NULL; b = b->next, ++i )
+          {
+            out_buf[1 + i] = (unsigned long)b->notifier_call;
+          }
+          up_write(&head->rwsem);
+          cpufreq_cpu_put(cf);
+          out_buf[0] = i;
+          if ( copy_to_user((void*)(ioctl_param), (void*)out_buf, sizeof(unsigned long) * (i + 1)) > 0 )
+          {
+            kfree(out_buf);
+            return -EFAULT;
+          }
+          kfree(out_buf);
+        }
+      break; /* READ_CPUFREQ_NTFY */
+
     case READ_CPUFREQ_CNT:
        if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long)) > 0 )
          return -EFAULT;

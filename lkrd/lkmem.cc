@@ -2970,6 +2970,28 @@ static size_t calc_urntfy_size(size_t n)
   return (n + 1) * sizeof(unsigned long);
 }
 
+static size_t calc_freq_ntfy_size(size_t n)
+{
+  if ( n < 2 )
+    return 3 * sizeof(unsigned long);
+  return (n + 1) * sizeof(unsigned long);
+}
+
+void dump_freq_ntfy(int fd, const char *pfx, unsigned long *buf, sa64 delta)
+{
+  int err = ioctl(fd, READ_CPUFREQ_NTFY, buf);
+  if ( err )
+  {
+    fprintf(stderr, "dump_freq_ntfy for %s faiuler, error %d (%s)\n", pfx, err, strerror(err));
+    return;
+  }
+  for ( size_t i = 0; i < buf[0]; i++ )
+  {
+    printf(" %s[%ld]", pfx, i);
+    dump_unnamed_kptr(buf[i+1], delta);
+  }
+}
+
 void dump_freq_ntfy(int fd, sa64 delta)
 {
   int cpu_num = get_nprocs();
@@ -2984,6 +3006,28 @@ void dump_freq_ntfy(int fd, sa64 delta)
       break;
     }
     printf("cpufreq_policy[%d] at %p min_cnt %ld max_cnt %ld\n", i, (void *)arg[0], arg[1], arg[2]);
+    size_t cnt_size = calc_freq_ntfy_size(std::max(arg[1], arg[2]));
+    unsigned long *buf = (unsigned long *)malloc(cnt_size);
+    if ( !buf )
+    {
+      printf("cannot alloc mem for cpufreq_policy[%d]\n", i);
+      continue;
+    }
+    dumb_free<unsigned long> tmp(buf);
+    if ( arg[1] )
+    {
+      buf[0] = i;
+      buf[1] = arg[1];
+      buf[2] = 0;
+      dump_freq_ntfy(fd, "min", buf, delta);
+    }
+    if ( arg[2] )
+    {
+      buf[0] = i;
+      buf[1] = arg[2];
+      buf[2] = 1;
+      dump_freq_ntfy(fd, "max", buf, delta);
+    }
   }
 }
 
