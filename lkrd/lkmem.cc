@@ -2970,6 +2970,23 @@ static size_t calc_urntfy_size(size_t n)
   return (n + 1) * sizeof(unsigned long);
 }
 
+void dump_freq_ntfy(int fd, sa64 delta)
+{
+  int cpu_num = get_nprocs();
+  unsigned long arg[3];
+  for ( int i = 0; i < cpu_num; i++ )
+  {
+    arg[0] = i;
+    int err = ioctl(fd, READ_CPUFREQ_CNT, (int *)&arg);
+    if ( err )
+    {
+      printf("dump_freq_ntfy count for cpu_id %d failed, error %d (%s)\n", i, errno, strerror(errno));
+      break;
+    }
+    printf("cpufreq_policy[%d] at %p min_cnt %ld max_cnt %ld\n", i, (void *)arg[0], arg[1], arg[2]);
+  }
+}
+
 void dump_return_notifier_list(int fd, unsigned long this_off, unsigned long off, sa64 delta)
 {
   int cpu_num = get_nprocs();
@@ -3717,6 +3734,10 @@ end:
        // dump or check collected addresses
        if ( g_opt_v || opt_c )
          dump_and_check(fd, opt_c, delta, has_syms, filled);
+#ifndef _MSC_VER
+       if ( opt_c )
+         dump_freq_ntfy(fd, delta);
+#endif
        if ( opt_d )
        {
           dis_base *bd = NULL;

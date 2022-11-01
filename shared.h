@@ -106,7 +106,7 @@ struct one_tracepoint_func
  *  kprobes & uprobes
  */
 
-// install/remove test kprobe
+// install/remove my own test kprobe
 // in param 0 - 1 to install, 0 to remove
 #define IOCTL_TEST_KPROBE              _IOR(IOCTL_NUM, 0x11, int*)
 
@@ -1018,5 +1018,34 @@ struct one_console
 // out params
 // N + one_console * N
 #define IOCTL_READ_CONSOLES            _IOR(IOCTL_NUM, 0x45, int*)
+
+// read cpufreq_policy address and count of notifiers
+// in params:
+//  0 - processor index
+// out params
+//  0 - address of cpufreq_policy
+//  1 - count of cpufreq_policy.constraints.min_freq_notifiers
+//  2 - count of cpufreq_policy.constraints.max_freq_notifiers
+#define READ_CPUFREQ_CNT               _IOR(IOCTL_NUM, 0x46, int*)
+
+// read cpufreq_policy.constraints notifiers
+// in params:
+//  0 - processor index
+//  1 - count
+//  2 - 0 for min_freq_notifiers else max_freq_notifiers
+// out params
+//  N + N * void*
+#define READ_CPUFREQ_NTFY              _IOR(IOCTL_NUM, 0x47, int*)
+
+// test kprobes disabling
+// in params:
+//  0 - kprobe_table address
+//  1 - kprobe_mutex address
+//  2 - index (must be between 0 and nonincluded KPROBE_TABLE_SIZE)
+//  3 - address of kprobe
+//  4 - 0 if disable, 1 if enable
+// out params
+//  0 - 1 if some action was successfull, 0 else
+#define IOCTL_KPROBE_DISABLE           _IOR(IOCTL_NUM, 0x48, int*)
 
 #endif /* LKCD_SHARED_H */

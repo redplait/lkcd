@@ -24,6 +24,7 @@
 #include "mnt.h"
 #endif /* CONFIG_FSNOTIFY */
 #include <linux/smp.h>
+#include <linux/cpufreq.h>
 #include <linux/miscdevice.h>
 #include <linux/notifier.h>
 #ifdef CONFIG_USER_RETURN_NOTIFIER
@@ -923,9 +924,9 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
     case IOCTL_READ_PTR:
      {
        if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long)) > 0 )
- 	 return -EFAULT;
+         return -EFAULT;
        if ( copy_to_user((void*)ioctl_param, (void*)ptrbuf[0], sizeof(void *)) > 0 )
- 	 return -EFAULT;
+         return -EFAULT;
      }
      break; /* IOCTL_READ_PTR */
 
@@ -944,13 +945,13 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
        }
        ptrbuf[0] = lkcd_lookup_name(name);
        if (copy_to_user((void*)ioctl_param, (void*)ptrbuf, sizeof(ptrbuf[0])) > 0)
- 	 return -EFAULT;
+         return -EFAULT;
       }
       break; /* IOCTL_RKSYM */
 
     case IOCTL_GET_NETDEV_CHAIN:
        if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 2) > 0 )
- 	 return -EFAULT;
+         return -EFAULT;
        if ( !ptrbuf[1] )
        {
          unsigned long cnt = 0;
@@ -962,7 +963,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
          rtnl_unlock();
          // copy count to user-mode
          if ( copy_to_user((void*)ioctl_param, (void*)&cnt, sizeof(cnt)) > 0 )
-   	   return -EFAULT;
+           return -EFAULT;
        } else {
          struct notifier_block *b;
          unsigned long cnt = 0;
@@ -989,6 +990,37 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
        }
       break; /* IOCTL_GET_NETDEV_CHAIN */
 
+    case READ_CPUFREQ_CNT:
+       if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long)) > 0 )
+         return -EFAULT;
+        else {
+         struct cpufreq_policy *cf = cpufreq_cpu_get(ptrbuf[0]);
+         unsigned long out_buf[3] = { 0, 0, 0 };
+         struct notifier_block *b;
+         if ( !cf )
+           return -ENODATA;
+         out_buf[0] = (unsigned long)cf;
+         // count ntfy
+         down_write(&cf->constraints.min_freq_notifiers.rwsem);
+         if ( cf->constraints.min_freq_notifiers.head != NULL )
+         {
+           for ( b = cf->constraints.min_freq_notifiers.head; b != NULL; b = b->next )
+             out_buf[1]++;
+         }  
+         up_write(&cf->constraints.min_freq_notifiers.rwsem);
+         down_write(&cf->constraints.max_freq_notifiers.rwsem);
+         if ( cf->constraints.max_freq_notifiers.head != NULL )
+         {
+           for ( b = cf->constraints.max_freq_notifiers.head; b != NULL; b = b->next )
+             out_buf[2]++;
+         }  
+         up_write(&cf->constraints.max_freq_notifiers.rwsem);
+         cpufreq_cpu_put(cf);
+         if ( copy_to_user((void*)(ioctl_param), (void*)out_buf, sizeof(out_buf)) > 0 )
+           return -EFAULT;
+        }
+      break; /* READ_CPUFREQ_CNT */
+
     case IOCTL_CNTNTFYCHAIN:
      {
        // copy address of blocking_notifier_head from user-mode
@@ -996,7 +1028,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
        struct notifier_block *b;
        unsigned long res = 0;
        if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long)) > 0 )
- 	 return -EFAULT;
+         return -EFAULT;
        nb = (struct blocking_notifier_head *)ptrbuf[0];
        // lock
        down_write(&nb->rwsem);
@@ -1010,7 +1042,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
        up_write(&nb->rwsem);
        // copy count to user-mode
        if ( copy_to_user((void*)ioctl_param, (void*)&res, sizeof(res)) > 0 )
- 	 return -EFAULT;
+         return -EFAULT;
      }
      break; /* IOCTL_CNTNTFYCHAIN */
 
@@ -1972,6 +2004,28 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
        }
       break; /* IOCTL_TEST_KPROBE */
 
+     case IOCTL_KPROBE_DISABLE:
+       if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 3) > 0 )
+         return -EFAULT;
+       else {
+         struct hlist_head *head;
+         struct mutex *m = (struct mutex *)ptrbuf[1];
+         struct kprobe *p;
+         long found = 0;
+         if ( ptrbuf[2] >= KPROBE_TABLE_SIZE )
+           return -EFBIG;
+         // lock
+         mutex_lock(m);
+	       head = (struct hlist_head *)ptrbuf[0] + ptrbuf[2];
+
+         // unlock
+         mutex_unlock(m);
+         // copy to user
+         if (copy_to_user((void*)ioctl_param, (void*)&found, sizeof(found)) > 0)
+           return -EFAULT;
+       }
+      break; /* IOCTL_KPROBE_DISABLE */
+
      case IOCTL_CNT_KPROBE_BUCKET:
        if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 3) > 0 )
          return -EFAULT;
@@ -1982,13 +2036,13 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
          if ( ptrbuf[2] >= KPROBE_TABLE_SIZE )
            return -EFBIG;
          // lock
-	 mutex_lock(m);
-	 head = (struct hlist_head *)ptrbuf[0] + ptrbuf[2];
+         mutex_lock(m);
+         head = (struct hlist_head *)ptrbuf[0] + ptrbuf[2];
          ptrbuf[0] = 0;
          // traverse
          hlist_for_each_entry(p, head, hlist)
            ptrbuf[0]++;
-	 // unlock
+         // unlock
          mutex_unlock(m);
          // copy to user
          if (copy_to_user((void*)ioctl_param, (void*)ptrbuf, sizeof(ptrbuf[0])) > 0)
