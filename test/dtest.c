@@ -82,6 +82,9 @@ static const struct chains a_chains[] = {
  { "register_switchdev_notifier", "switchdev_notif_chain" },
  { "cpu_pm_register_notifier", "cpu_pm_notifier_chain" },
  { "register_lsm_notifier", "lsm_notifier_chain" },
+ { "imx_scu_irq_register_notifier", "imx_scu_irq_notifier_chain" },
+ { "pl320_ipc_register_notifier", "ipc_notifier" },
+ { "register_dcbevent_notifier", "dcbevent_notif_chain" },
 };
 
 // registered with srcu_notifier_chain_register
