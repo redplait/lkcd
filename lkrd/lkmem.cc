@@ -2982,7 +2982,7 @@ void dump_freq_ntfy(int fd, const char *pfx, unsigned long *buf, sa64 delta)
   int err = ioctl(fd, READ_CPUFREQ_NTFY, buf);
   if ( err )
   {
-    fprintf(stderr, "dump_freq_ntfy for %s faiuler, error %d (%s)\n", pfx, err, strerror(err));
+    fprintf(stderr, "dump_freq_ntfy for %s failed, error %d (%s)\n", pfx, err, strerror(err));
     return;
   }
   for ( size_t i = 0; i < buf[0]; i++ )
@@ -3006,11 +3006,13 @@ void dump_freq_ntfy(int fd, sa64 delta)
       break;
     }
     printf("cpufreq_policy[%d] at %p min_cnt %ld max_cnt %ld\n", i, (void *)arg[0], arg[1], arg[2]);
+    if ( !arg[1] && !arg[2] )
+      continue;
     size_t cnt_size = calc_freq_ntfy_size(std::max(arg[1], arg[2]));
     unsigned long *buf = (unsigned long *)malloc(cnt_size);
     if ( !buf )
     {
-      printf("cannot alloc mem for cpufreq_policy[%d]\n", i);
+      printf("cannot alloc %ld bytes of memory for cpufreq_policy[%d]\n", cnt_size, i);
       continue;
     }
     dumb_free<unsigned long> tmp(buf);

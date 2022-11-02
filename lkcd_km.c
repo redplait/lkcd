@@ -1015,6 +1015,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
             head = &cf->constraints.max_freq_notifiers;
           down_write(&head->rwsem);
           out_buf[0] = 0;
+          i = 0;
           for ( b = head->head; i < ptrbuf[1] && b != NULL; b = b->next, ++i )
           {
             out_buf[1 + i] = (unsigned long)b->notifier_call;
