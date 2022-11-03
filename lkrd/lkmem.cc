@@ -780,6 +780,26 @@ void check_bpf_protos(int fd, sa64 delta)
   }
 }
 
+void dump_clk_ntfy(int fd, a64 list, a64 lock, sa64 delta)
+{
+  if ( !list )
+  {
+    printf("cannot find clk_notifier_list\n");
+    return;
+  }
+  if ( !lock )
+  {
+    printf("cannot find prepare_lock\n");
+    return;
+  }
+  dump_data2arg<clk_ntfy>(fd, list, lock, delta, READ_CLK_NTFY, "clk_notifier_list", "READ_CLK_NTFY", "clk_ntfy",
+   [=](size_t idx, const clk_ntfy *curr) {
+    printf(" [%ld] clk at %p", idx, (void *)curr->clk);
+    dump_kptr((unsigned long)curr->ntfy, " ntfy", delta);
+   }
+  );
+}
+
 void dump_ftrace_ops(int fd, a64 list, a64 lock, sa64 delta)
 {
   if ( !list )
@@ -3782,7 +3802,10 @@ end:
          dump_and_check(fd, opt_c, delta, has_syms, filled);
 #ifndef _MSC_VER
        if ( opt_c )
+       {
          dump_freq_ntfy(fd, delta);
+         dump_clk_ntfy(fd, get_addr("clk_notifier_list"), get_addr("prepare_lock"), delta);
+       }
 #endif
        if ( opt_d )
        {

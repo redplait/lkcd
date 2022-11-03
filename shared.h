@@ -1037,6 +1037,21 @@ struct one_console
 //  N + N * void*
 #define READ_CPUFREQ_NTFY              _IOR(IOCTL_NUM, 0x47, int*)
 
+struct clk_ntfy
+{
+  unsigned long clk;
+  unsigned long ntfy;
+};
+
+// read clk_notifier_register notifiers
+// in params:
+//  0 - address of clk_notifier_list
+//  1 - address of prepare_lock mutex
+//  2 - count, if zero - just return count
+// out params
+//  N + N * clk_ntfy
+#define READ_CLK_NTFY                  _IOR(IOCTL_NUM, 0x48, int*)
+
 // test kprobes disabling
 // in params:
 //  0 - kprobe_table address
@@ -1046,6 +1061,6 @@ struct one_console
 //  4 - 0 if disable, 1 if enable
 // out params
 //  0 - 1 if some action was successfull, 0 else
-#define IOCTL_KPROBE_DISABLE           _IOR(IOCTL_NUM, 0x48, int*)
+#define IOCTL_KPROBE_DISABLE           _IOR(IOCTL_NUM, 0x49, int*)
 
 #endif /* LKCD_SHARED_H */

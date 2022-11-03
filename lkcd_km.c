@@ -25,6 +25,7 @@
 #endif /* CONFIG_FSNOTIFY */
 #include <linux/smp.h>
 #include <linux/cpufreq.h>
+#include <linux/clk.h>
 #include <linux/miscdevice.h>
 #include <linux/notifier.h>
 #ifdef CONFIG_USER_RETURN_NOTIFIER
@@ -1201,7 +1202,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
        unsigned long flags;
        unsigned long res = 0;
        if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long)) > 0 )
- 	 return -EFAULT;
+         return -EFAULT;
        nb = (struct atomic_notifier_head *)ptrbuf[0];
        // lock
        spin_lock_irqsave(&nb->lock, flags);
@@ -1215,9 +1216,68 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
        spin_unlock_irqrestore(&nb->lock, flags);
        // copy count to user-mode
        if ( copy_to_user((void*)ioctl_param, (void*)&res, sizeof(res)) > 0 )
- 	 return -EFAULT;
+         return -EFAULT;
      }
      break; /* IOCTL_CNTANTFYCHAIN */
+
+    case READ_CLK_NTFY:
+       if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 3) > 0 )
+         return -EFAULT;
+       else {
+         struct clk_notifier *cn;
+         struct list_head *head = (struct list_head *)ptrbuf[0];
+         struct mutex *m = (struct mutex *)ptrbuf[1];
+         struct notifier_block *b;
+         unsigned long cnt = 0;
+         if ( !ptrbuf[2] )
+         {
+           mutex_lock(m);
+           list_for_each_entry(cn, head, node)
+           {
+             int idx = srcu_read_lock(&cn->notifier_head.srcu);
+             for ( b = cn->notifier_head.head; b != NULL; b = b->next )
+               cnt++;
+             srcu_read_unlock(&cn->notifier_head.srcu, idx);
+           }
+           mutex_unlock(m); 
+           // copy count to user-mode
+           if ( copy_to_user((void*)ioctl_param, (void*)&cnt, sizeof(cnt)) > 0 )
+             return -EFAULT;
+         } else {
+           struct clk_ntfy *curr;
+           unsigned long size = sizeof(unsigned long) + ptrbuf[2] * sizeof(struct clk_ntfy);
+           unsigned long *kbuf = (unsigned long *)kmalloc(size, GFP_KERNEL);
+           if ( !kbuf )
+             return -ENOMEM;
+           curr = (struct clk_ntfy *)(kbuf + 1);
+           mutex_lock(m);
+           list_for_each_entry(cn, head, node)
+           {
+             if ( cnt >= ptrbuf[2] )
+               break;
+             else {
+               int idx = srcu_read_lock(&cn->notifier_head.srcu);
+               for ( b = cn->notifier_head.head; b != NULL && cnt < ptrbuf[2]; b = b->next, ++cnt )
+               {
+                 curr->clk = (unsigned long)cn;
+                 curr->ntfy = (unsigned long)b->notifier_call;
+                 ++curr;
+               }
+               srcu_read_unlock(&cn->notifier_head.srcu, idx);
+             }
+           }
+           mutex_unlock(m);
+           kbuf[0] = cnt; 
+           // copy data to user-mode
+           if ( copy_to_user((void*)ioctl_param, (void*)kbuf, size) > 0 )
+           {
+             kfree(kbuf);
+             return -EFAULT;
+           }
+           kfree(kbuf);
+         }
+       }
+     break; /* READ_CLK_NTFY */
 
     case IOCTL_ENUMSNTFYCHAIN:
      {
@@ -1225,7 +1285,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
        struct srcu_notifier_head *nb;
        unsigned long cnt;
        if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 2) > 0 )
- 	 return -EFAULT;
+         return -EFAULT;
        nb = (struct srcu_notifier_head *)ptrbuf[0];
        cnt = ptrbuf[1];
        // validation
