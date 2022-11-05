@@ -761,6 +761,14 @@ int is_krpobe_aggregated(struct kprobe *p)
   return (unsigned long)p->pre_handler == kprobe_aggr;
 }
 
+void patch_kprobe(struct kprobe *p, unsigned long reason)
+{
+  if ( reason )
+    p->flags &= ~KPROBE_FLAG_DISABLED;
+  else
+    p->flags |= KPROBE_FLAG_DISABLED;
+}
+
 #ifdef CONFIG_USER_RETURN_NOTIFIER
 void test_dummy_urn(struct user_return_notifier *urn)
 {
@@ -2167,7 +2175,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
       break; /* IOCTL_TEST_KPROBE */
 
      case IOCTL_KPROBE_DISABLE:
-       if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 3) > 0 )
+       if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 5) > 0 )
          return -EFAULT;
        else {
          struct hlist_head *head;
@@ -2179,7 +2187,31 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
          // lock
          mutex_lock(m);
 	       head = (struct hlist_head *)ptrbuf[0] + ptrbuf[2];
-
+         // traverse
+         hlist_for_each_entry(p, head, hlist)
+         {
+           if ( (unsigned long)p != ptrbuf[3] )
+           {
+             struct kprobe *kp;
+             if ( !is_krpobe_aggregated(p) )           
+               continue;
+             list_for_each_entry_rcu(kp, &p->list, list)
+             {
+               if ( (unsigned long)kp == ptrbuf[3] )
+               {
+                 found = 1;
+                 patch_kprobe(kp, ptrbuf[4]);
+                 break;
+               }
+             }
+             if ( found )
+               break;
+           } else {
+             found = 1;
+             patch_kprobe(p, ptrbuf[4]);
+             break;
+           }
+         }
          // unlock
          mutex_unlock(m);
          // copy to user
