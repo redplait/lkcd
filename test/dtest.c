@@ -32,7 +32,7 @@ struct chains
 };
 
 // registered with blocking_notifier_chain_register
-static const struct chains s_chains[] = {
+static const struct chains b_chains[] = {
  { "backlight_register_notifier", "backlight_notifier" },
  { "register_tracepoint_module_notifier", "tracepoint_notify_list" },
  { "pm_qos_add_notifier", "pm_qos_array" },
@@ -337,10 +337,10 @@ int main(int argc, char **argv)
   // test chained ntfy (default)
   if ( !opt_s && !opt_t )
   {
-    printf("chained ntfy:\n");
+    printf("srcu chained ntfy:\n");
     dump_chains(fd, srcu_chains, sizeof(srcu_chains) / sizeof(srcu_chains[0]), IOCTL_CNTSNTFYCHAIN, IOCTL_ENUMSNTFYCHAIN);
-    printf("\nsrcu chained ntfy:\n");
-    dump_chains(fd, s_chains, sizeof(s_chains) / sizeof(s_chains[0]), IOCTL_CNTNTFYCHAIN, IOCTL_ENUMNTFYCHAIN);
+    printf("\nchained ntfy:\n");
+    dump_chains(fd, b_chains, sizeof(b_chains) / sizeof(b_chains[0]), IOCTL_CNTNTFYCHAIN, IOCTL_ENUMNTFYCHAIN);
     printf("\natomic chained ntfy:\n");
     dump_chains(fd, a_chains, sizeof(a_chains) / sizeof(a_chains[0]), IOCTL_CNTANTFYCHAIN, IOCTL_ENUMANTFYCHAIN);
   }
