@@ -1073,6 +1073,104 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
         }
       break; /* READ_CPUFREQ_CNT */
 
+    case IOCTL_REM_BNTFY:
+       if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 2) > 0 )
+         return -EFAULT;
+        else {
+         struct blocking_notifier_head *nb = (struct blocking_notifier_head *)ptrbuf[9];
+         void *ntfy = (void *)ptrbuf[1];
+         struct notifier_block *b, *target = NULL;
+         // lock
+         down_write(&nb->rwsem);
+         if ( nb->head != NULL )
+         {
+          for ( b = nb->head; b != NULL; b = b->next )
+            if ( ntfy == b->notifier_call )
+            {
+              target = b;
+              break;
+            }
+         }
+         // unlock
+         up_write(&nb->rwsem);
+         if ( target )
+         {
+           blocking_notifier_chain_unregister(nb, target);
+           ptrbuf[0] = 1;
+         } else
+           ptrbuf[0] = 0;
+         // copy result to user-mode
+         if ( copy_to_user((void*)(ioctl_param), (void*)ptrbuf, sizeof(ptrbuf[0])) > 0 )
+           return -EFAULT;
+        }
+      break; /* IOCTL_REM_BNTFY */
+
+    case IOCTL_REM_ANTFY:
+       if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 2) > 0 )
+         return -EFAULT;
+        else {
+         struct atomic_notifier_head *nb = (struct atomic_notifier_head *)ptrbuf[9];
+         void *ntfy = (void *)ptrbuf[1];
+         struct notifier_block *b, *target = NULL;
+         unsigned long flags;
+         // lock
+         spin_lock_irqsave(&nb->lock, flags);
+         if ( nb->head != NULL )
+         {
+          for ( b = nb->head; b != NULL; b = b->next )
+            if ( ntfy == b->notifier_call )
+            {
+              target = b;
+              break;
+            }
+         }
+         // unlock
+         spin_unlock_irqrestore(&nb->lock, flags);
+         if ( target )
+         {
+           atomic_notifier_chain_unregister(nb, target);
+           ptrbuf[0] = 1;
+         } else
+           ptrbuf[0] = 0;
+         // copy result to user-mode
+         if ( copy_to_user((void*)(ioctl_param), (void*)ptrbuf, sizeof(ptrbuf[0])) > 0 )
+           return -EFAULT;
+        }
+      break; /* IOCTL_REM_ANTFY */
+
+    case IOCTL_REM_SNTFY:
+       if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 2) > 0 )
+         return -EFAULT;
+        else {
+         struct srcu_notifier_head *nb = (struct srcu_notifier_head *)ptrbuf[9];
+         void *ntfy = (void *)ptrbuf[1];
+         struct notifier_block *b, *target = NULL;
+         // lock
+         mutex_lock(&nb->mutex);
+         if ( nb->head != NULL )
+         {
+          for ( b = nb->head; b != NULL; b = b->next )
+            if ( ntfy == b->notifier_call )
+            {
+              target = b;
+              break;
+            }
+         }
+         // unlock
+         mutex_unlock(&nb->mutex);
+         synchronize_srcu(&nb->srcu);
+         if ( target )
+         {
+           srcu_notifier_chain_unregister(nb, target);
+           ptrbuf[0] = 1;
+         } else
+           ptrbuf[0] = 0;
+         // copy result to user-mode
+         if ( copy_to_user((void*)(ioctl_param), (void*)ptrbuf, sizeof(ptrbuf[0])) > 0 )
+           return -EFAULT;
+        }
+      break; /* IOCTL_REM_SNTFY */
+
     case IOCTL_CNTNTFYCHAIN:
      {
        // copy address of blocking_notifier_head from user-mode
@@ -1104,7 +1202,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
        struct blocking_notifier_head *nb;
        unsigned long cnt;
        if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 2) > 0 )
- 	 return -EFAULT;
+         return -EFAULT;
        nb = (struct blocking_notifier_head *)ptrbuf[0];
        cnt = ptrbuf[1];
        // validation
@@ -1157,7 +1255,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
        unsigned long cnt;
        unsigned long flags;
        if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 2) > 0 )
- 	 return -EFAULT;
+         return -EFAULT;
        nb = (struct atomic_notifier_head *)ptrbuf[0];
        cnt = ptrbuf[1];
        // validation

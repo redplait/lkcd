@@ -1072,4 +1072,19 @@ struct clk_ntfy
 //  0 - 1 if some action was successfull, 0 else
 #define IOCTL_KPROBE_DISABLE           _IOR(IOCTL_NUM, 0x4a, int*)
 
+// remove notifier for tests
+// for all ioctls
+// in params
+//  0 - address of block
+//  1 - address of notifier
+// out params:
+//  0 - 1 if notifier was found, 0 else
+
+// for blocking_notifier_chain_register
+#define IOCTL_REM_BNTFY                 _IOR(IOCTL_NUM, 0x4b, int*)
+// for atomic_notifier_chain_register
+#define IOCTL_REM_ANTFY                _IOR(IOCTL_NUM, 0x4c, int*)
+// for srcu_notifier_chain_register
+#define IOCTL_REM_SNTFY                _IOR(IOCTL_NUM, 0x4d, int*)
+
 #endif /* LKCD_SHARED_H */
