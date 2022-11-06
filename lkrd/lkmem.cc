@@ -14,6 +14,7 @@
 
 #include <iostream>
 #include <list>
+#include <set>
 #include <elfio/elfio_dump.hpp>
 #include "ksyms.h"
 #include "getopt.h"
@@ -33,6 +34,7 @@ int g_opt_v = 0;
 int g_opt_h = 0;
 int g_dump_bpf_ops = 0;
 int g_event_foff = 0;
+std::set<unsigned long> g_kpe, g_kpd; // enable-disable kprobe, key is just address
 
 using namespace ELFIO;
 
@@ -58,6 +60,8 @@ void usage(const char *prog)
   printf("-j jit.so\n");
   printf("-H - dump BPF opcodes\n");
   printf("-k - dump kprobes\n");
+  printf("-kpd addr - disable kprobe\n");
+  printf("-kpe addr - enable kprobe\n");
   printf("-n - dump nets\n");
   printf("-r - check .rodata section\n");
   printf("-S - check security_hooks\n");
@@ -2851,6 +2855,24 @@ void dump_super_blocks(int fd, sa64 delta)
   }
 }
 
+int patch_kprobe(int fd, unsigned long a1, unsigned long a2, int idx, void *addr, int action)
+{
+  unsigned long args[5] = { a1, a2, (unsigned long)idx, (unsigned long)addr, (unsigned long)action };
+  int err = ioctl(fd, IOCTL_KPROBE_DISABLE, (int *)&args);
+  if ( err )
+  {
+    printf("IOCTL_KPROBE_DISABLE(%p) failed, error %d (%s)\n", addr, errno, strerror(errno));
+    return -1;
+  }
+  if ( args[0] )
+  {
+    printf("found\n");
+    return 1;
+  }
+  printf("not found\n");
+  return 0;
+}
+
 void dump_kprobes(int fd, sa64 delta)
 {
   unsigned long a1 = get_addr("kprobe_table");
@@ -2917,6 +2939,18 @@ void dump_kprobes(int fd, sa64 delta)
           printf(" kprobe at %p flags %X retprobe\n", kp[idx].kaddr, kp[idx].flags);
         else
           printf(" kprobe at %p flags %X\n", kp[idx].kaddr, kp[idx].flags);
+        auto is_d = g_kpd.find((unsigned long)kp[idx].kaddr);
+        if ( is_d != g_kpd.end() )
+        {
+          printf("disable kprobe: ");
+          patch_kprobe(fd, a1 + delta, a2 + delta, i, kp[idx].kaddr, 0);
+        }  
+        auto is_e = g_kpe.find((unsigned long)kp[idx].kaddr);
+        if ( is_e != g_kpe.end() )
+        {
+          printf("enable kprobe: ");
+          patch_kprobe(fd, a1 + delta, a2 + delta, i, kp[idx].kaddr, 1);
+        }  
       }
       dump_kptr((unsigned long)kp[idx].addr, " addr", delta);
       if ( kp[idx].pre_handler )
@@ -2976,6 +3010,19 @@ void dump_kprobes(int fd, sa64 delta)
           if ( kp[idx2].is_retprobe )
             printf(" kretprobe");
           printf("\n");
+          auto is_d = g_kpd.find((unsigned long)kp[idx2].kaddr);
+          if ( is_d != g_kpd.end() )
+          {
+            printf("disable kprobe: ");
+            patch_kprobe(fd, a1 + delta, a2 + delta, i, kp[idx2].kaddr, 0);
+          }  
+          auto is_e = g_kpe.find((unsigned long)kp[idx2].kaddr);
+          if ( is_e != g_kpe.end() )
+          {
+            printf("enable kprobe: ");
+            patch_kprobe(fd, a1 + delta, a2 + delta, i, kp[idx2].kaddr, 1);
+          }  
+
           if ( kp[idx2].pre_handler )
             dump_kptr((unsigned long)kp[idx2].pre_handler, "    pre_handler", delta);
           if ( kp[idx2].post_handler )
@@ -3334,9 +3381,35 @@ int main(int argc, char **argv)
    int fd = 0;
    while (1)
    {
+     if ( !strcmp(argv[optind],"-kpd") )
+     {
+       optind++;
+       if ( optind >= argc )
+         usage(argv[0]);
+       char *unused;
+       unsigned long v = strtoul(argv[optind], &unused, 16);
+       if ( !v )
+         usage(argv[0]);
+       g_kpd.insert(v);
+       optind++;
+       continue;
+     }
+     if ( !strcmp(argv[optind],"-kpe") )
+     {
+       optind++;
+       if ( optind >= argc )
+         usage(argv[0]);
+       char *unused;
+       unsigned long v = strtoul(argv[optind], &unused, 16);
+       if ( !v )
+         usage(argv[0]);
+       g_kpe.insert(v);
+       optind++;
+       continue;
+     }
      c = getopt(argc, argv, "BbCcdFfghHknrSstuvj:");
      if (c == -1)
-	break;
+      break;
 
      switch (c)
      {
