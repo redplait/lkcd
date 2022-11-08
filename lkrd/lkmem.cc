@@ -3597,6 +3597,8 @@ int main(int argc, char **argv)
          printf("delta: %lX\n", delta);
        }
      }
+     if ( opt_c && !patches.empty() )
+        patch_kernel(fd, patches);
      // dump consoles
      if ( opt_c && opt_C )
        dump_consoles(fd, delta);
