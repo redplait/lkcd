@@ -60,6 +60,7 @@ void usage(const char *prog)
   printf("-j jit.so\n");
   printf("-H - dump BPF opcodes\n");
   printf("-k - dump kprobes\n");
+  printf("-kp addr byte - patch kernel\n");
   printf("-kpd addr - disable kprobe\n");
   printf("-kpe addr - enable kprobe\n");
   printf("-n - dump nets\n");
@@ -630,6 +631,19 @@ class dumb_free
   protected:
    void *m_ptr;
 };
+
+void patch_kernel(int fd, std::map<unsigned long, unsigned char> &what)
+{
+  unsigned long args[2];
+  for ( auto iter: what )
+  {
+    args[0] = iter.first;
+    args[1] = iter.second;
+    int err = ioctl(fd, IOCTL_PATCH_KTEXT1, (int *)args);
+    if ( err )
+      printf("IOCTL_PATCH_KTEXT1 on %p failed, error %d (%s)\n", (void *)iter.first, errno, strerror(errno));
+  }
+}
 
 template <typename T>
 size_t calc_data_size(size_t n)
@@ -3379,8 +3393,26 @@ int main(int argc, char **argv)
        opt_u = 0;
    int c;
    int fd = 0;
+   std::map<unsigned long, unsigned char> patches;
    while (1)
    {
+     if ( !strcmp(argv[optind],"-kp") )
+     {
+       optind++;
+       if ( optind >= argc )
+         usage(argv[0]);
+       char *unused;
+       unsigned long v = strtoul(argv[optind], &unused, 16);
+       if ( !v )
+         usage(argv[0]);
+       optind++;
+       if ( optind >= argc )
+         usage(argv[0]);
+       unsigned long value = strtoul(argv[optind], &unused, 16);
+       patches[v] = (unsigned char)(value & 0xff);
+       optind++;
+       continue;
+     }
      if ( !strcmp(argv[optind],"-kpd") )
      {
        optind++;
