@@ -327,6 +327,9 @@ struct mutex *s_tracepoints_mutex = 0;
 typedef int (*und_bpf_prog_array_length)(struct bpf_prog_array *progs);
 und_bpf_prog_array_length bpf_prog_array_length_ptr = 0;
 
+typedef void *(*t_patch_text)(void *addr, const void *opcode, size_t len);
+t_patch_text s_patch_text = 0;
+
 #ifdef CONFIG_FSNOTIFY
 typedef struct fsnotify_mark *(*und_fsnotify_first_mark)(struct fsnotify_mark_connector **connp);
 typedef struct fsnotify_mark *(*und_fsnotify_next_mark)(struct fsnotify_mark *mark);
@@ -4504,9 +4507,9 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
      break; /* IOCTL_GET_BPF_KSYMS */
 
     case IOCTL_GET_LSM_HOOKS:
-        if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 2) > 0 )
+     if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 2) > 0 )
   	  return -EFAULT;
-  	else {
+  	 else {
           struct security_hook_list *shl;
           struct hlist_head *head = (struct hlist_head *)ptrbuf[0];
   	  // there is no sync - all numerous security_xxx just call call_xx_hook
@@ -4541,6 +4544,16 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
           }
         }
       break; /* IOCTL_GET_LSM_HOOKS */
+
+    case IOCTL_PATCH_KTEXT1:
+      if ( !s_patch_text )
+          return -ENOCSI;
+      if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 2) > 0 )
+  	    return -EFAULT;
+      else {
+        s_patch_text((void*)ptrbuf[0], ptrbuf + 1, 1);
+      }
+      break; /* IOCTL_PATCH_KTEXT1 */     
 
     default:
      return -EBADRQC;
@@ -4755,6 +4768,9 @@ init_module (void)
     printk("cannot find css_next_child\n");
   cgroup_bpf_detach_ptr = (kcgroup_bpf_detach)lkcd_lookup_name("cgroup_bpf_detach");
   if ( !cgroup_bpf_detach_ptr )
+    printk("cannot find cgroup_bpf_detach\n");
+  s_patch_text = (t_patch_text)lkcd_lookup_name("text_poke_kgdb");
+  if ( !s_patch_text )
     printk("cannot find cgroup_bpf_detach\n");
 #ifdef CONFIG_FSNOTIFY
   fsnotify_mark_srcu_ptr = (struct srcu_struct *)lkcd_lookup_name("fsnotify_mark_srcu");

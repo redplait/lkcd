@@ -1072,6 +1072,12 @@ struct clk_ntfy
 //  0 - 1 if some action was successfull, 0 else
 #define IOCTL_KPROBE_DISABLE           _IOR(IOCTL_NUM, 0x4a, int*)
 
+// patch 1 byte in kernel text
+// in params:
+//  0 - address
+//  1 - byte to patch
+#define IOCTL_PATCH_KTEXT1             _IOR(IOCTL_NUM, 0x4b, int*)
+
 // remove notifier for tests
 // for all ioctls
 // in params
@@ -1081,10 +1087,10 @@ struct clk_ntfy
 //  0 - 1 if notifier was found, 0 else
 
 // for blocking_notifier_chain_register
-#define IOCTL_REM_BNTFY                 _IOR(IOCTL_NUM, 0x4b, int*)
+#define IOCTL_REM_BNTFY                 _IOR(IOCTL_NUM, 0x4c, int*)
 // for atomic_notifier_chain_register
-#define IOCTL_REM_ANTFY                _IOR(IOCTL_NUM, 0x4c, int*)
+#define IOCTL_REM_ANTFY                 _IOR(IOCTL_NUM, 0x4d, int*)
 // for srcu_notifier_chain_register
-#define IOCTL_REM_SNTFY                _IOR(IOCTL_NUM, 0x4d, int*)
+#define IOCTL_REM_SNTFY                 _IOR(IOCTL_NUM, 0x4e, int*)
 
 #endif /* LKCD_SHARED_H */
