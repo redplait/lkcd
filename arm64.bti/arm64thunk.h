@@ -1,0 +1,1 @@
+int arm64_make_thunk(unsigned char *thunk, unsigned char *off);
