@@ -120,12 +120,11 @@ static void disp_insn(struct ad_insn *insn){
     }
 }
 
-void dump_decode(unsigned char *body)
+void dump_decode(struct ad_insn *insn, unsigned char *body)
 {
-  struct ad_insn insn;
-  armadillo_init(&insn);
-  ArmadilloDisassemble(*(unsigned int *)body, (unsigned long)body, &insn);
-  disp_insn(&insn);
+  armadillo_init(insn);
+  ArmadilloDisassemble(*(unsigned int *)body, (unsigned long)body, insn);
+  disp_insn(insn);
 }
 
 int check_thunk(unsigned char *body, unsigned char *off)
@@ -137,8 +136,14 @@ int check_thunk(unsigned char *body, unsigned char *off)
     return res;
   }
   // decode and dump 2 instruction in thunk
-  dump_decode(body);
-  dump_decode(body + 4);
+  struct ad_insn insn;
+  dump_decode(&insn, body);
+  dump_decode(&insn, body + 4);
+  // for last instruction check first operand
+  if ( insn.operands[0].type == AD_OP_IMM && insn.operands[0].op_imm.bits == (unsigned long)off )
+    printf("test passed\n");
+  else
+    printf("test failed, must be %lX but operand is %lX\n", (unsigned long)off, insn.operands[0].op_imm.bits);
   return 0;
 }
 
@@ -146,9 +151,13 @@ int main()
 {
   unsigned char *body = (unsigned char *)malloc(8);
   printf("body at %p\n", body);
+  printf("test b %p\n", body + 0x120);
   check_thunk(body, body + 0x120);
+  printf("test b %p\n", body - 0x120);
   check_thunk(body, body - 0x120);
+  printf("test b %p\n", body + 0x72345678);
   check_thunk(body, body + 0x72345678);
+  printf("test b %p\n", body - 0x72345678);
   check_thunk(body, body - 0x72345678);
   free(body);
 }

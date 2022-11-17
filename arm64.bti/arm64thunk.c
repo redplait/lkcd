@@ -13,11 +13,11 @@ int arm64_make_thunk(unsigned char *thunk, unsigned char *off)
 {
   int i;
   // ripped from arm64/net/bpf_jit.c function is_long_jump 
-  long offset = (long)off - (long)thunk;
+  long offset = (long)off - (long)thunk - 4;
   if ( offset < -SZ_128M || offset >= SZ_128M )
     return -1;
   for ( i = 0; i < sizeof(s_bit_c); ++i )
     thunk[i] = s_bit_c[i];
-  *(unsigned int *)(thunk + 4) = b_op | ((offset >> 2) & 0x00ffffff);
+  *(unsigned int *)(thunk + 4) = b_op | ((offset >> 2) & 0x03ffffff);
   return 0;
 }
