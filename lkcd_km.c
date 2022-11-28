@@ -73,10 +73,10 @@ struct sock_diag_handler **s_sock_diag_handlers = 0;
 struct mutex *s_sock_diag_table_mutex = 0;
 struct ftrace_ops *s_ftrace_end = 0;
 
-#ifdef __x86_64__
 #define KPROBE_HASH_BITS 6
 #define KPROBE_TABLE_SIZE (1 << KPROBE_HASH_BITS)
 
+#ifdef __x86_64__
 // asm functions in getgs.asm
 extern void *get_gs(long offset);
 extern void *get_this_gs(long this_cpu, long offset);
@@ -685,7 +685,6 @@ void fill_super_blocks(struct super_block *sb, void *arg)
   args->curr[0]++;
 }
 
-#ifdef __x86_64__
 // some uprobe functions
 typedef struct und_uprobe *(*find_uprobe)(struct inode *inode, loff_t offset);
 typedef struct und_uprobe *(*get_uprobe)(struct und_uprobe *uprobe);
@@ -703,14 +702,21 @@ struct und_uprobe *my_get_uprobe(struct und_uprobe *uprobe)
 #define DEBUGGEE_FILE_OFFSET	0x4710 /* getenv@plt */
  
 static struct inode *debuggee_inode = NULL;
+#ifdef CONFIG_USER_RETURN_NOTIFIER
 static int urn_installed = 0;
+#endif
 static int test_kprobe_installed = 0;
 
 // ripped from https://github.com/kentaost/uprobes_sample/blob/master/uprobes_sample.c
 static int uprobe_sample_handler(struct uprobe_consumer *con,
 		struct pt_regs *regs)
 {
-  printk("uprobe handler in PID %d executed, ip = %lx\n", task_pid_nr(current), regs->ip);
+#if defined(CONFIG_ARM64)
+  u64 ip = regs->pc;
+#else
+  u64 ip = regs->ip;
+#endif  
+  printk("uprobe handler in PID %d executed, ip = %lx\n", task_pid_nr(current), (unsigned long)ip);
   return 0;
 }
 
@@ -718,7 +724,12 @@ static int uprobe_sample_ret_handler(struct uprobe_consumer *con,
 					unsigned long func,
 					struct pt_regs *regs)
 {
-  printk("uprobe ret_handler is executed, ip = %lX\n", regs->ip);
+#if defined(CONFIG_ARM64)
+  u64 ip = regs->pc;
+#else
+  u64 ip = regs->ip;
+#endif  
+  printk("uprobe ret_handler is executed, ip = %lX\n", (unsigned long)ip);
   return 0;
 }
 
@@ -808,6 +819,7 @@ struct urn_params
   unsigned long *out_data;
 };
 
+#ifdef CONFIG_USER_RETURN_NOTIFIER
 static void copy_lrn(void *info)
 {
   struct urn_params *params = (struct urn_params *)info;
@@ -847,7 +859,7 @@ static void count_lrn(void *info)
      buf[1]++;
   }
 }
-#endif /* __x86_64__ */
+#endif /* CONFIG_USER_RETURN_NOTIFIER */
 
 // assumed that all locks was taken before calling of this function
 static unsigned long copy_trace_bpfs(const struct trace_event_call *c, unsigned long lim, unsigned long *out_buf)
@@ -2019,7 +2031,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
 
 #endif /* CONFIG_FSNOTIFY */
 
-#ifdef __x86_64__
+// #ifdef __x86_64__
      case IOCTL_CNT_UPROBES:
        if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 2) > 0 )
          return -EFAULT;
@@ -2536,10 +2548,10 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
        }
       break; /* IOCTL_GET_KPROBE_BUCKET */
 
+#ifdef CONFIG_USER_RETURN_NOTIFIER
      case IOCTL_TEST_URN:
        if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long)) > 0 )
          return -EFAULT;
-#ifdef CONFIG_USER_RETURN_NOTIFIER
        if ( ptrbuf[0] && !urn_installed )
        {
          user_return_notifier_register(&s_urn);
@@ -2550,7 +2562,6 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
          user_return_notifier_unregister(&s_urn);
          urn_installed = 0;
        }
-#endif /* CONFIG_USER_RETURN_NOTIFIER */
        break; /* IOCTL_TEST_URN */
 
      case IOCTL_CNT_RNL_PER_CPU:
@@ -2612,7 +2623,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
           kfree(params.out_data);
       }
       break; /* IOCTL_RNL_PER_CPU */
-#endif /* __x86_64__ */
+#endif /* CONFIG_USER_RETURN_NOTIFIER */
 
      case IOCTL_READ_CONSOLES:
        // read cnt
@@ -4808,14 +4819,14 @@ init_module (void)
       fsnotify_next_mark_ptr = my_fsnotify_next_mark;
   }
 #endif /* CONFIG_FSNOTIFY */
-#ifdef __x86_64__
+// #ifdef __x86_64__
   kprobe_aggr = (unsigned long)lkcd_lookup_name("aggr_pre_handler");
   find_uprobe_ptr = (find_uprobe)lkcd_lookup_name("find_uprobe");
   get_uprobe_ptr = (get_uprobe)lkcd_lookup_name("get_uprobe");
   if ( !get_uprobe_ptr )
     get_uprobe_ptr = my_get_uprobe;
   put_uprobe_ptr = (put_uprobe)lkcd_lookup_name("put_uprobe");
-#endif /* __x86_64__ */
+// #endif /* __x86_64__ */
   return 0;
 }
 
@@ -4827,6 +4838,7 @@ void cleanup_module (void)
      user_return_notifier_unregister(&s_urn);
      urn_installed = 0;
   }
+#endif /* __x86_64__ */
   if ( test_kprobe_installed )
   {
      unregister_kprobe(&test_kp);
@@ -4837,6 +4849,5 @@ void cleanup_module (void)
      uprobe_unregister(debuggee_inode, DEBUGGEE_FILE_OFFSET, &s_uc);
      debuggee_inode = 0;
   }
-#endif /* __x86_64__ */
   misc_deregister(&lkcd_dev);
 }

@@ -1,10 +1,12 @@
 obj-m += lkcd.o 
 lkcd-objs += lkcd_km.o
 
+ifneq ($(ARCH), arm64)
 MACHINE ?= $(shell uname -m)
 ifeq ($(MACHINE),x86_64)
 lkcd-objs += getgs.o 
 add-target := getgs.o
+endif
 endif
 
 all: $(add-target)
