@@ -14,10 +14,10 @@
 #ifdef __x86_64__
 #include <asm/segment.h>
 #include <asm/uaccess.h>
+#endif
 #include <linux/rbtree.h>
 #include <linux/uprobes.h>
 #include <linux/kprobes.h>
-#endif
 #ifdef CONFIG_FSNOTIFY
 #include <linux/fsnotify_backend.h>
 #include <linux/mount.h>
@@ -37,6 +37,9 @@
 #include <linux/uaccess.h>
 #include <linux/vmalloc.h>
 #include <linux/trace.h>
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6,0,0)
+#include <linux/ftrace.h>
+#endif
 #include <linux/trace_events.h>
 #include "uprobes.h"
 #include <linux/tracepoint-defs.h>
@@ -54,6 +57,8 @@
 #include <linux/lsm_hooks.h>
 #include <linux/bpf.h>
 #include <linux/filter.h>
+#include <linux/timer.h>
+#include "timers.h"
 #include "bpf.h"
 #include "event.h"
 #include "shared.h"
@@ -401,7 +406,11 @@ void fill_superblock_marks(struct super_block *sb, void *arg)
         unsigned long index = args->curr[0];
         args->data[index].mark_addr = (void *)mark;
         args->data[index].mask = mark->mask;
+#if LINUX_VERSION_CODE < KERNEL_VERSION(6,0,0)        
         args->data[index].ignored_mask = mark->ignored_mask;
+#else
+        args->data[index].ignored_mask = mark->ignore_mask;
+#endif        
         args->data[index].flags = mark->flags;
         if ( mark->group )
         {
@@ -448,7 +457,11 @@ void fill_mount_marks(struct super_block *sb, void *arg)
         unsigned long index = args->curr[0];
         args->data[index].mark_addr = (void *)mark;
         args->data[index].mask = mark->mask;
+#if LINUX_VERSION_CODE < KERNEL_VERSION(6,0,0)        
         args->data[index].ignored_mask = mark->ignored_mask;
+#else
+        args->data[index].ignored_mask = mark->ignore_mask;
+#endif        
         args->data[index].flags = mark->flags;
         if ( mark->group )
         {
@@ -489,7 +502,11 @@ void fill_inode_marks(struct super_block *sb, void *arg)
         unsigned long index = args->curr[0];
         args->data[index].mark_addr = (void *)mark;
         args->data[index].mask = mark->mask;
+#if LINUX_VERSION_CODE < KERNEL_VERSION(6,0,0)        
         args->data[index].ignored_mask = mark->ignored_mask;
+#else
+        args->data[index].ignored_mask = mark->ignore_mask;
+#endif        
         args->data[index].flags = mark->flags;
         if ( mark->group )
         {
@@ -2541,7 +2558,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
         int err;
         unsigned long cpu_n;
         if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 3) > 0 )
-  	  return -EFAULT;
+          return -EFAULT;
         cpu_n = ptrbuf[0];
         err = smp_call_function_single(cpu_n, count_lrn, (void*)ptrbuf, 1);
         if ( err )
@@ -4054,6 +4071,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
         }
      break; /* IOCTL_GET_BPF_RAW_EVENTS */
 
+#ifdef CONFIG_FUNCTION_TRACER
     case IOCTL_GET_FTRACE_OPS:
         if ( !s_ftrace_end )
           return -ENOCSI;
@@ -4109,6 +4127,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
           }
         }
      break; /* IOCTL_GET_FTRACE_OPS */
+#endif /* CONFIG_FUNCTION_TRACER */
 
     case IOCTL_GET_FTRACE_CMDS:
         if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 3) > 0 )
