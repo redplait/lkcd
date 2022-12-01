@@ -67,6 +67,8 @@ void usage(const char *prog)
   printf("-r - check .rodata section\n");
   printf("-S - check security_hooks\n");
   printf("-s - check fs_ops for sysfs files\n");
+  printf("-t - dump tracepoints\n");
+  printf("-T - dump timers\n");
   printf("-u - dump usb_monitor\n");
   printf("-v - verbose mode\n");
   exit(6);
@@ -3341,6 +3343,96 @@ void check_tracepoints(int fd, sa64 delta, addr_sym *tsyms, size_t tcount)
   }
   free(ntfy);
 }
+
+size_t calc_tsize(unsigned long c)
+{
+  return sizeof(unsigned long) + c * sizeof(ktimer);
+}
+
+void dump_ktimers(int fd, a64 off, a64 poff, sa64 delta)
+{
+  if ( !poff )
+  {
+    printf("cannot find __per_cpu_offset\n");
+    return;
+  }
+  int cpu_num = get_nprocs();
+  int i;
+  // fill per_cpu offsets
+  unsigned long *per = (unsigned long *)calloc(cpu_num, sizeof(unsigned long));
+  if ( NULL == per )
+  {
+    printf("cannot alloc per-cpu array\n");
+    return;
+  }
+  dumb_free<unsigned long> ptmp { per };
+  poff += delta;
+  printf("__per_cpu_offset at %p\n", (void *)poff);
+  for ( i = 0; i < cpu_num; i++ )
+  {
+    unsigned long addr = poff + i * sizeof(unsigned long);
+    int err = ioctl(fd, IOCTL_READ_PTR, (int *)&addr);
+    if ( err )
+    {
+      printf("error %d while read per_cpu %d\n", err, i);
+      continue;
+    }
+    per[i] = addr;
+    printf("per_cpu[%d]: %p\n", i, (void *)per[i] ); 
+  }
+  unsigned long tmax = 0;
+  for ( i = 0; i < cpu_num; i++ )
+  {
+    if ( !per[i] )
+      continue;
+    unsigned long par[2] = { per[i] + off, 0 };
+    int err = ioctl(fd, IOCTL_GET_KTIMERS, (int *)par);
+    if ( err )
+    {
+      printf("error %d while read timers count for cpu %d\n", err, i);
+      continue;
+    }
+    if ( par[0] > tmax )
+      tmax = par[0];
+  }
+  if ( !tmax )
+    return;
+  // alloc enough memory
+#ifdef _DEBUG
+  printf("tmax %ld\n", tmax);
+#endif  
+  size_t tsize = calc_tsize(tmax);
+  unsigned long *buf = (unsigned long *)malloc(tsize);
+  if ( !buf )
+  {
+    printf("cannot alloc buffer for timers, len %lX\n", tsize);
+    return;
+  }
+  dumb_free<unsigned long> tmp(buf);
+  for ( i = 0; i < cpu_num; i++ )
+  {
+    if ( !per[i] )
+      continue;
+    buf[0] = per[i] + off;
+    buf[1] = tmax;
+    int err = ioctl(fd, IOCTL_GET_KTIMERS, (int *)buf);
+    if ( err )
+    {
+      printf("error %d while read timers for cpu %d\n", err, i);
+      continue;
+    }
+    ktimer *k = (ktimer *)(buf + 1);
+    printf("timers for cpu %d %ld:\n", i, buf[0]);
+    for ( unsigned long l = 0; l < buf[0]; ++k, ++l )
+    {
+      if ( k->wq_addr )
+        printf(" %p wq %p flags %X %p", k->addr, k->wq_addr, k->flags, k->func);
+      else
+        printf(" %p flags %X %p", k->addr, k->flags, k->func);
+      dump_unnamed_kptr((unsigned long)k->func, delta);
+    }
+  }
+}
 #endif /* !_MSC_VER */
 
 int is_nop(unsigned char *body)
@@ -3388,6 +3480,7 @@ int main(int argc, char **argv)
        opt_s = 0,
        opt_S = 0,
        opt_t = 0,
+       opt_T = 0,
        opt_b = 0,
        opt_B = 0,
        opt_u = 0;
@@ -3439,7 +3532,7 @@ int main(int argc, char **argv)
        optind++;
        continue;
      }
-     c = getopt(argc, argv, "BbCcdFfghHknrSstuvj:");
+     c = getopt(argc, argv, "BbCcdFfghHknrSstTuvj:");
      if (c == -1)
       break;
 
@@ -3507,6 +3600,9 @@ int main(int argc, char **argv)
          break;
         case 't':
           opt_t = 1;
+         break;
+        case 'T':
+          opt_T = 1;
          break;
         default:
          usage(argv[0]);
@@ -3808,6 +3904,19 @@ end:
          else
            dump_efivars(fd, addr, delta);
 #endif /* !_MSC_VER */
+       }
+       if ( opt_T && has_syms )
+       {
+         a64 off = (a64)get_addr("timer_bases");
+         if ( off )
+         {
+          printf("timer_bases %p\n", (void *)off);
+          if ( opt_c )
+          {
+            a64 poff = (a64)get_addr("__per_cpu_offset");
+            dump_ktimers(fd, off, poff, delta);
+          }  
+         }
        }
        if ( opt_t && has_syms )
        {
