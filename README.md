@@ -7,6 +7,7 @@ Small pet project to find and dump some linux kernel guts like
 * ftrace addresses (-f option)
 * check ftrace prologs (-c -f)
 * kernel tracepoints (-c -t)
+* kernel timers and workqueues (-c -T)
 * per-cpu user_return_notifiers (-c -d)
 * kprobes - with pre_handler & post_handler (-c -k)
 * uprobes (including uprobe_consumer) (-c -k options)
@@ -20,7 +21,7 @@ etc etc
 
 Sure contains poorly written buggy driver
 
-Sample of checking on x64 5.8.0-63
+Sample of checking on x64 5.15.0-52
 
 ```
 registered consoles: 1
@@ -34,6 +35,15 @@ uprobes: 1
  consumer[0] at 0xffffffffc0605100
    handler: 0xffffffffc0603b13 - lkcd
    ret_handler: 0xffffffffc0603af3 - lkcd
+...
+timers for cpu 1 7:
+ 0xffff9e5e41049690 flags A000001 0xffffffffa43f5fe0 0xffffffffa43f5fe0 - kernel!blk_stat_timer_fn
+ 0xffff9e5e5de8c440 wq 0xffff9e5e5de8c420 flags 12600001 0xffffffffa3f345c0 0xffffffffa3f345c0 - kernel!psi_avgs_work
+ 0xffff9e5e57414440 wq 0xffff9e5e57414420 flags 1A600001 0xffffffffa3f345c0 0xffffffffa3f345c0 - kernel!psi_avgs_work
+ 0xffff9e5e5025a3c8 wq 0xffff9e5e5025a3a8 flags 1F600001 0xffffffffc0600390 0xffffffffc0600390 - r8169
+ 0xffff9e5e50c877f0 flags 21C00001 0xffffffffa43e2cd0 0xffffffffa43e2cd0 - kernel!blk_rq_timed_out_timer
+ 0xffff9e5e50c78a10 wq 0xffff9e5e50c789f0 flags 23E00001 0xffffffffa41c2e80 0xffffffffa41c2e80 - kernel!wb_workfn
+ 0xffff9e618e45fc20 flags 42D00001 0xffffffffa3e605d0 0xffffffffa3e605d0 - kernel!mce_timer_fn
 ...
 mem at 0xffffffff8b633058 (x86_cpuinit+8) patched to 0xffffffff8a075d50 (kvm_setup_secondary_clock)
 mem at 0xffffffff8b6331c0 (i8259A_chip+40) patched to 0xffffffff8a0373a0 (disable_8259A_irq)
