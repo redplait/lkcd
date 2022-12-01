@@ -1093,4 +1093,20 @@ struct clk_ntfy
 // for srcu_notifier_chain_register
 #define IOCTL_REM_SNTFY                 _IOR(IOCTL_NUM, 0x4e, int*)
 
+struct ktimer
+{
+  void *addr;
+  unsigned long exp;
+  void *func;
+  unsigned int flags;
+};
+
+// dump kernel timers
+// in params:
+//  0 - timer_bases address
+//  1 - count
+// out params
+//  N + N * ktimer
+#define IOCTL_GET_KTIMERS               _IOR(IOCTL_NUM, 0x4f, int*)
+
 #endif /* LKCD_SHARED_H */

@@ -4540,11 +4540,11 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
      if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 2) > 0 )
   	  return -EFAULT;
   	 else {
-          struct security_hook_list *shl;
-          struct hlist_head *head = (struct hlist_head *)ptrbuf[0];
-  	  // there is no sync - all numerous security_xxx just call call_xx_hook
-    	  if ( !ptrbuf[1] )
-  	  {
+       struct security_hook_list *shl;
+       struct hlist_head *head = (struct hlist_head *)ptrbuf[0];
+  	   // there is no sync - all numerous security_xxx just call call_xx_hook
+    	 if ( !ptrbuf[1] )
+  	   {
             ptrbuf[0] = 0;
             hlist_for_each_entry(shl, head, list)
               ptrbuf[0]++;
@@ -4574,6 +4574,66 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
           }
         }
       break; /* IOCTL_GET_LSM_HOOKS */
+
+    case IOCTL_GET_KTIMERS:
+     if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 2) > 0 )
+  	  return -EFAULT;
+  	 else {
+      struct timer_base *tb = (struct timer_base *)ptrbuf[0];
+      unsigned long flags = 0;
+      int idx;
+      struct timer_list *tl;
+      if ( !ptrbuf[1] )
+      {
+        // calc count of timers
+        raw_spin_lock_irqsave(&tb->lock, flags);
+        for ( idx = 0; idx < WHEEL_SIZE; idx++ )
+        {
+          hlist_for_each_entry(tl, &tb->vectors[idx], entry)
+             ptrbuf[1]++;
+        }
+        // unlock
+        raw_spin_unlock_irqrestore(&tb->lock, flags);
+        // copy count to user-mode
+        if (copy_to_user((void*)ioctl_param, (void*)&ptrbuf[1], sizeof(ptrbuf[1])) > 0)
+          return -EFAULT;
+      } else {
+         struct ktimer *curr;
+         unsigned long size = sizeof(unsigned long) + ptrbuf[1] * sizeof(struct ktimer);
+         unsigned long *kbuf = (unsigned long *)kmalloc(size, GFP_KERNEL);
+         unsigned long cnt = 0;
+         if ( !kbuf )
+          return -ENOMEM;
+         curr = (struct ktimer *)(kbuf + 1);
+         // lock
+         raw_spin_lock_irqsave(&tb->lock, flags);
+         for ( idx = 0; idx < WHEEL_SIZE && cnt < ptrbuf[1]; idx++ )
+         {
+           hlist_for_each_entry(tl, &tb->vectors[idx], entry)
+           {
+             if ( cnt >= ptrbuf[1] )
+               break;
+             curr->addr = tl;
+             curr->exp = tl->expires;
+             curr->func = tl->function;
+             curr->flags = tl->flags;
+             curr++;
+             cnt++;
+           }
+         }
+         // unlock
+         raw_spin_unlock_irqrestore(&tb->lock, flags);
+         // copy count to user-mode
+         kbuf[0] = cnt;
+         if (copy_to_user((void*)ioctl_param, (void*)kbuf, size) > 0)
+         {
+          kfree(kbuf);
+          return -EFAULT;
+         }
+         kfree(kbuf);
+      }
+     }
+     break; /* IOCTL_GET_KTIMERS */
 
     case IOCTL_PATCH_KTEXT1:
       if ( !s_patch_text )
