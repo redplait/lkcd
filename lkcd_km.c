@@ -58,6 +58,7 @@
 #include <linux/bpf.h>
 #include <linux/filter.h>
 #include <linux/timer.h>
+#include <linux/workqueue.h>
 #include "timers.h"
 #include "bpf.h"
 #include "event.h"
@@ -72,6 +73,7 @@ rwlock_t *s_dev_base_lock = 0;
 struct sock_diag_handler **s_sock_diag_handlers = 0;
 struct mutex *s_sock_diag_table_mutex = 0;
 struct ftrace_ops *s_ftrace_end = 0;
+void *delayed_timer = 0;
 
 #define KPROBE_HASH_BITS 6
 #define KPROBE_TABLE_SIZE (1 << KPROBE_HASH_BITS)
@@ -4614,8 +4616,15 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
              if ( cnt >= ptrbuf[1] )
                break;
              curr->addr = tl;
+             curr->wq_addr = NULL;
              curr->exp = tl->expires;
-             curr->func = tl->function;
+             if ( delayed_timer == tl->function )
+             {
+               struct delayed_work *dwork = from_timer(dwork, tl, timer);
+               curr->wq_addr = dwork;
+               curr->func = dwork->work.func;
+             } else
+               curr->func = tl->function;
              curr->flags = tl->flags;
              curr++;
              cnt++;
@@ -4862,6 +4871,9 @@ init_module (void)
   s_patch_text = (t_patch_text)lkcd_lookup_name("text_poke_kgdb");
   if ( !s_patch_text )
     printk("cannot find cgroup_bpf_detach\n");
+  delayed_timer = (void *)lkcd_lookup_name("delayed_work_timer_fn");
+  if ( !delayed_timer )
+    printk("cannot find delayed_work_timer_fn");
 #ifdef CONFIG_FSNOTIFY
   fsnotify_mark_srcu_ptr = (struct srcu_struct *)lkcd_lookup_name("fsnotify_mark_srcu");
   fsnotify_first_mark_ptr = (und_fsnotify_first_mark)lkcd_lookup_name("fsnotify_first_mark");

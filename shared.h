@@ -1096,6 +1096,7 @@ struct clk_ntfy
 struct ktimer
 {
   void *addr;
+  void *wq_addr;
   unsigned long exp;
   void *func;
   unsigned int flags;
