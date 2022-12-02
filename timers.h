@@ -11,8 +11,17 @@
 # define LVL_DEPTH	8
 #endif
 
-
 #define WHEEL_SIZE	(LVL_SIZE * LVL_DEPTH)
+
+#ifdef CONFIG_NO_HZ_COMMON
+# define NR_BASES	2
+# define BASE_STD	0
+# define BASE_DEF	1
+#else
+# define NR_BASES	1
+# define BASE_STD	0
+# define BASE_DEF	0
+#endif
 
 struct timer_base {
     raw_spinlock_t		lock;

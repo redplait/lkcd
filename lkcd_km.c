@@ -4596,6 +4596,18 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
         }
         // unlock
         raw_spin_unlock_irqrestore(&tb->lock, flags);
+#if (BASE_STD	!= BASE_DEF)
+        tb++;
+        // lock
+        raw_spin_lock_irqsave(&tb->lock, flags);
+        for ( idx = 0; idx < WHEEL_SIZE; idx++ )
+        {
+          hlist_for_each_entry(tl, &tb->vectors[idx], entry)
+             ptrbuf[1]++;
+        }
+        // unlock
+        raw_spin_unlock_irqrestore(&tb->lock, flags);
+#endif        
         // copy count to user-mode
         if (copy_to_user((void*)ioctl_param, (void*)&ptrbuf[1], sizeof(ptrbuf[1])) > 0)
           return -EFAULT;
@@ -4632,6 +4644,34 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
          }
          // unlock
          raw_spin_unlock_irqrestore(&tb->lock, flags);
+#if (BASE_STD	!= BASE_DEF)
+         tb++;
+         // lock
+         raw_spin_lock_irqsave(&tb->lock, flags);
+         for ( idx = 0; idx < WHEEL_SIZE && cnt < ptrbuf[1]; idx++ )
+         {
+           hlist_for_each_entry(tl, &tb->vectors[idx], entry)
+           {
+             if ( cnt >= ptrbuf[1] )
+               break;
+             curr->addr = tl;
+             curr->wq_addr = NULL;
+             curr->exp = tl->expires;
+             if ( delayed_timer == tl->function )
+             {
+               struct delayed_work *dwork = from_timer(dwork, tl, timer);
+               curr->wq_addr = dwork;
+               curr->func = dwork->work.func;
+             } else
+               curr->func = tl->function;
+             curr->flags = tl->flags;
+             curr++;
+             cnt++;
+           }
+         }
+         // unlock
+         raw_spin_unlock_irqrestore(&tb->lock, flags);
+#endif
          // copy count to user-mode
          kbuf[0] = cnt;
          if (copy_to_user((void*)ioctl_param, (void*)kbuf, size) > 0)
