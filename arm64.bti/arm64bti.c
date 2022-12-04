@@ -46,23 +46,23 @@ int init_bti_thunks(void)
   s_set_memory_x = (t_set_memory_x)lkcd_lookup_name("set_memory_x");
   if ( !s_set_memory_x )
   {
-    printk("cannot find s_set_memory_x");
+    printk("cannot find set_memory_x");
     return 0;
   }
   if ( !func_has_bti(s_set_memory_x) )
   {
-    printk("s_set_memory_x is not BTI-compatible");
+    printk("set_memory_x is not BTI-compatible");
     return 0;
   }
   s_set_memory_ro = (t_set_memory_ro)lkcd_lookup_name("set_memory_ro");
   if ( !s_set_memory_ro )
   {
-    printk("cannot find s_set_memory_ro");
+    printk("cannot find set_memory_ro");
     return 0;
   }
   if ( !func_has_bti(s_set_memory_ro) )
   {
-    printk("s_set_memory_ro is not BTI-compatible");
+    printk("set_memory_ro is not BTI-compatible");
     return 0;
   }
   start = (unsigned long)s_vmalloc_node_range;

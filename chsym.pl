@@ -75,7 +75,12 @@ sub parse_src
     $ln++;
     next if ( $str =~ /^\s*\/\// ); # skip // comments
     # for lkcd_km.c
-    for ( $str =~ /lkcd_lookup_name\s*\(\s*\"(.*)\"/ )
+    if ( $str =~ /lkcd_lookup_name\s*\(\s*\"(.*)\"/ )
+    {
+      check_sym($fn, $ln, $1);
+      next;
+    }
+    if ( $str =~ /SYM_LOAD\s*\(\s*\"(.*)\"/ )
     {
       check_sym($fn, $ln, $1);
       next;
