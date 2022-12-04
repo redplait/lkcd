@@ -63,6 +63,7 @@
 #include "bpf.h"
 #include "event.h"
 #include "shared.h"
+#include "arm64.bti/arm64bti.h"
 
 MODULE_LICENSE("GPL");
 // Char we show before each debug print
@@ -105,7 +106,7 @@ DEFINE_STATIC_CALL(lkcd_lookup_name_sc, lkcd_lookup_name_scinit);
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(5,4,0) && LINUX_VERSION_CODE < KERNEL_VERSION(5,10,0)
 
-static unsigned long lkcd_lookup_name(const char *name)
+unsigned long lkcd_lookup_name(const char *name)
 {
 	unsigned int i = 0, first_space_idx = 0, second_space_idx = 0; /* Read Index and indexes of spaces */
 	struct file *proc_ksyms = NULL;
@@ -235,7 +236,7 @@ static unsigned long lkcd_lookup_name_scinit(const char *name)
 	return 0;
 }
 
-static unsigned long lkcd_lookup_name(const char *name)
+unsigned long lkcd_lookup_name(const char *name)
 {
  return static_call(lkcd_lookup_name_sc)(name);
 }
@@ -4845,6 +4846,12 @@ static struct miscdevice lkcd_dev = {
     .fops = &kmem_fops
 };
 
+#ifdef HAS_ARM64_THUNKS
+#define SYM_LOAD(name, type, val)  val = (type)bti_wrap(name);
+#else
+#define SYM_LOAD(name, type, val)  val = (type)lkcd_lookup_name(name); if ( !val ) printk("cannot find %s", name); 
+#endif
+
 int __init
 init_module (void)
 {
@@ -4854,17 +4861,24 @@ init_module (void)
     printk("Unable to register the lkcd device\n");
     return ret;
   }
+#ifdef HAS_ARM64_THUNKS
+  if ( !init_bti_thunks() )
+  {
+    misc_deregister(&lkcd_dev);
+    return -ENOMEM;
+  }
+#endif /* HAS_ARM64_THUNKS */
   k_pre_handler_kretprobe = (void *)lkcd_lookup_name("pre_handler_kretprobe");
   if ( !k_pre_handler_kretprobe )
-    printk("cannot find pre_handler_kretprobe\n");
+    printk("cannot find pre_handler_kretprobe\n");  
   s_dbg_open = (const struct file_operations *)lkcd_lookup_name("debugfs_open_proxy_file_operations");
   if ( !s_dbg_open )
     printk("cannot find debugfs_open_proxy_file_operations\n");
   s_dbg_full = (const struct file_operations *)lkcd_lookup_name("debugfs_full_proxy_file_operations");
   if ( !s_dbg_full )
     printk("cannot find debugfs_full_proxy_file_operations\n");
-  krnf_node_ptr = (krnf_node_type)lkcd_lookup_name("kernfs_node_from_dentry");
-  iterate_supers_ptr = (und_iterate_supers)lkcd_lookup_name("iterate_supers");
+  SYM_LOAD("kernfs_node_from_dentry", krnf_node_type, krnf_node_ptr)
+  SYM_LOAD("iterate_supers", und_iterate_supers, iterate_supers_ptr)
   mount_lock = (seqlock_t *)lkcd_lookup_name("mount_lock");
   if ( !mount_lock )
     printk("cannot find mount_lock\n");
@@ -4939,6 +4953,9 @@ init_module (void)
     get_uprobe_ptr = my_get_uprobe;
   put_uprobe_ptr = (put_uprobe)lkcd_lookup_name("put_uprobe");
 // #endif /* __x86_64__ */
+#ifdef HAS_ARM64_THUNKS
+  bti_thunks_lock_ro();
+#endif
   return 0;
 }
 
@@ -4961,5 +4978,8 @@ void cleanup_module (void)
      uprobe_unregister(debuggee_inode, DEBUGGEE_FILE_OFFSET, &s_uc);
      debuggee_inode = 0;
   }
+#ifdef HAS_ARM64_THUNKS
+  finit_bti_thunks();
+#endif  
   misc_deregister(&lkcd_dev);
 }

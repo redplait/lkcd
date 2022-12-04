@@ -7,6 +7,8 @@ ifeq ($(MACHINE),x86_64)
 lkcd-objs += getgs.o 
 add-target := getgs.o
 endif
+else
+lkcd-objs += arm64.bti/arm64bti.o
 endif
 
 all: $(add-target)

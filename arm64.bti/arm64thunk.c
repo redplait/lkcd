@@ -1,9 +1,8 @@
-#include "arm64thunk.h"
-
 const unsigned char s_bit_c[4] = { 0x5F, 0x24, 0x03, 0xD5 };
 const unsigned int b_op = 0x14000000;
 
 #ifndef __KERNEL__
+#include "arm64thunk.h"
 #define SZ_128M				0x08000000
 #else
 #include <linux/sizes.h>
@@ -20,4 +19,14 @@ int arm64_make_thunk(unsigned char *thunk, unsigned char *off)
     thunk[i] = s_bit_c[i];
   *(unsigned int *)(thunk + 4) = b_op | ((offset >> 2) & 0x03ffffff);
   return 0;
+}
+
+int func_has_bti(void *addr)
+{
+  unsigned char *b = (unsigned char *)addr;
+  return (b[0] == 0x5f) &&
+         (b[1] == 0x24) &&
+         (b[2] == 0x3 ) &&
+         (b[3] == 0xd5)
+   ;
 }
