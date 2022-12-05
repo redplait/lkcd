@@ -39,3 +39,12 @@ struct timer_base {
     DECLARE_BITMAP(pending_map, WHEEL_SIZE);
     struct hlist_head	vectors[WHEEL_SIZE];
 } ____cacheline_aligned;
+
+// alarm timers - from https://elixir.bootlin.com/linux/v5.14/source/kernel/time/alarmtimer.c#L44
+struct alarm_base {
+    spinlock_t		lock;
+    struct timerqueue_head	timerqueue;
+    ktime_t			(*get_ktime)(void);
+    void			(*get_timespec)(struct timespec64 *tp);
+    clockid_t		base_clockid;
+} /* alarm_bases[ALARM_NUMTYPE] */;

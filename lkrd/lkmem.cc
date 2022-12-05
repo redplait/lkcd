@@ -3344,6 +3344,53 @@ void check_tracepoints(int fd, sa64 delta, addr_sym *tsyms, size_t tcount)
   free(ntfy);
 }
 
+void dunp_kalarms(int fd, sa64 delta)
+{
+  for ( int i = 0; i < 2; ++i )
+  {
+    unsigned long params[3] = { (unsigned long)i, 0, 0 };
+    int err = ioctl(fd, IOCTL_GET_ALARMS, (int *)&params);
+    if ( err )
+    {
+      printf("error %d while read IOCTL_GET_ALARMS %d cnt\n", err, i);
+      continue;
+    }
+    printf("kalarms %d: cnt %ld\n", i, params[0]);
+    if ( params[1] )
+      dump_kptr(params[1], " get_ktime", delta);
+    if ( params[2] )
+      dump_kptr(params[2], " get_timespec", delta);
+    if ( !params[0] )
+      continue;
+    size_t size = calc_data_size<one_alarm>(params[0]);
+    unsigned long *buf = (unsigned long *)malloc(size);
+    if ( !buf )
+    {
+      printf("cannot alloc buffer for kalarmss, len %lX\n", size);
+      continue;
+    }
+    dumb_free<unsigned long> tmp(buf);
+    // fill params
+    buf[0] = (unsigned long)i;
+    buf[1] = params[0];
+    err = ioctl(fd, IOCTL_GET_ALARMS, (int *)buf);
+    if ( err )
+    {
+      printf("error %d while read IOCTL_GET_ALARMS %d\n", err, i);
+      continue;
+    }
+    one_alarm *k = (one_alarm *)(buf + 1);
+    for ( unsigned long l = 0; l < buf[0]; ++k, ++l )
+    {
+      printf(" %p\n", k->addr);
+      if ( k->hr_timer )
+        dump_kptr((unsigned long)k->hr_timer, " hr_timer", delta);
+      if ( k->func )
+        dump_kptr((unsigned long)k->func, " func", delta);
+    }
+  }
+}
+
 size_t calc_tsize(unsigned long c)
 {
   return sizeof(unsigned long) + c * sizeof(ktimer);
@@ -3917,6 +3964,7 @@ end:
             dump_ktimers(fd, off, poff, delta);
           }  
          }
+         dunp_kalarms(fd, delta);
        }
        if ( opt_t && has_syms )
        {

@@ -59,6 +59,7 @@
 #include <linux/filter.h>
 #include <linux/timer.h>
 #include <linux/workqueue.h>
+#include <linux/alarmtimer.h>
 #include "timers.h"
 #include "bpf.h"
 #include "event.h"
@@ -75,6 +76,7 @@ struct sock_diag_handler **s_sock_diag_handlers = 0;
 struct mutex *s_sock_diag_table_mutex = 0;
 struct ftrace_ops *s_ftrace_end = 0;
 void *delayed_timer = 0;
+struct alarm_base *s_alarm = 0;
 
 #define KPROBE_HASH_BITS 6
 #define KPROBE_TABLE_SIZE (1 << KPROBE_HASH_BITS)
@@ -688,6 +690,7 @@ void fill_super_blocks(struct super_block *sb, void *arg)
   args->curr[0]++;
 }
 
+#ifdef CONFIG_UPROBES
 // some uprobe functions
 typedef struct und_uprobe *(*find_uprobe)(struct inode *inode, loff_t offset);
 typedef struct und_uprobe *(*get_uprobe)(struct und_uprobe *uprobe);
@@ -702,13 +705,8 @@ struct und_uprobe *my_get_uprobe(struct und_uprobe *uprobe)
 	return uprobe;
 }
 
-#define DEBUGGEE_FILE_OFFSET	0x4710 /* getenv@plt */
- 
 static struct inode *debuggee_inode = NULL;
-#ifdef CONFIG_USER_RETURN_NOTIFIER
-static int urn_installed = 0;
-#endif
-static int test_kprobe_installed = 0;
+#define DEBUGGEE_FILE_OFFSET	0x4710 /* getenv@plt */
 
 // ripped from https://github.com/kentaost/uprobes_sample/blob/master/uprobes_sample.c
 static int uprobe_sample_handler(struct uprobe_consumer *con,
@@ -740,6 +738,12 @@ static struct uprobe_consumer s_uc = {
 	.handler = uprobe_sample_handler,
 	.ret_handler = uprobe_sample_ret_handler
 };
+#endif /* CONFIG_UPROBES */
+ 
+#ifdef CONFIG_USER_RETURN_NOTIFIER
+static int urn_installed = 0;
+#endif
+static int test_kprobe_installed = 0;
 
 static int handler_pre(struct kprobe *p, struct pt_regs *regs)
 {
@@ -2145,6 +2149,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
         }
        break; /* IOCTL_TRACE_UPROBE */
 
+#ifdef CONFIG_UPROBES
      case IOCTL_UPROBES_CONS:
        if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 4) > 0 )
          return -EFAULT;
@@ -2285,6 +2290,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
          debuggee_inode = 0;
        }
       break; /* IOCTL_TEST_UPROBE */
+#endif /* CONFIG_UPROBES */
 
      case IOCTL_TEST_KPROBE:
        if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long)) > 0 )
@@ -4578,6 +4584,67 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
         }
       break; /* IOCTL_GET_LSM_HOOKS */
 
+    case IOCTL_GET_ALARMS:
+      if ( !s_alarm )
+        return -ENOCSI;
+      if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 2) > 0 )
+  	    return -EFAULT;
+      if ( ptrbuf[0] >= ALARM_NUMTYPE )
+        return -EINVAL;
+      else {
+        struct alarm_base *ca = s_alarm + ptrbuf[0];
+        struct rb_node *iter;
+        unsigned long flags;
+        if ( !ptrbuf[1] )
+        {
+          // calc count of alarms
+          ptrbuf[0] = 0;
+          // lock
+          spin_lock_irqsave(&ca->lock, flags);
+          for ( iter = rb_first(&ca->timerqueue.rb_root.rb_root); iter != NULL; iter = rb_next(iter) )
+            ptrbuf[0]++;
+          // unlock
+          spin_unlock_irqrestore(&ca->lock, flags);
+          ptrbuf[1] = (unsigned long)ca->get_ktime;
+          ptrbuf[2] = (unsigned long)ca->get_timespec;
+          // copy to user-mode
+          if (copy_to_user((void*)ioctl_param, (void*)ptrbuf, sizeof(ptrbuf[0]) * 3) > 0)
+            return -EFAULT;
+        } else {
+          size_t size = sizeof(unsigned long) + ptrbuf[1] * sizeof(struct one_alarm);
+          struct one_alarm *curr;
+          unsigned long cnt = 0;
+          unsigned long *kbuf = (unsigned long *)kmalloc(size, GFP_KERNEL);
+          if ( !kbuf )
+            return -ENOMEM;
+          curr = (struct one_alarm *)(kbuf + 1);
+          // lock
+          spin_lock_irqsave(&ca->lock, flags);
+          for ( iter = rb_first(&ca->timerqueue.rb_root.rb_root); iter != NULL && cnt < ptrbuf[1]; iter = rb_next(iter) )
+          {
+            struct timerqueue_node *node = rb_entry(iter, struct timerqueue_node, node);
+            struct alarm *a = (struct alarm *)node;
+            curr->addr = node;
+            curr->hr_timer = a->timer.function;
+            curr->func = a->function;
+            // for next iteration
+            cnt++;
+            curr++;
+          }
+          // unlock
+          spin_unlock_irqrestore(&ca->lock, flags);
+          kbuf[0] = cnt;
+          // copy collected data to user-mode
+          if (copy_to_user((void*)ioctl_param, (void*)kbuf, size) > 0)
+          {
+           kfree(kbuf);
+           return -EFAULT;
+          }
+          kfree(kbuf);
+        }
+      }
+     break; /* IOCTL_GET_ALARMS */
+
     case IOCTL_GET_KTIMERS:
      if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 2) > 0 )
   	  return -EFAULT;
@@ -4673,7 +4740,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
          // unlock
          raw_spin_unlock_irqrestore(&tb->lock, flags);
 #endif
-         // copy count to user-mode
+         // copy collected data to user-mode
          kbuf[0] = cnt;
          if (copy_to_user((void*)ioctl_param, (void*)kbuf, size) > 0)
          {
@@ -4913,46 +4980,41 @@ init_module (void)
   s_tracepoints_mutex = (struct mutex *)lkcd_lookup_name("tracepoints_mutex");
   if ( !s_tracepoints_mutex )
     printk("cannot find tracepoints_mutex\n");
-  bpf_prog_array_length_ptr = (und_bpf_prog_array_length)lkcd_lookup_name("bpf_prog_array_length");
-  if ( !bpf_prog_array_length_ptr )
-    printk("cannot find bpf_prog_array_length\n");
+  SYM_LOAD("bpf_prog_array_length", und_bpf_prog_array_length, bpf_prog_array_length_ptr)
   css_next_child_ptr = (kcss_next_child)lkcd_lookup_name("css_next_child");
   if ( !css_next_child_ptr )
     printk("cannot find css_next_child\n");
-  cgroup_bpf_detach_ptr = (kcgroup_bpf_detach)lkcd_lookup_name("cgroup_bpf_detach");
-  if ( !cgroup_bpf_detach_ptr )
-    printk("cannot find cgroup_bpf_detach\n");
-  s_patch_text = (t_patch_text)lkcd_lookup_name("text_poke_kgdb");
-  if ( !s_patch_text )
-    printk("cannot find cgroup_bpf_detach\n");
+  SYM_LOAD("cgroup_bpf_detach", kcgroup_bpf_detach, cgroup_bpf_detach_ptr)
+  SYM_LOAD("text_poke_kgdb", t_patch_text, s_patch_text)
   delayed_timer = (void *)lkcd_lookup_name("delayed_work_timer_fn");
   if ( !delayed_timer )
     printk("cannot find delayed_work_timer_fn");
+  s_alarm = (struct alarm_base *)lkcd_lookup_name("alarm_bases");
+  if ( !s_alarm )
+    printk("cannot find alarm_bases");
 #ifdef CONFIG_FSNOTIFY
   fsnotify_mark_srcu_ptr = (struct srcu_struct *)lkcd_lookup_name("fsnotify_mark_srcu");
-  fsnotify_first_mark_ptr = (und_fsnotify_first_mark)lkcd_lookup_name("fsnotify_first_mark");
+  SYM_LOAD("fsnotify_first_mark", und_fsnotify_first_mark, fsnotify_first_mark_ptr)
   if ( !fsnotify_first_mark_ptr )
   {
-    printk("cannot find fsnotify_first_mark\n");
     if ( fsnotify_mark_srcu_ptr )
       fsnotify_first_mark_ptr = my_fsnotify_first_mark;
   }
-  fsnotify_next_mark_ptr = (und_fsnotify_next_mark)lkcd_lookup_name("fsnotify_next_mark");
+  SYM_LOAD("fsnotify_next_mark", und_fsnotify_next_mark, fsnotify_next_mark_ptr) 
   if ( !fsnotify_next_mark_ptr )
   {
-    printk("cannot find fsnotify_next_mark\n");
     if ( fsnotify_mark_srcu_ptr )
       fsnotify_next_mark_ptr = my_fsnotify_next_mark;
   }
 #endif /* CONFIG_FSNOTIFY */
-// #ifdef __x86_64__
   kprobe_aggr = (unsigned long)lkcd_lookup_name("aggr_pre_handler");
+#ifdef CONFIG_UPROBES
   find_uprobe_ptr = (find_uprobe)lkcd_lookup_name("find_uprobe");
   get_uprobe_ptr = (get_uprobe)lkcd_lookup_name("get_uprobe");
   if ( !get_uprobe_ptr )
     get_uprobe_ptr = my_get_uprobe;
   put_uprobe_ptr = (put_uprobe)lkcd_lookup_name("put_uprobe");
-// #endif /* __x86_64__ */
+#endif
 #ifdef HAS_ARM64_THUNKS
   bti_thunks_lock_ro();
 #endif
@@ -4973,11 +5035,13 @@ void cleanup_module (void)
      unregister_kprobe(&test_kp);
      test_kprobe_installed = 0;
   }
+#ifdef CONFIG_UPROBES
   if ( debuggee_inode )
   {
      uprobe_unregister(debuggee_inode, DEBUGGEE_FILE_OFFSET, &s_uc);
      debuggee_inode = 0;
   }
+#endif
 #ifdef HAS_ARM64_THUNKS
   finit_bti_thunks();
 #endif  

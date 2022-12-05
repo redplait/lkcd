@@ -1110,4 +1110,20 @@ struct ktimer
 //  N + N * ktimer
 #define IOCTL_GET_KTIMERS               _IOR(IOCTL_NUM, 0x4f, int*)
 
+struct one_alarm
+{
+  void *addr;
+  void *hr_timer;
+  void *func;
+};
+
+// dump alarm timers
+// in params:
+//  0 - index
+//  1 - count
+// out params
+//  if !count: 0 - count 1 - get_ktime 2 - get_timespec
+// else N + N * one_alarm
+#define IOCTL_GET_ALARMS                _IOR(IOCTL_NUM, 0x50, int*)
+
 #endif /* LKCD_SHARED_H */
