@@ -1126,4 +1126,36 @@ struct one_alarm
 // else N + N * one_alarm
 #define IOCTL_GET_ALARMS                _IOR(IOCTL_NUM, 0x50, int*)
 
+struct one_kcalgo
+{
+  void *addr;
+  unsigned int flags;
+  unsigned int c_blocksize;
+  unsigned int c_ctxsize;
+  char name[128];
+  void *c_type;
+  // from crypto_type *cra_type
+  void *ctxsize;
+  void *extsize;
+  void *init;
+  void *init_tfm;
+  void *show;
+  void *report;
+  void *free;
+  unsigned int tfmsize;
+  // remained methods
+  void *cra_init;
+  void *cra_exit;
+  void *cra_destroy;
+};
+
+// dump kernel crypto algos
+// in params:
+//  0 - crypto_alg_list address
+//  1 - crypto_alg_sem address
+//  2 - count
+// out params
+//  N + N * one_kcalgo
+#define IOCTL_ENUM_CALGO                _IOR(IOCTL_NUM, 0x51, int*)
+
 #endif /* LKCD_SHARED_H */

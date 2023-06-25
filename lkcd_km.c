@@ -54,6 +54,8 @@
 #include <net/protocol.h>
 #include <linux/rhashtable.h>
 #include "netlink.h"
+#include <linux/crypto.h>
+#include <crypto/algapi.h>
 #include <linux/lsm_hooks.h>
 #include <linux/bpf.h>
 #include <linux/filter.h>
@@ -4544,6 +4546,71 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
           }
        }
      break; /* IOCTL_GET_BPF_KSYMS */
+
+    case IOCTL_ENUM_CALGO:
+     if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 3) > 0 )
+  	   return -EFAULT;
+  	 else {
+       struct list_head *head = (struct list_head *)ptrbuf[0];
+       struct rw_semaphore *cs = (struct rw_semaphore *)ptrbuf[1];
+       struct crypto_alg *q;
+       if ( !ptrbuf[2] )
+       {
+         ptrbuf[0] = 0;
+         down_read(cs);
+         list_for_each_entry(q, head, cra_list)
+           ptrbuf[0]++;
+         up_read(cs);
+         if (copy_to_user((void*)ioctl_param, (void*)ptrbuf, sizeof(ptrbuf[0])) > 0)
+          return -EFAULT;
+       } else {
+          unsigned long cnt = 0;
+          struct one_kcalgo *curr;
+          size_t kbuf_size = sizeof(unsigned long) + sizeof(struct one_kcalgo) * ptrbuf[2];
+          unsigned long *buf = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL);
+          if ( !buf )
+            return -ENOMEM;
+          curr = (struct one_kcalgo *)(buf + 1);
+          down_read(cs);
+          list_for_each_entry(q, head, cra_list)
+          {
+            if ( cnt >= ptrbuf[2] )
+               break;
+            curr->addr = q;
+            curr->flags = q->cra_flags;
+            curr->c_blocksize = q->cra_blocksize;
+            curr->c_ctxsize = q->cra_ctxsize;
+            strlcpy(curr->name, q->cra_name, sizeof(curr->name));
+            curr->c_type = (void *)q->cra_type;
+            if ( curr->c_type )
+            {
+              curr->ctxsize = q->cra_type->ctxsize;
+              curr->extsize = q->cra_type->extsize;
+              curr->init = q->cra_type->init;
+              curr->init_tfm = q->cra_type->init_tfm;
+              curr->show = q->cra_type->show;
+              curr->report = q->cra_type->report;
+              curr->free = q->cra_type->free;
+              curr->tfmsize = q->cra_type->tfmsize;
+            }
+            curr->cra_init = q->cra_init;
+            curr->cra_exit = q->cra_exit;
+            curr->cra_destroy = q->cra_destroy;
+            curr++;
+            cnt++;
+          }
+          up_read(cs);
+          buf[0] = cnt;
+          kbuf_size = sizeof(unsigned long) + sizeof(struct one_kcalgo) * cnt;
+          if (copy_to_user((void*)ioctl_param, (void*)buf, kbuf_size) > 0)
+          {
+            kfree(buf);
+            return -EFAULT;
+          }
+          kfree(buf);
+       }
+     }
+     break; /* IOCTL_ENUM_CALGO */
 
     case IOCTL_GET_LSM_HOOKS:
      if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 2) > 0 )
