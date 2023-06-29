@@ -4567,7 +4567,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
           unsigned long cnt = 0;
           struct one_kcalgo *curr;
           size_t kbuf_size = sizeof(unsigned long) + sizeof(struct one_kcalgo) * ptrbuf[2];
-          unsigned long *buf = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL);
+          unsigned long *buf = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL | __GFP_ZERO);
           if ( !buf )
             return -ENOMEM;
           curr = (struct one_kcalgo *)(buf + 1);
@@ -4592,7 +4592,8 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
               curr->report = q->cra_type->report;
               curr->free = q->cra_type->free;
               curr->tfmsize = q->cra_type->tfmsize;
-            }
+            } else
+              curr->tfmsize = 0;
             curr->cra_init = q->cra_init;
             curr->cra_exit = q->cra_exit;
             curr->cra_destroy = q->cra_destroy;
