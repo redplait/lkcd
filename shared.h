@@ -1129,7 +1129,7 @@ struct one_alarm
 struct one_kcalgo
 {
   void *addr;
-  unsigned int flags;
+  unsigned int flags; // cra_flags
   unsigned int c_blocksize;
   unsigned int c_ctxsize;
   char name[128];
@@ -1143,6 +1143,15 @@ struct one_kcalgo
   void *report;
   void *free;
   unsigned int tfmsize;
+  // for compress - methods from compress_alg
+  void *coa_compress;
+  void *coa_decompress;
+  // from cipher_alg
+  unsigned int cia_min_keysize;
+	unsigned int cia_max_keysize;
+  void *cia_setkey;
+  void *cia_encrypt;
+  void *cia_decrypt;
   // remained methods
   void *cra_init;
   void *cra_exit;

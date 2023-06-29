@@ -4592,8 +4592,19 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
               curr->report = q->cra_type->report;
               curr->free = q->cra_type->free;
               curr->tfmsize = q->cra_type->tfmsize;
-            } else
-              curr->tfmsize = 0;
+            }
+            // copy algo methods
+            if ( q->cra_flags & CRYPTO_ALG_TYPE_COMPRESS )
+            {
+              curr->coa_compress = q->cra_u.compress.coa_compress;
+              curr->coa_decompress = q->cra_u.compress.coa_decompress;
+            } else {
+              curr->cia_min_keysize = q->cra_u.cipher.cia_min_keysize;
+              curr->cia_max_keysize = q->cra_u.cipher.cia_max_keysize;
+              curr->cia_setkey = q->cra_u.cipher.cia_setkey;
+              curr->cia_encrypt = q->cra_u.cipher.cia_encrypt;
+              curr->cia_decrypt = q->cra_u.cipher.cia_decrypt;
+            }
             curr->cra_init = q->cra_init;
             curr->cra_exit = q->cra_exit;
             curr->cra_destroy = q->cra_destroy;
