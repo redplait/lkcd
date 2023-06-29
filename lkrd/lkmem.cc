@@ -1743,6 +1743,22 @@ void dump_ckalgos(int fd, a64 list, a64 lock, sa64 delta)
        if ( curr->free )
          dump_kptr2((unsigned long)curr->free, "   free", delta);
      }
+     if ( curr->coa_compress || curr->coa_decompress )
+     {
+       if ( curr->coa_compress )
+         dump_kptr2((unsigned long)curr->coa_compress, "  coa_compress", delta);
+       if ( curr->coa_decompress )
+         dump_kptr2((unsigned long)curr->coa_decompress, "  coa_decompress", delta);
+     } else {
+       if ( curr->cia_min_keysize || curr->cia_max_keysize )
+       printf("  cia_min_keysize %d cia_max_keysize %d\n", curr->cia_min_keysize, curr->cia_max_keysize);
+       if ( curr->cia_setkey )
+         dump_kptr2((unsigned long)curr->cia_setkey, "  cia_setkey", delta);
+       if ( curr->cia_encrypt )
+         dump_kptr2((unsigned long)curr->cia_encrypt, "  cia_encrypt", delta);
+       if ( curr->cia_decrypt )
+         dump_kptr2((unsigned long)curr->cia_decrypt, "  cia_decrypt", delta);
+     }
      if ( curr->cra_init )
        dump_kptr2((unsigned long)curr->cra_init, "  cra_init", delta);
      if ( curr->cra_exit )
