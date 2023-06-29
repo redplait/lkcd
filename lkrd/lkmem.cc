@@ -1708,6 +1708,52 @@ void dump_bpf_maps(int fd, a64 list, a64 lock, sa64 delta, std::map<void *, std:
   );
 }
 
+void dump_ckalgos(int fd, a64 list, a64 lock, sa64 delta)
+{
+  if ( !list )
+  {
+    printf("cannot find crypto_alg_list\n");
+    return;
+  }
+  if ( !lock )
+  {
+    printf("cannot find crypto_alg_sem\n");
+    return;
+  }
+  dump_data2arg<one_kcalgo>(fd, list, lock, delta, IOCTL_ENUM_CALGO, "crypto_algos", "IOCTL_ENUM_CALGO", "crypto_algo",
+   [=](size_t idx, const one_kcalgo *curr) {
+     printf(" [%ld] flags %X %s ", idx, curr->flags, curr->name);
+     dump_kptr2((unsigned long)curr->addr, "addr", delta);
+     printf("  blocksize %d ctxsize %d tfmsize %d\n", curr->c_blocksize, curr->c_ctxsize, curr->tfmsize);
+     if ( curr->c_type )
+     {
+       dump_kptr2((unsigned long)curr->c_type, "  type", delta);
+       if ( curr->ctxsize )
+         dump_kptr2((unsigned long)curr->ctxsize, "   ctxsize", delta);
+       if ( curr->extsize )
+         dump_kptr2((unsigned long)curr->extsize, "   extsize", delta);
+       if ( curr->init )
+         dump_kptr2((unsigned long)curr->init, "   init", delta);
+       if ( curr->init_tfm )
+         dump_kptr2((unsigned long)curr->init_tfm, "   init_tfm", delta);
+       if ( curr->show )
+         dump_kptr2((unsigned long)curr->show, "   show", delta);
+       if ( curr->report )
+         dump_kptr2((unsigned long)curr->report, "   report", delta);
+       if ( curr->free )
+         dump_kptr2((unsigned long)curr->free, "   free", delta);
+     }
+     if ( curr->cra_init )
+       dump_kptr2((unsigned long)curr->cra_init, "  cra_init", delta);
+     if ( curr->cra_exit )
+       dump_kptr2((unsigned long)curr->cra_exit, "  cra_exit", delta);
+     if ( curr->cra_destroy )
+       dump_kptr2((unsigned long)curr->cra_destroy, "  cra_destroy", delta);
+   }
+  );
+  printf("\n");
+}
+
 void dump_bpf_targets(int fd, a64 list, a64 lock, sa64 delta)
 {
   if ( !list )
@@ -4207,6 +4253,9 @@ end:
           }
           if ( opt_S )
           {
+            auto sem = get_addr("crypto_alg_sem");
+            auto cal = get_addr("crypto_alg_list");
+            dump_ckalgos(fd, cal, sem, delta);
             s_security_hook_heads = get_addr("security_hook_heads");
             if ( !s_security_hook_heads )
             {
