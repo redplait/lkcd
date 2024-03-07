@@ -1,0 +1,65 @@
+diff --git a/gprof/gmon_io.c b/gprof/gmon_io.c
+index 18352a4f18c..a92e703dbdc 100644
+--- a/gprof/gmon_io.c
++++ b/gprof/gmon_io.c
+@@ -133,6 +133,8 @@ gmon_io_read_vma (FILE *ifp, bfd_vma *valp)
+ 	*valp = (int) val32;
+       else
+ 	*valp = val32;
++       if ( g_base )
++        *valp -= g_base;
+       break;
+ 
+     case ptr_64bit:
+@@ -142,6 +144,8 @@ gmon_io_read_vma (FILE *ifp, bfd_vma *valp)
+ 	*valp = (int64_t) val64;
+       else
+ 	*valp = val64;
++      if ( g_base )
++        *valp -= g_base;
+       break;
+     }
+   return 0;
+diff --git a/gprof/gprof.c b/gprof/gprof.c
+index 9392575f747..e8a5c8e7687 100644
+--- a/gprof/gprof.c
++++ b/gprof/gprof.c
+@@ -52,6 +52,7 @@ const char * function_mapping_file;
+ static const char * external_symbol_table;
+ const char * a_out_name = A_OUTNAME;
+ long hz = HZ_WRONG;
++long g_base = 0;
+ 
+ /*
+  * Default options values:
+@@ -202,7 +203,7 @@ main (int argc, char **argv)
+   expandargv (&argc, &argv);
+ 
+   while ((ch = getopt_long (argc, argv,
+-	"aA::bBcC::d::De:E:f:F:hiI:J::k:lLm:n:N:O:p::P::q::Q::rR:sS:t:Tvw:xyzZ::",
++	"aA::bBcC::d::De:E:f:F:hiI:J::k:lLm:n:N:O:p::P::q::Q::rR:sS:t:TU:vw:xyzZ::",
+ 			    long_options, 0))
+ 	 != EOF)
+     {
+@@ -421,6 +422,9 @@ main (int argc, char **argv)
+ 	case 'T':
+ 	  bsd_style_output = true;
+ 	  break;
++	case 'U':
++           g_base = strtol(optarg, (char **)NULL, 16);
++          break;
+ 	case 'v':
+ 	  /* This output is intended to follow the GNU standards document.  */
+ 	  printf (_("GNU gprof %s\n"), BFD_VERSION_STRING);
+diff --git a/gprof/gprof.h b/gprof/gprof.h
+index 1d8d8964772..4e6bd05c276 100644
+--- a/gprof/gprof.h
++++ b/gprof/gprof.h
+@@ -108,6 +108,7 @@ extern const char *whoami;	/* command-name, for error messages */
+ extern const char *function_mapping_file; /* file mapping functions to files */
+ extern const char *a_out_name;	/* core filename */
+ extern long hz;			/* ticks per second */
++extern long g_base;
+ 
+ /*
+  * Command-line options:
