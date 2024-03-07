@@ -3,12 +3,16 @@
 #include "eread.h"
 #include "lditer.h"
 
+extern "C" void _mcleanup (void);
+extern "C" void mcount(void);
+extern "C" void monstartup (char *, char *);
 const char *target = "libprelf.so";
 
 int
 main(int argc, char *argv[])
 {
   printf("int %d long %d\n", sizeof(int), sizeof(long));
+  int need_mstop = 0;
   if ( argc > 1 )
   {
     for ( int i = 1; i < argc; i++ )
@@ -28,10 +32,24 @@ main(int argc, char *argv[])
         if ( ld_iter(&ld) )
         {
           printf(" at %p, x_start %p x_size %lX\n", ld.base, ld.x_start, ld.x_size);
+          if ( pd.m_mcount )
+          {
+            need_mstop = 1;
+            monstartup(ld.base, ld.x_start + ld.x_size);
+          } else if ( pd.m_func_enter )
+          {
+            void **iat = (void **)(ld.base + pd.m_func_enter);
+            printf("[+] patch func_enter at %p\n", iat);
+            void *real_m = (void *)&mcount;
+            *iat = real_m;
+            need_mstop = 1;
+            monstartup(ld.base, ld.x_start + ld.x_size);
+          }
         } else
          printf(" ld_iter failed\n");
       }
     }
+    if ( need_mstop ) _mcleanup();
   } else
    ld_iter();
 }
