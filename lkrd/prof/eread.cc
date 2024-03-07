@@ -1,4 +1,19 @@
 #include "eread.h"
+#include <elfio/elfio.hpp>
+
+class elf_dread
+{
+  public:
+   elf_dread(ELFIO::elfio *rdr): m_rdr(rdr)
+   {}
+   int process(struct prof_data *out);
+  protected:
+   ELFIO::elfio *m_rdr;
+   // offset in dynsym
+   ptrdiff_t s_mcount = 0;
+   ptrdiff_t s_cyg_profile_func_enter = 0;
+   ptrdiff_t s_cyg_profile_func_exit = 0;
+};
 
 using namespace ELFIO;
 
@@ -14,7 +29,7 @@ section *find_sec(elfio *rdr, Elf_Xword addr)
   return nullptr;
 }
 
-int elf_dread::process()
+int elf_dread::process(struct prof_data *out)
 {
   Elf_Xword symtab = 0, jmptab = 0, rela = 0;
   // find section for dynamic
@@ -89,11 +104,12 @@ int elf_dread::process()
     Elf_Sxword add = 0;
     rs.get_entry(i, addr, sym_idx, type, add);
     if ( !sym_idx || (type != R_X86_64_JUMP_SLOT && type != R_X86_64_GLOB_DAT) ) continue;
-    if ( sym_idx == s_mcount ) m_mcount = addr;
-    else if ( sym_idx == s_cyg_profile_func_enter ) m_func_enter = addr;
+    if ( s_mcount && sym_idx == s_mcount ) out->m_mcount = addr;
+    else if ( s_cyg_profile_func_enter && sym_idx == s_cyg_profile_func_enter ) out->m_func_enter = addr;
+    else if ( s_cyg_profile_func_exit && sym_idx == s_cyg_profile_func_exit ) out->m_func_exit = addr;
   }
   // mcount can be stored in rela with R_X86_64_GLOB_DAT reloc
-  if ( s_mcount && rela )
+  if ( s_mcount && rela && !out->m_mcount )
   {
    auto ra = find_sec(m_rdr, rela);
    if ( !ra )
@@ -110,9 +126,21 @@ int elf_dread::process()
        Elf_Sxword add = 0;
        rs.get_entry(i, addr, sym_idx, type, add);
        if ( !sym_idx || type != R_X86_64_GLOB_DAT ) continue;
-       if ( sym_idx == s_mcount ) m_mcount = addr;
+       if ( sym_idx == s_mcount ) out->m_mcount = addr;
      }
    } 
   }
   return 1;
+}
+
+int process_elf(const char *fname, struct prof_data *out)
+{
+  elfio rdr;
+  if ( !rdr.load(fname) )
+  {
+    printf( "File %s is not found or it is not an ELF file\n", fname );
+    return -1;
+  }
+  elf_dread dr(&rdr);
+  return dr.process(out);
 }

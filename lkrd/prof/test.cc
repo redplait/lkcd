@@ -12,20 +12,13 @@ main(int argc, char *argv[])
   {
     for ( int i = 1; i < argc; i++ )
     {
-      ELFIO::elfio rdr;
-      if ( !rdr.load( argv[i] ) )
-      {
-        printf( "File %s is not found or it is not an ELF file\n", argv[i] );
-        continue;
-      }
+      struct prof_data pd;
+      if ( process_elf(argv[i], &pd) <= 0 ) continue;
       printf("%s:\n", argv[i]);
-      elf_dread ed(&rdr);
-      ed.process();
       // dump res
-      auto v = ed.get_mcount();
-      if ( v ) printf("mcount %lX\n", v);
-      v = ed.get_func_enter();
-      if ( v ) printf("func_enter %lX\n", v);
+      if ( pd.m_mcount ) printf("mcount %lX\n", pd.m_mcount);
+      if ( pd.m_func_enter ) printf("func_enter %lX\n", pd.m_func_enter);
+      if ( pd.m_func_exit ) printf("fubc_exit %lX\n", pd.m_func_exit);
     }
   } else
    ld_iter();
