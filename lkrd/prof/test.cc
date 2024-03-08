@@ -13,6 +13,7 @@ main(int argc, char *argv[])
 {
   printf("int %d long %d\n", sizeof(int), sizeof(long));
   int need_mstop = 0;
+  char prefix[50] = { 0 };
   if ( argc > 1 )
   {
     for ( int i = 1; i < argc; i++ )
@@ -32,24 +33,32 @@ main(int argc, char *argv[])
         if ( ld_iter(&ld) )
         {
           printf(" at %p, x_start %p x_size %lX\n", ld.base, ld.x_start, ld.x_size);
+          sprintf(prefix, "gmon.%lX", ld.base);
           if ( pd.m_mcount )
           {
+            // this library was compiled with -pg option - so we can just call monstartup with right address range
             need_mstop = 1;
             monstartup(ld.base, ld.x_start + ld.x_size);
           } else if ( pd.m_func_enter )
           {
+            // -finstrument-functions - patch __cyg_profile_func_enter to ncount and call monstartup
             void **iat = (void **)(ld.base + pd.m_func_enter);
             printf("[+] patch func_enter at %p\n", iat);
             void *real_m = (void *)&mcount;
             *iat = real_m;
             need_mstop = 1;
             monstartup(ld.base, ld.x_start + ld.x_size);
+          } else {
+            printf("[-] your library is not profileable\n");
           }
         } else
          printf(" ld_iter failed\n");
       }
     }
-    if ( need_mstop ) _mcleanup();
+    if ( need_mstop ) {
+     setenv("GMON_OUT_PREFIX", prefix, 1);
+     _mcleanup();
+    }
   } else
    ld_iter();
 }
