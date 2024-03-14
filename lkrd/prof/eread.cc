@@ -9,6 +9,7 @@ class elf_dread
    int process(struct prof_data *out);
   protected:
    ELFIO::elfio *m_rdr;
+   bool is_aarch64 = false;
    // offset in dynsym
    ptrdiff_t s_mcount = 0;
    ptrdiff_t s_cyg_profile_func_enter = 0;
@@ -31,6 +32,7 @@ section *find_sec(elfio *rdr, Elf_Xword addr)
 
 int elf_dread::process(struct prof_data *out)
 {
+  is_aarch64 = m_rdr->get_machine() == EM_AARCH64;
   Elf_Xword symtab = 0, jmptab = 0, rela = 0;
   // find section for dynamic
   Elf_Half n = m_rdr->sections.size();
@@ -78,12 +80,12 @@ int elf_dread::process(struct prof_data *out)
     Elf_Half section = 0;
     ds.get_symbol(i, name, value, size, bind, type, section, other);
     if ( name.empty() ) continue;
-    if ( !strcmp(name.c_str(), "mcount") ) s_mcount = i;
+    if ( !strcmp(name.c_str(), "mcount") || !strcmp(name.c_str(), "_mcount") ) s_mcount = i;
     else if ( !strcmp(name.c_str(), "__cyg_profile_func_enter") ) s_cyg_profile_func_enter = i;
     else if ( !strcmp(name.c_str(), "__cyg_profile_func_exit") ) s_cyg_profile_func_exit = i;
- #ifdef DEBUG
+#ifdef DEBUG
     printf("%d %s value %lX\n", i, name.c_str(), value);
- #endif   
+#endif
   }
   // this is non-profileable elf compiled without -pg or -finstrument-functions options 
   if ( !s_mcount && !s_cyg_profile_func_enter && !s_cyg_profile_func_exit )
@@ -103,7 +105,13 @@ int elf_dread::process(struct prof_data *out)
     unsigned type = 0;
     Elf_Sxword add = 0;
     rs.get_entry(i, addr, sym_idx, type, add);
-    if ( !sym_idx || (type != R_X86_64_JUMP_SLOT && type != R_X86_64_GLOB_DAT) ) continue;
+    if ( !sym_idx ) continue;
+    if ( is_aarch64 ) {
+#ifdef DEBUG
+      printf("sym_idx %d type %d\n", sym_idx, type);
+#endif
+      if ( type != R_AARCH64_JUMP_SLOT ) continue;
+    } else { if ( type != R_X86_64_JUMP_SLOT && type != R_X86_64_GLOB_DAT ) continue; }
     if ( s_mcount && sym_idx == s_mcount ) out->m_mcount = addr;
     else if ( s_cyg_profile_func_enter && sym_idx == s_cyg_profile_func_enter ) out->m_func_enter = addr;
     else if ( s_cyg_profile_func_exit && sym_idx == s_cyg_profile_func_exit ) out->m_func_exit = addr;
@@ -128,7 +136,7 @@ int elf_dread::process(struct prof_data *out)
        if ( !sym_idx || type != R_X86_64_GLOB_DAT ) continue;
        if ( sym_idx == s_mcount ) out->m_mcount = addr;
      }
-   } 
+   }
   }
   return 1;
 }
