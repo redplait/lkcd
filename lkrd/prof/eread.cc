@@ -52,6 +52,8 @@ int elf_dread::process(struct prof_data *out)
       if ( DT_JMPREL == tag ) jmptab = value;
       else if ( DT_SYMTAB == tag ) symtab = value;
       else if ( DT_RELA == tag ) rela = value;
+      else if ( DT_FLAGS == tag ) out->flags = value;
+      else if ( 0x6ffffffb == tag ) out->flags1 = value;
     }
     break;
   }

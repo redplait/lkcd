@@ -19,9 +19,16 @@ main(int argc, char *argv[])
     for ( int i = 1; i < argc; i++ )
     {
       struct prof_data pd;
-      if ( process_elf(argv[i], &pd) <= 0 ) continue;
+      if ( process_elf(argv[i], &pd) <= 0 )
+      {
+        if ( pd.flags ) printf("flags: %lX\n", pd.flags);
+        if ( pd.flags1 ) printf("flags1: %lX\n", pd.flags1);
+        continue;
+      }
       printf("%s:\n", argv[i]);
       // dump res
+      if ( pd.flags ) printf("flags: %lX\n", pd.flags);
+      if ( pd.flags1 ) printf("flags1: %lX\n", pd.flags1);
       if ( pd.m_mcount ) printf("mcount %lX\n", pd.m_mcount);
       if ( pd.m_func_enter ) printf("func_enter %lX\n", pd.m_func_enter);
       if ( pd.m_func_exit ) printf("fubc_exit %lX\n", pd.m_func_exit);
