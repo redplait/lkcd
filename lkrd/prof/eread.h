@@ -6,6 +6,8 @@ struct prof_data {
    long flags = 0;
    // DT_FLAGS_1
    long flags1 = 0;
+   inline int is_bind_now() const
+   { return (flags & 8) || (flags1 & 1); }
    // offset in GOT
    ptrdiff_t m_mcount = 0;
    ptrdiff_t m_func_enter = 0;
