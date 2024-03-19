@@ -6,7 +6,11 @@
 #include <linux/mm.h>
 
 // size of one thunk
+#ifdef CONFIG_X86_KERNEL_IBT
+#define THUNK_SIZE  9
+#else
 #define THUNK_SIZE  8
+#endif
 // how much pages allocate for thunks
 #define THUNKS_PAGES 1
 
@@ -29,7 +33,11 @@ static u8 *s_next_thunk = NULL;
 int init_bti_thunks(void)
 {
   unsigned long start;
+#ifdef CONFIG_ARM64
   has_bti = cpus_have_const_cap(ARM64_BTI);
+#elif defined(CONFIG_X86_KERNEL_IBT)
+  has_bti = 1;
+#endif
   if ( !has_bti )
     return 1;
   s_vmalloc_node_range = (t_vmalloc_node_range)lkcd_lookup_name("__vmalloc_node_range");

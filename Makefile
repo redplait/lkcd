@@ -4,7 +4,7 @@ lkcd-objs += lkcd_km.o
 ifneq ($(ARCH), arm64)
 MACHINE ?= $(shell uname -m)
 ifeq ($(MACHINE),x86_64)
-lkcd-objs += getgs.o 
+lkcd-objs += getgs.o arm64.bti/arm64bti.o
 add-target := getgs.o
 endif
 else
