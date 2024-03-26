@@ -2,6 +2,7 @@
 #include <map>
 #include <set>
 #include <vector>
+#include <string>
 #include "types.h"
 
 struct lsm_hook
