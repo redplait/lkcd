@@ -2516,6 +2516,45 @@ void dump_protos(int fd, a64 nca, a64 lock, sa64 delta)
   }
 }
 
+void dump_netf(int fd, sa64 delta, void *net)
+{
+  unsigned long args[2] = { (unsigned long)net, 0 };
+  int err = ioctl(fd, IOCTL_ENUM_NFT_AF, (int *)&args);
+  if ( err == EPROTO ) return;
+  if ( err )
+  {
+    printf("IOCTL_ENUM_NFT_AF count failed, error %d (%s)\n", errno, strerror(errno));
+    return;
+  }
+  size_t size = calc_data_size<one_nft_af>(args[0]);
+  unsigned long *buf = (unsigned long *)malloc(size);
+  if ( !buf )
+    return;
+  dumb_free<unsigned long> tmp(buf);
+  buf[0] = (unsigned long)net;
+  buf[1] = args[0];
+  err = ioctl(fd, IOCTL_ENUM_NFT_AF, (int *)buf);
+  if ( err )
+  {
+    printf("IOCTL_ENUM_NFT_AF failed, error %d (%s)\n", errno, strerror(errno));
+    return;
+  }
+  size = buf[0];
+  struct one_nft_af *af = (struct one_nft_af *)(buf + 1);
+  for ( size_t idx = 0; idx < size; idx++, af++ )
+  {
+    printf(" NFT_AF[%d]: %p family %d nhooks %d\n", idx, af->addr, af->family, af->nhooks);
+    if ( af->ops_init )
+      dump_kptr((unsigned long)af->ops_init, " ops_init", delta);
+    for ( int i = 0; i < 8; i++ )
+    {
+      if ( !af->hooks[i] ) continue;
+      printf("  hook %d:", i);
+      dump_unnamed_kptr((unsigned long)af->ops_init, delta);
+    }
+  }
+}
+
 void dump_nets(int fd, sa64 delta)
 {
   unsigned long cnt = 0;
@@ -2559,6 +2598,8 @@ void dump_nets(int fd, sa64 delta)
       dump_kptr((unsigned long)sb->diag_nlsk_proto, "diag_nlsk_proto", delta);
     if ( sb->diag_nlsk_filter )
       dump_kptr((unsigned long)sb->diag_nlsk_filter, "diag_nlsk_filter", delta);
+    // dump netfilter
+    dump_netf(fd, delta, sb->addr);
     // dump bpf
     if ( sb->progs[0] )
       printf(" netns_bpf[0]: %p\n", sb->progs[0]);
