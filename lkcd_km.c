@@ -731,7 +731,7 @@ static int uprobe_sample_ret_handler(struct uprobe_consumer *con,
   u64 ip = regs->pc;
 #else
   u64 ip = regs->ip;
-#endif  
+#endif
   printk("uprobe ret_handler is executed, ip = %lX\n", (unsigned long)ip);
   return 0;
 }
@@ -3124,6 +3124,86 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
         }
       break; /* IOCTL_GET_PERNET_OPS */
 
+     case IOCTL_ENUM_NFT_AF:
+        // check pre-req
+        if ( !s_net )
+          return -ENOCSI;
+        // read net addr & count
+        if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 2) > 0 )
+  	     return -EFAULT;
+#if LINUX_VERSION_CODE > KERNEL_VERSION(4,15,0)
+      return -EPROTO;
+#else
+        else {
+          struct net *net;
+          int found = 0;
+          long cnt = 0;
+          if ( !ptrbuf[1] ) // just count nft_af_info on some net
+          {
+            down_read(s_net);
+            for_each_net(net)
+            {
+              if ( net == (void *)ptrbuf[0] )
+              {
+                struct nft_af_info *afi;
+                found = 1;
+                list_for_each_entry(afi, &net->nft.af_info, list) cnt++;
+              }
+            }
+            up_read(s_net);  
+            if ( !found )
+              return -ENODEV;
+            if (copy_to_user((void*)ioctl_param, (void*)&cnt, sizeof(cnt)) > 0)
+              return -EFAULT;
+          } else {
+            struct one_nft_af *curr;
+            size_t kbuf_size = sizeof(unsigned long) + ptrbuf[1] * sizeof(struct one_nft_af);
+            unsigned long *buf = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL | __GFP_ZERO);
+            if ( !buf )
+              return -ENOMEM;
+            curr = (struct one_nft_af *)(buf + 1);
+            down_read(s_net);
+            for_each_net(net)
+            {
+              if ( net == (void *)ptrbuf[0] )
+              {
+                struct nft_af_info *afi;
+                found = 1;
+                list_for_each_entry(afi, &net->nft.af_info, list)
+                {
+                  int ih;
+                  if ( cnt >= ptrbuf[1] ) break;
+                  // fill curr
+                  curr->addr = (void *)afi;
+                  curr->family = afi->family;
+                  curr->nhooks = afi->nhooks;
+                  curr->ops_init = (void *)afi->hook_ops_init;
+                  for ( ih = 0; ih < 8; ++ih ) curr->hooks[ih] = (void *)afi->hooks[ih];
+                  // for next item
+                  curr++; cnt++;
+                }
+              }
+            }
+            up_read(s_net);  
+            if ( !found )
+            {
+              kfree(buf);
+              return -ENODEV;
+            }
+            // copy to user
+            buf[0] = cnt;
+            kbuf_size = sizeof(unsigned long) + buf[0] * sizeof(struct one_net);
+            if (copy_to_user((void*)ioctl_param, (void*)buf, kbuf_size) > 0)
+            {
+              kfree(buf);
+              return -EFAULT;
+            }
+            kfree(buf);  
+          }
+        }
+#endif
+      break; /* IOCTL_ENUM_NFT_AF */
+       
      case IOCTL_GET_NETS:
         // check pre-req
         if ( !s_net )

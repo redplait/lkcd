@@ -1148,7 +1148,7 @@ struct one_kcalgo
   void *coa_decompress;
   // from cipher_alg
   unsigned int cia_min_keysize;
-	unsigned int cia_max_keysize;
+  unsigned int cia_max_keysize;
   void *cia_setkey;
   void *cia_encrypt;
   void *cia_decrypt;
@@ -1166,5 +1166,24 @@ struct one_kcalgo
 // out params
 //  N + N * one_kcalgo
 #define IOCTL_ENUM_CALGO                _IOR(IOCTL_NUM, 0x51, int*)
+
+// struct nft_af_info
+struct one_nft_af
+{
+  void *addr;
+  int family;
+  unsigned int nhooks;
+  void *ops_init;
+  void *hooks[8]; // NF_MAX_HOOKS
+};
+
+// dump nft_af_info
+// in params:
+//  0 - address of net from IOCTL_GET_NETS
+//  1 - count
+// out params
+//  N + N * one_nft_af
+
+#define IOCTL_ENUM_NFT_AF                _IOR(IOCTL_NUM, 0x52, int*)
 
 #endif /* LKCD_SHARED_H */
