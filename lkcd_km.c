@@ -3192,13 +3192,13 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
             }
             // copy to user
             buf[0] = cnt;
-            kbuf_size = sizeof(unsigned long) + buf[0] * sizeof(struct one_net);
+            kbuf_size = sizeof(unsigned long) + buf[0] * sizeof(struct one_nft_af);
             if (copy_to_user((void*)ioctl_param, (void*)buf, kbuf_size) > 0)
             {
               kfree(buf);
               return -EFAULT;
             }
-            kfree(buf);  
+            kfree(buf);
           }
         }
 #endif
