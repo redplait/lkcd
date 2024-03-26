@@ -46,6 +46,9 @@ struct mount {
 	__u32 mnt_fsnotify_mask;
 #endif
 	int mnt_id;			/* mount identifier */
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6,7,0)
+	u64 mnt_id_unique;
+#endif
 	int mnt_group_id;		/* peer group identifier */
 	int mnt_expiry_mark;		/* true if marked for expiry */
 	struct hlist_head mnt_pins;
