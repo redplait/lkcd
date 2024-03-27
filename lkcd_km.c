@@ -3148,6 +3148,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
                 struct nft_af_info *afi;
                 found = 1;
                 list_for_each_entry(afi, &net->nft.af_info, list) cnt++;
+                break;
               }
             }
             up_read(s_net);  
@@ -3182,6 +3183,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
                   // for next item
                   curr++; cnt++;
                 }
+                break;
               }
             }
             up_read(s_net);  
