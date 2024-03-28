@@ -362,9 +362,9 @@ struct one_net_dev
   void *rtnl_link_ops;
   void *nf_hooks_ingress;
   void *nf_hooks_egress;
-  unsigned long num_ihook_entries;   // nf_hooks_ingress->num_hook_entries
-  unsigned long num_ehooks_entries; // nf_hooks_egress->num_hook_entries
-  unsigned long netdev_chain_cnt; // count of net_notifier_list
+  unsigned long num_ihook_entries; // nf_hooks_ingress->num_hook_entries
+  unsigned long num_ehook_entries; // nf_hooks_egress->num_hook_entries
+  unsigned long netdev_chain_cnt;  // count of net_notifier_list
   // xdp_state
   void *bpf_prog[3];
   void *bpf_link[3];
