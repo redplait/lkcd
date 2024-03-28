@@ -981,7 +981,8 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
 {
   unsigned long ptrbuf[16];
   unsigned long count = 0;
-//  unsigned long *ptr = ptrbuf;
+  size_t kbuf_size = 0;
+  unsigned long *kbuf = NULL;
   switch(ioctl_num)
   {
     case IOCTL_READ_PTR:
@@ -1056,14 +1057,13 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
           struct cpufreq_policy *cf = cpufreq_cpu_get(ptrbuf[0]);
           struct notifier_block *b;
           struct blocking_notifier_head *head;
-          unsigned long *out_buf;
-          unsigned long size, i;
+          unsigned long i;
           if ( !cf )
            return -ENODATA;
           // cals size
-          size = (1 + ptrbuf[1]) * sizeof(unsigned long);
-          out_buf = (unsigned long *)kmalloc(size, GFP_KERNEL);
-          if ( !out_buf )
+          kbuf_size = (1 + ptrbuf[1]) * sizeof(unsigned long);
+          kbuf = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL);
+          if ( !kbuf )
           {
             cpufreq_cpu_put(cf);  
             return -ENOMEM;
@@ -1073,21 +1073,17 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
           else
             head = &cf->constraints.max_freq_notifiers;
           down_write(&head->rwsem);
-          out_buf[0] = 0;
+          kbuf[0] = 0;
           i = 0;
           for ( b = head->head; i < ptrbuf[1] && b != NULL; b = b->next, ++i )
           {
-            out_buf[1 + i] = (unsigned long)b->notifier_call;
+            kbuf[1 + i] = (unsigned long)b->notifier_call;
           }
           up_write(&head->rwsem);
           cpufreq_cpu_put(cf);
-          out_buf[0] = i;
-          if ( copy_to_user((void*)(ioctl_param), (void*)out_buf, sizeof(unsigned long) * (i + 1)) > 0 )
-          {
-            kfree(out_buf);
-            return -EFAULT;
-          }
-          kfree(out_buf);
+          kbuf[0] = i;
+          kbuf_size = sizeof(unsigned long) * (i + 1);
+          goto copy_kbuf;
         }
       break; /* READ_CPUFREQ_NTFY */
 
@@ -1390,8 +1386,8 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
            goto copy_count;
          } else {
            struct clk_ntfy *curr;
-           unsigned long size = sizeof(unsigned long) + ptrbuf[2] * sizeof(struct clk_ntfy);
-           unsigned long *kbuf = (unsigned long *)kmalloc(size, GFP_KERNEL);
+           kbuf_size = sizeof(unsigned long) + ptrbuf[2] * sizeof(struct clk_ntfy);
+           kbuf = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL);
            if ( !kbuf )
              return -ENOMEM;
            curr = (struct clk_ntfy *)(kbuf + 1);
@@ -1413,13 +1409,9 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
            }
            mutex_unlock(m);
            kbuf[0] = count;
+           kbuf_size = sizeof(unsigned long) + count * sizeof(struct clk_ntfy);
            // copy data to user-mode
-           if ( copy_to_user((void*)ioctl_param, (void*)kbuf, size) > 0 )
-           {
-             kfree(kbuf);
-             return -EFAULT;
-           }
-           kfree(kbuf);
+           goto copy_kbuf;
          }
        }
      break; /* READ_CLK_NTFY */
@@ -1446,8 +1438,8 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
            goto copy_count;
          } else {
            struct clk_ntfy *curr;
-           unsigned long size = sizeof(unsigned long) + ptrbuf[2] * sizeof(struct clk_ntfy);
-           unsigned long *kbuf = (unsigned long *)kmalloc(size, GFP_KERNEL);
+           kbuf_size = sizeof(unsigned long) + ptrbuf[2] * sizeof(struct clk_ntfy);
+           kbuf = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL);
            if ( !kbuf )
              return -ENOMEM;
            curr = (struct clk_ntfy *)(kbuf + 1);
@@ -1469,13 +1461,9 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
            }
            mutex_unlock(m);
            kbuf[0] = count;
+           kbuf_size = sizeof(unsigned long) + count * sizeof(struct clk_ntfy);
            // copy data to user-mode
-           if ( copy_to_user((void*)ioctl_param, (void*)kbuf, size) > 0 )
-           {
-             kfree(kbuf);
-             return -EFAULT;
-           }
-           kfree(kbuf);
+           goto copy_kbuf;
          }
        }
      break; /* READ_DEVFREQ_NTFY */
@@ -1495,7 +1483,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
        {
          struct notifier_block *b;
          unsigned long res = 0; // how many ntfy in reality
-         unsigned long *kbuf = (unsigned long *)kmalloc_array(count, sizeof(unsigned long), GFP_KERNEL);
+         kbuf = (unsigned long *)kmalloc_array(count, sizeof(unsigned long), GFP_KERNEL);
          if ( !kbuf )
            return -ENOMEM;
          // lock
@@ -1677,8 +1665,6 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
        struct tracepoint *tp;
        struct tracepoint_func *func;
        unsigned long res = 0;
-       unsigned long *kbuf = NULL;
-       size_t ksize;
        struct one_tracepoint_func *curr;
 
        if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 2) > 0 )
@@ -1688,8 +1674,8 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
        if ( !tp || !count )
          return -EINVAL;
 
-       ksize = sizeof(unsigned long) + count * sizeof(struct one_tracepoint_func);
-       kbuf = (unsigned long *)kmalloc(ksize, GFP_KERNEL);
+       kbuf_size = sizeof(unsigned long) + count * sizeof(struct one_tracepoint_func);
+       kbuf = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL);
        if ( !kbuf )
          return -ENOMEM;
        curr = (struct one_tracepoint_func *)(kbuf + 1);
@@ -1717,15 +1703,9 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
          rcu_read_unlock();
 
        kbuf[0] = res;
-       ksize = sizeof(unsigned long) + res * sizeof(struct one_tracepoint_func);
+       kbuf_size = sizeof(unsigned long) + res * sizeof(struct one_tracepoint_func);
        // copy to usermode
-       if ( copy_to_user((void*)ioctl_param, (void*)kbuf, ksize) > 0 )
-       {
-          kfree(kbuf);
-          return -EFAULT;
-       }
-       // cleanup
-       kfree(kbuf);
+       goto copy_kbuf;
      }
      break; /* IOCTL_TRACEPOINT_FUNCS */
 
@@ -1811,13 +1791,13 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
          return -EINVAL;
        else {
          struct inode_mark_args args;
-         size_t ksize = sizeof(unsigned long) + ptrbuf[2] * sizeof(struct one_fsnotify);
+         kbuf_size = sizeof(unsigned long) + ptrbuf[2] * sizeof(struct one_fsnotify);
          // fill inode_mark_args
          args.sb_addr    = (void *)ptrbuf[0];
          args.inode_addr = (void *)ptrbuf[1];
          args.cnt        = ptrbuf[2];
          args.found      = 0;
-         args.curr = (unsigned long *)kmalloc(ksize, GFP_KERNEL);
+         args.curr = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL);
          if ( !args.curr )
            return -ENOMEM;
          args.data = (struct one_fsnotify *)(args.curr + 1);
@@ -1828,8 +1808,8 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
            kfree(args.curr);
            return -ENOENT;
          }
-         ksize = sizeof(unsigned long) + args.curr[0] * sizeof(struct one_fsnotify);
-         if (copy_to_user((void*)ioctl_param, (void*)args.curr, ksize) > 0)
+         kbuf_size = sizeof(unsigned long) + args.curr[0] * sizeof(struct one_fsnotify);
+         if (copy_to_user((void*)ioctl_param, (void*)args.curr, kbuf_size) > 0)
          {
            kfree(args.curr);
            return -EFAULT;
@@ -1858,12 +1838,12 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
              return -EFAULT;
          } else {
            struct super_mark_args sbargs;
-           size_t ksize = sizeof(unsigned long) + ptrbuf[1] * sizeof(struct one_fsnotify);
+           kbuf_size = sizeof(unsigned long) + ptrbuf[1] * sizeof(struct one_fsnotify);
            // fill inode_mark_args
            sbargs.sb_addr    = (void *)ptrbuf[0];
            sbargs.cnt        = ptrbuf[1];
            sbargs.found      = 0;
-           sbargs.curr = (unsigned long *)kmalloc(ksize, GFP_KERNEL);
+           sbargs.curr = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL);
            if ( !sbargs.curr )
              return -ENOMEM;
            sbargs.data = (struct one_fsnotify *)(sbargs.curr + 1);
@@ -1874,8 +1854,8 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
              kfree(sbargs.curr);
              return -ENOENT;
            }
-           ksize = sizeof(unsigned long) + sbargs.curr[0] * sizeof(struct one_fsnotify);
-           if (copy_to_user((void*)ioctl_param, (void*)sbargs.curr, ksize) > 0)
+           kbuf_size = sizeof(unsigned long) + sbargs.curr[0] * sizeof(struct one_fsnotify);
+           if (copy_to_user((void*)ioctl_param, (void*)sbargs.curr, kbuf_size) > 0)
            {
              kfree(sbargs.curr);
              return -EFAULT;
@@ -1894,12 +1874,12 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
          return -EINVAL;
        else {
          struct super_inodes_args sargs;
-         size_t ksize = sizeof(unsigned long) + ptrbuf[1] * sizeof(struct one_inode);
+         kbuf_size = sizeof(unsigned long) + ptrbuf[1] * sizeof(struct one_inode);
          // fill super_inodes_args
          sargs.sb_addr = (void *)ptrbuf[0];
          sargs.cnt     = ptrbuf[1];
          sargs.found   = 0;
-         sargs.curr = (unsigned long *)kmalloc(ksize, GFP_KERNEL);
+         sargs.curr = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL);
          if ( !sargs.curr )
            return -ENOMEM;
          sargs.data = (struct one_inode *)(sargs.curr + 1);
@@ -1910,8 +1890,8 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
            kfree(sargs.curr);
            return -ENOENT;
          }
-         ksize = sizeof(unsigned long) + sargs.curr[0] * sizeof(struct one_inode);
-         if (copy_to_user((void*)ioctl_param, (void*)sargs.curr, ksize) > 0)
+         kbuf_size = sizeof(unsigned long) + sargs.curr[0] * sizeof(struct one_inode);
+         if (copy_to_user((void*)ioctl_param, (void*)sargs.curr, kbuf_size) > 0)
          {
            kfree(sargs.curr);
            return -EFAULT;
@@ -1930,13 +1910,13 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
          return -EINVAL;
        else {
          struct inode_mark_args args;
-         size_t ksize = sizeof(unsigned long) + ptrbuf[2] * sizeof(struct one_fsnotify);
+         kbuf_size = sizeof(unsigned long) + ptrbuf[2] * sizeof(struct one_fsnotify);
          // fill inode_mark_args
          args.sb_addr    = (void *)ptrbuf[0];
          args.inode_addr = (void *)ptrbuf[1]; // mnt address actually but I am too lazy to add new structure
          args.cnt        = ptrbuf[2];
          args.found      = 0;
-         args.curr = (unsigned long *)kmalloc(ksize, GFP_KERNEL);
+         args.curr = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL);
          if ( !args.curr )
            return -ENOMEM;
          args.data = (struct one_fsnotify *)(args.curr + 1);
@@ -1947,8 +1927,8 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
            kfree(args.curr);
            return -ENOENT;
          }
-         ksize = sizeof(unsigned long) + args.curr[0] * sizeof(struct one_fsnotify);
-         if (copy_to_user((void*)ioctl_param, (void*)args.curr, ksize) > 0)
+         kbuf_size = sizeof(unsigned long) + args.curr[0] * sizeof(struct one_fsnotify);
+         if (copy_to_user((void*)ioctl_param, (void*)args.curr, kbuf_size) > 0)
          {
            kfree(args.curr);
            return -EFAULT;
@@ -1967,12 +1947,12 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
          return -EINVAL;
        else {
          struct super_mount_args sargs;
-         size_t ksize = sizeof(unsigned long) + ptrbuf[1] * sizeof(struct one_mount);
+         kbuf_size = sizeof(unsigned long) + ptrbuf[1] * sizeof(struct one_mount);
          // fill super_inodes_args
          sargs.sb_addr = (void *)ptrbuf[0];
          sargs.cnt     = ptrbuf[1];
          sargs.found   = 0;
-         sargs.curr = (unsigned long *)kmalloc(ksize, GFP_KERNEL);
+         sargs.curr = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL);
          if ( !sargs.curr )
            return -ENOMEM;
          sargs.data = (struct one_mount *)(sargs.curr + 1);
@@ -1983,8 +1963,8 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
            kfree(sargs.curr);
            return -ENOENT;
          }
-         ksize = sizeof(unsigned long) + sargs.curr[0] * sizeof(struct one_mount);
-         if (copy_to_user((void*)ioctl_param, (void*)sargs.curr, ksize) > 0)
+         kbuf_size = sizeof(unsigned long) + sargs.curr[0] * sizeof(struct one_mount);
+         if (copy_to_user((void*)ioctl_param, (void*)sargs.curr, kbuf_size) > 0)
          {
            kfree(sargs.curr);
            return -EFAULT;
@@ -2055,9 +2035,9 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
           spinlock_t *lock = (spinlock_t *)ptrbuf[1];
           struct trace_uprobe *tup = NULL;
           struct rb_node *iter;
-          unsigned long kbuf_size = (1 + ptrbuf[4]) * sizeof(unsigned long);
-          unsigned long *buf = (unsigned long *)kzalloc(kbuf_size, GFP_KERNEL | __GFP_ZERO);
-          if ( !buf )
+          kbuf_size = (1 + ptrbuf[4]) * sizeof(unsigned long);
+          kbuf = (unsigned long *)kzalloc(kbuf_size, GFP_KERNEL | __GFP_ZERO);
+          if ( !kbuf )
             return -ENOMEM;
           // lock
           spin_lock(lock);
@@ -2076,21 +2056,19 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
               break;
             }
             if ( tup != NULL )
-              copy_trace_bpfs(&tup->tp.event->call, ptrbuf[4], buf);
+              copy_trace_bpfs(&tup->tp.event->call, ptrbuf[4], kbuf);
             up_write(&up->consumer_rwsem);
             break;
           }
           // unlock
           spin_unlock(lock);
           if ( tup == NULL )
-            return -ENOENT;
-          // copy to usermode
-          if (copy_to_user((void*)ioctl_param, (void*)buf, kbuf_size) > 0)
           {
-            kfree(buf);
-            return -EFAULT;
+            kfree(kbuf);
+            return -ENOENT;
           }
-          kfree(buf);
+          // copy to usermode
+          goto copy_kbuf;
         }
        break; /* IOCTL_TRACE_UPROBE_BPFS */
 
@@ -2147,11 +2125,11 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
          struct rb_node *iter;
          int found = 0;
          struct one_uprobe_consumer *curr;
-         size_t size = sizeof(unsigned long) + ptrbuf[3] * sizeof(struct one_uprobe_consumer);
-         char *kbuf = (char *)kmalloc(size, GFP_KERNEL);
+         kbuf_size = sizeof(unsigned long) + ptrbuf[3] * sizeof(struct one_uprobe_consumer);
+         kbuf = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL);
          if ( !kbuf )
            return -ENOMEM;
-         curr = (struct one_uprobe_consumer *)(kbuf + sizeof(unsigned long));
+         curr = (struct one_uprobe_consumer *)(kbuf + 1);
          // lock
          spin_lock(lock);
          // traverse tree
@@ -2182,14 +2160,9 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
            return -ENOENT;
          }
          // copy to user
-         *(unsigned long *)kbuf = count;
-         size = sizeof(unsigned long) + count * sizeof(struct one_uprobe_consumer);
-         if (copy_to_user((void*)ioctl_param, (void*)kbuf, size) > 0)
-         {
-           kfree(kbuf);
-           return -EFAULT;
-         }
-         kfree(kbuf);
+         kbuf[0] = count;
+         kbuf_size = sizeof(unsigned long) + count * sizeof(struct one_uprobe_consumer);
+         goto copy_kbuf;
        }
        break; /* IOCTL_UPROBES_CONS */
 
@@ -2203,11 +2176,11 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
          spinlock_t *lock = (spinlock_t *)ptrbuf[1];
          struct rb_node *iter;
          struct one_uprobe *curr;
-         size_t size = sizeof(unsigned long) + ptrbuf[2] * sizeof(struct one_uprobe);
-         char *kbuf = (char *)kmalloc(size, GFP_KERNEL);
+         kbuf_size = sizeof(unsigned long) + ptrbuf[2] * sizeof(struct one_uprobe);
+         kbuf = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL);
          if ( !kbuf )
            return -ENOMEM;
-         curr = (struct one_uprobe *)(kbuf + sizeof(unsigned long));
+         curr = (struct one_uprobe *)(kbuf + 1);
          // lock
          spin_lock(lock);
          // traverse tree
@@ -2240,14 +2213,9 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
          // unlock
          spin_unlock(lock);
          // copy to user
-         *(unsigned long *)kbuf = count;
-         size = sizeof(unsigned long) + count * sizeof(struct one_uprobe);
-         if (copy_to_user((void*)ioctl_param, (void*)kbuf, size) > 0)
-         {
-           kfree(kbuf);
-           return -EFAULT;
-         }
-         kfree(kbuf);
+         kbuf[0] = count;
+         kbuf_size = sizeof(unsigned long) + count * sizeof(struct one_uprobe);
+         goto copy_kbuf;
       }
       break; /* IOCTL_UPROBES */
 
@@ -2370,7 +2338,6 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
          struct hlist_head *head;
          struct kprobe *p, *kp;
          struct mutex *m = (struct mutex *)ptrbuf[1];
-         size_t kbuf_size = 0;
          int found = 0;
          if ( ptrbuf[2] >= KPROBE_TABLE_SIZE )
            return -EFBIG;
@@ -2392,7 +2359,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
                break;
              list_for_each_entry_rcu(kp, &p->list, list)
              {
-               kbuf_size++;
+               count++;
              }
              break;
            }
@@ -2400,18 +2367,15 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
            mutex_unlock(m);
            if ( !found )
              return -ENOENT;
-           // copy count to user
-           if (copy_to_user((void*)ioctl_param, (void*)&kbuf_size, sizeof(kbuf_size)) > 0)
-             return -EFAULT;
+           goto copy_count;
          } else {
             struct one_kprobe *out_buf;
-            unsigned long *buf = NULL;
             unsigned long curr = 0;
             kbuf_size = sizeof(unsigned long) + ptrbuf[4] * sizeof(struct one_kprobe);
-            buf = (unsigned long *)kzalloc(kbuf_size, GFP_KERNEL | __GFP_ZERO);
-            if ( !buf )
+            kbuf = (unsigned long *)kzalloc(kbuf_size, GFP_KERNEL | __GFP_ZERO);
+            if ( !kbuf )
               return -ENOMEM;
-            out_buf = (struct one_kprobe *)(buf + 1);
+            out_buf = (struct one_kprobe *)(kbuf + 1);
             // lock
 	          mutex_lock(m);
             // traverse
@@ -2455,17 +2419,12 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
             mutex_unlock(m);
             if ( !found )
             {
-              kfree(buf);
+              kfree(kbuf);
               return -ENOENT;
             }
-            buf[0] = curr;
+            kbuf[0] = curr;
             // copy to user
-            if (copy_to_user((void*)ioctl_param, (void*)buf, kbuf_size) > 0)
-            {
-              kfree(buf);
-              return -EFAULT;
-            }
-            kfree(buf);
+            goto copy_kbuf;
          }
        }
       break; /* IOCTL_GET_AGGR_KPROBE */
@@ -2474,23 +2433,21 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
        if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 4) > 0 )
          return -EFAULT;
        else {
-         unsigned long *buf = NULL;
-         size_t kbuf_size;
          if ( ptrbuf[2] >= KPROBE_TABLE_SIZE )
            return -EFBIG;
          if ( !ptrbuf[3] )
            break;
          // alloc enough memory
          kbuf_size = sizeof(unsigned long) + ptrbuf[3] * sizeof(struct one_kprobe);
-         buf = (unsigned long *)kzalloc(kbuf_size, GFP_KERNEL | __GFP_ZERO);
-         if ( !buf )
+         kbuf = (unsigned long *)kzalloc(kbuf_size, GFP_KERNEL | __GFP_ZERO);
+         if ( !kbuf )
            return -ENOMEM;
          else {
            struct hlist_head *head;
            struct kprobe *p;
            unsigned long curr = 0;
            struct mutex *m = (struct mutex *)ptrbuf[1];
-           struct one_kprobe *out_buf = (struct one_kprobe *)(buf + 1);
+           struct one_kprobe *out_buf = (struct one_kprobe *)(kbuf + 1);
            // lock
 	         mutex_lock(m);
 	         head = (struct hlist_head *)ptrbuf[0] + ptrbuf[2];
@@ -2524,16 +2481,12 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
            // unlock
            mutex_unlock(m);
            // store count of processed
-           buf[0] = curr;
+           kbuf[0] = curr;
            // copy to user
-           if (copy_to_user((void*)ioctl_param, (void*)buf, kbuf_size) > 0)
-           {
-             kfree(buf);
-             return -EFAULT;
-           }
+           goto copy_kbuf;
          }
-         if ( buf )
-           kfree(buf);
+         if ( kbuf )
+           kfree(kbuf);
        }
       break; /* IOCTL_GET_KPROBE_BUCKET */
 
@@ -2633,12 +2586,12 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
          goto copy_count;
        } else {
          struct console *con;
-         size_t kbuf_size = sizeof(unsigned long) + ptrbuf[0] * sizeof(struct one_console);
          struct one_console *curr;
-         unsigned long *buf = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL | __GFP_ZERO);
-         if ( !buf )
+         kbuf_size = sizeof(unsigned long) + ptrbuf[0] * sizeof(struct one_console);
+         kbuf = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL | __GFP_ZERO);
+         if ( !kbuf )
            return -ENOMEM;
-         curr = (struct one_console *)(buf + 1);
+         curr = (struct one_console *)(kbuf + 1);
          console_lock();
          // achtung! don`t try to use printk or something like this until console_unlock call
          for_each_console(con)
@@ -2665,14 +2618,9 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
          // unlock
          console_unlock();
          // copy to user mode
-         buf[0] = count;
+         kbuf[0] = count;
          kbuf_size = sizeof(unsigned long) + count * sizeof(struct one_console);
-         if (copy_to_user((void*)ioctl_param, (void*)buf, kbuf_size) > 0)
-         {
-           kfree(buf);
-           return -EFAULT;
-         }
-         kfree(buf);
+         goto copy_kbuf;
        }
        break; /* IOCTL_READ_CONSOLES */
 
@@ -2723,12 +2671,12 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
             spin_unlock(lock);
             goto copy_count;
           } else {
-            size_t buf_size = sizeof(unsigned long) + ptrbuf[2] * sizeof(struct one_tcp_ulp_ops);
-            unsigned long *buf = (unsigned long *)kmalloc(buf_size, GFP_KERNEL);
             struct one_tcp_ulp_ops *curr;
-            if ( !buf )
+            kbuf_size = sizeof(unsigned long) + ptrbuf[2] * sizeof(struct one_tcp_ulp_ops);
+            kbuf = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL);
+            if ( !kbuf )
               return -ENOMEM;
-            curr = (struct one_tcp_ulp_ops *)(buf + 1);
+            curr = (struct one_tcp_ulp_ops *)(kbuf + 1);
             spin_lock(lock);
             list_for_each(p, list)
             {
@@ -2749,15 +2697,10 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
             }
             // unlock
             spin_unlock(lock);
-            buf[0] = count;
+            kbuf[0] = count;
             // copy to user
-            buf_size = sizeof(unsigned long) + count * sizeof(struct one_tcp_ulp_ops);
-            if (copy_to_user((void*)ioctl_param, (void*)buf, buf_size) > 0)
-            {
-              kfree(buf);
-              return -EFAULT;
-            }
-            kfree(buf);
+            kbuf_size = sizeof(unsigned long) + count * sizeof(struct one_tcp_ulp_ops);
+            goto copy_kbuf;
           }
         }
        break; /* IOCTL_GET_ULP_OPS */
@@ -2779,9 +2722,9 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
             mutex_unlock(m);
             goto copy_count;
           } else {
-            size_t buf_size = sizeof(unsigned long) * (ptrbuf[2] + 1);
-            unsigned long *buf = (unsigned long *)kmalloc(buf_size, GFP_KERNEL);
-            if ( !buf )
+            kbuf_size = sizeof(unsigned long) * (ptrbuf[2] + 1);
+            kbuf = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL);
+            if ( !kbuf )
               return -ENOMEM;
             mutex_lock(m);
             list_for_each(p, list)
@@ -2789,20 +2732,15 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
               struct proto *prot = list_entry(p, struct proto, node);
               if ( count >= ptrbuf[2] )
                 break;
-              buf[count+1] = (unsigned long)prot;
+              kbuf[count+1] = (unsigned long)prot;
               count++;
             }
 	    // unlock
             mutex_unlock(m);
-            buf[0] = count;
+            kbuf[0] = count;
             // copy to user
-            buf_size = sizeof(unsigned long) * (buf[0] + 1);
-            if (copy_to_user((void*)ioctl_param, (void*)buf, buf_size) > 0)
-            {
-              kfree(buf);
-              return -EFAULT;
-            }
-            kfree(buf);
+            kbuf_size = sizeof(unsigned long) * (kbuf[0] + 1);
+            goto copy_kbuf;
           }
         }
        break; /* IOCTL_GET_PROTOS */
@@ -2828,12 +2766,12 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
             spin_unlock_bh(lock);
             goto copy_count;
           } else {
-            size_t buf_size = sizeof(unsigned long) + ptrbuf[3] * sizeof(struct one_protosw);
-            unsigned long *buf = (unsigned long *)kmalloc(buf_size, GFP_KERNEL);
             struct one_protosw *curr;
-            if ( !buf )
+            kbuf_size = sizeof(unsigned long) + ptrbuf[3] * sizeof(struct one_protosw);
+            kbuf = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL);
+            if ( !kbuf )
               return -ENOMEM;
-            curr = (struct one_protosw *)(buf + 1);
+            curr = (struct one_protosw *)(kbuf + 1);
             spin_lock_bh(lock);
             list_for_each(lh, isw_list)
             {
@@ -2849,15 +2787,10 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
               curr++;
             }
             spin_unlock_bh(lock);
-            buf[0] = count;
+            kbuf[0] = count;
             // copy to user
-            buf_size = sizeof(unsigned long) + buf[0] * sizeof(struct one_protosw);
-            if (copy_to_user((void*)ioctl_param, (void*)buf, buf_size) > 0)
-            {
-              kfree(buf);
-              return -EFAULT;
-            }
-            kfree(buf);
+            kbuf_size = sizeof(unsigned long) + kbuf[0] * sizeof(struct one_protosw);
+            goto copy_kbuf;
           }
         }
       break; /* IOCTL_GET_PROTOSW */
@@ -2865,6 +2798,17 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
      case IOCTL_NFIEHOOKS:
         if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 4) > 0 )
   	     return -EFAULT;
+#ifndef CONFIG_NETFILTER_EGRESS
+        if ( ptrbuf[3] ) goto copy_count;
+#endif
+#ifndef CONFIG_NETFILTER_INGRESS
+        if ( !ptrbuf[3] ) goto copy_count;
+#endif
+        if ( !s_net || !s_dev_base_lock || !s_nf_hook_mutex )
+          return -ENOCSI;
+        else {
+
+        }
       break; /* IOCTL_NFIEHOOKS */
 
      case IOCTL_GET_NET_DEVS:
@@ -2895,12 +2839,12 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
           struct net_device *dev;
           struct one_net_dev *curr;
           int found = 0;
-          size_t kbuf_size = sizeof(unsigned long) + ptrbuf[1] * sizeof(struct one_net_dev);
-          unsigned long *buf = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL | __GFP_ZERO);
-          if ( !buf )
+          kbuf_size = sizeof(unsigned long) + ptrbuf[1] * sizeof(struct one_net_dev);
+          kbuf = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL | __GFP_ZERO);
+          if ( !kbuf )
             return -ENOMEM;
-          curr = (struct one_net_dev *)(buf + 1);
-          buf[0] = 0;
+          curr = (struct one_net_dev *)(kbuf + 1);
+          kbuf[0] = 0;
           down_read(s_net);
           for_each_net(net)
           {
@@ -2910,7 +2854,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
             read_lock(s_dev_base_lock);
             for_each_netdev(net, dev)
             {
-              if ( buf[0] >= ptrbuf[1] )
+              if ( kbuf[0] >= ptrbuf[1] )
                 break;
               // fill one_net_dev
               curr->addr = (void *)dev;
@@ -2971,7 +2915,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
               }
               // for next iteration
               curr++;
-              buf[0]++;
+              kbuf[0]++;
             }
             read_unlock(s_dev_base_lock);
             break;
@@ -2979,17 +2923,12 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
           up_read(s_net);
           if ( !found )
           {
-            kfree(buf);
+            kfree(kbuf);
             return -ENOENT;
           }
           // copy to user
-          kbuf_size = sizeof(unsigned long) + buf[0] * sizeof(struct one_net_dev);
-          if (copy_to_user((void*)ioctl_param, (void*)buf, kbuf_size) > 0)
-          {
-            kfree(buf);
-            return -EFAULT;
-          }
-          kfree(buf);
+          kbuf_size = sizeof(unsigned long) + kbuf[0] * sizeof(struct one_net_dev);
+          goto copy_kbuf;
         }
       break; /* IOCTL_GET_NET_DEVS */
 
@@ -3011,28 +2950,23 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
         } else {
           struct list_head *l = (struct list_head *)ptrbuf[0];
           const struct rtnl_link_ops *ops;
-          size_t kbuf_size = sizeof(unsigned long) * (1 + ptrbuf[1]);
-          unsigned long *buf = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL);
-          if ( !buf )
+          kbuf_size = sizeof(unsigned long) * (1 + ptrbuf[1]);
+          kbuf = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL);
+          if ( !kbuf )
             return -ENOMEM;
           rtnl_lock();
           list_for_each_entry(ops, l, list)
           {
             if ( count >= ptrbuf[1] )
              break;
-            buf[1 + count] = (unsigned long)ops;
+            kbuf[1 + count] = (unsigned long)ops;
             count++;
           }
           rtnl_unlock();
-          buf[0] = count;
+          kbuf[0] = count;
           // copy to user
           kbuf_size = sizeof(unsigned long) * (count + 1);
-          if (copy_to_user((void*)ioctl_param, (void*)buf, kbuf_size) > 0)
-          {
-            kfree(buf);
-            return -EFAULT;
-          }
-          kfree(buf);
+          goto copy_kbuf;
         }
       break; /* IOCTL_GET_LINKS_OPS */
 
@@ -3047,45 +2981,38 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
           struct list_head *l = (struct list_head *)ptrbuf[0];
           struct rw_semaphore *lock = (struct rw_semaphore *)ptrbuf[1];
           struct pernet_operations *ops;
-          ptrbuf[0] = 0;
           down_read(lock);
           list_for_each_entry(ops, l, list)
-            ptrbuf[0]++;
+            count++;
           up_read(lock);
-          if (copy_to_user((void*)ioctl_param, (void*)ptrbuf, sizeof(ptrbuf[0])) > 0)
-            return -EFAULT;
+          goto copy_count;
         } else {
           struct list_head *l = (struct list_head *)ptrbuf[0];
           struct rw_semaphore *lock = (struct rw_semaphore *)ptrbuf[1];
           struct one_pernet_ops *curr;
           struct pernet_operations *ops;
-          size_t kbuf_size = sizeof(unsigned long) + ptrbuf[2] * sizeof(struct one_pernet_ops);
-          unsigned long *buf = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL);
-          if ( !buf )
+          kbuf_size = sizeof(unsigned long) + ptrbuf[2] * sizeof(struct one_pernet_ops);
+          kbuf = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL);
+          if ( !kbuf )
             return -ENOMEM;
-          curr = (struct one_pernet_ops *)(buf + 1);
-          buf[0] = 0;
+          curr = (struct one_pernet_ops *)(kbuf + 1);
+          kbuf[0] = 0;
           down_read(lock);
           list_for_each_entry(ops, l, list)
           {
-            if ( buf[0] >= ptrbuf[2] )
+            if ( kbuf[0] >= ptrbuf[2] )
               break;
             curr->addr = (void *)ops;
             curr->init = (void *)ops->init;
             curr->exit = (void *)ops->exit;
             curr->exit_batch = (void *)ops->exit_batch;
             curr++;
-            buf[0]++;
+            kbuf[0]++;
           }
           up_read(lock);
           // copy to user
-          kbuf_size = sizeof(unsigned long) + buf[0] * sizeof(struct one_pernet_ops);
-          if (copy_to_user((void*)ioctl_param, (void*)buf, kbuf_size) > 0)
-          {
-            kfree(buf);
-            return -EFAULT;
-          }
-          kfree(buf);
+          kbuf_size = sizeof(unsigned long) + kbuf[0] * sizeof(struct one_pernet_ops);
+          goto copy_kbuf;
         }
       break; /* IOCTL_GET_PERNET_OPS */
 
@@ -3115,11 +3042,11 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
             goto copy_count;
           } else {
             struct one_nft_af *curr;
-            size_t kbuf_size = sizeof(unsigned long) + ptrbuf[1] * sizeof(struct one_nft_af);
-            unsigned long *buf = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL | __GFP_ZERO);
-            if ( !buf )
+            kbuf_size = sizeof(unsigned long) + ptrbuf[1] * sizeof(struct one_nft_af);
+            kbuf = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL | __GFP_ZERO);
+            if ( !kbuf )
               return -ENOMEM;
-            curr = (struct one_nft_af *)(buf + 1);
+            curr = (struct one_nft_af *)(kbuf + 1);
             net = peek_net(ptrbuf[0]);
             if ( !net )
             {
@@ -3142,14 +3069,9 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
             }
             up_read(s_net);  
             // copy to user
-            buf[0] = count;
+            kbuf[0] = count;
             kbuf_size = sizeof(unsigned long) + buf[0] * sizeof(struct one_nft_af);
-            if (copy_to_user((void*)ioctl_param, (void*)buf, kbuf_size) > 0)
-            {
-              kfree(buf);
-              return -EFAULT;
-            }
-            kfree(buf);
+            goto copy_kbuf;
           }
         }
 #endif
@@ -3167,22 +3089,21 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
           struct net *net;
           down_read(s_net);
           for_each_net(net)
-            ptrbuf[0]++;
+            count++;
           up_read(s_net);
-          if (copy_to_user((void*)ioctl_param, (void*)ptrbuf, sizeof(ptrbuf[0])) > 0)
-            return -EFAULT;
+          goto copy_count;
   	} else {
           struct net *net;
           struct one_net *curr;
-          size_t kbuf_size = sizeof(unsigned long) + ptrbuf[0] * sizeof(struct one_net);
-          unsigned long *buf = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL | __GFP_ZERO);
-          if ( !buf )
+          kbuf_size = sizeof(unsigned long) + ptrbuf[0] * sizeof(struct one_net);
+          kbuf = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL | __GFP_ZERO);
+          if ( !kbuf )
             return -ENOMEM;
-          curr = (struct one_net *)(buf + 1);
+          curr = (struct one_net *)(kbuf + 1);
           down_read(s_net);
           for_each_net(net)
           {
-            if ( buf[0] >= ptrbuf[0] )
+            if ( kbuf[0] >= ptrbuf[0] )
               break;
             // fill loot
             curr->addr = (void *)net;
@@ -3239,17 +3160,12 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
             }
 #endif
             curr++;
-            buf[0]++;
+            kbuf[0]++;
           }
           up_read(s_net);
           // copy to user
-          kbuf_size = sizeof(unsigned long) + buf[0] * sizeof(struct one_net);
-          if (copy_to_user((void*)ioctl_param, (void*)buf, kbuf_size) > 0)
-          {
-            kfree(buf);
-            return -EFAULT;
-          }
-          kfree(buf);
+          kbuf_size = sizeof(unsigned long) + kbuf[0] * sizeof(struct one_net);
+          goto copy_kbuf;
         }
       break; /* IOCTL_GET_NETS */
 
@@ -3260,20 +3176,19 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
   	{
           struct list_head *head = (struct list_head *)ptrbuf[0];
           struct list_head *lh;
-          ptrbuf[0] = 0;
+          count = 0;
           rtnl_lock();
           list_for_each(lh, head)
-            ptrbuf[0]++;
+            count++;
           rtnl_unlock();
-          if (copy_to_user((void*)ioctl_param, (void*)ptrbuf, sizeof(ptrbuf[0])) > 0)
-            return -EFAULT;
+          goto copy_count;
         } else {
           struct rtnl_af_ops *ops;
           struct list_head *head = (struct list_head *)ptrbuf[0];
           struct list_head *lh;
-          size_t kbuf_size = sizeof(unsigned long) * (ptrbuf[1] + 1);
-          unsigned long *buf = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL);
-          if ( !buf )
+          kbuf_size = sizeof(unsigned long) * (ptrbuf[1] + 1);
+          kbuf = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL);
+          if ( !kbuf )
             return -ENOMEM;
           rtnl_lock();
           list_for_each(lh, head)
@@ -3281,18 +3196,13 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
             if ( count >= ptrbuf[1] )
               break;
             ops = list_entry(lh, struct rtnl_af_ops, list);
-            buf[1 + count] = (unsigned long)ops;
+            kbuf[1 + count] = (unsigned long)ops;
             count++;
           }
           rtnl_unlock();
-          buf[0] = count;
+          kbuf[0] = count;
           kbuf_size = sizeof(unsigned long) * (count + 1);
-          if (copy_to_user((void*)ioctl_param, (void*)buf, kbuf_size) > 0)
-          {
-            kfree(buf);
-            return -EFAULT;
-          }
-          kfree(buf);
+          goto copy_kbuf;
         }
       break; /* IOCTL_GET_RTNL_AF_OPS */
 
@@ -3409,12 +3319,12 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
             if (copy_to_user((void*)ioctl_param, (void*)ptrbuf, sizeof(ptrbuf[0])) > 0)
               return -EFAULT;
           } else {
-            size_t kbuf_size = sizeof(unsigned long) + ptrbuf[2] * sizeof(struct one_pmu);
             struct one_pmu *curr;
-            unsigned long *buf = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL  | __GFP_ZERO);
-            if ( !buf )
+            kbuf_size = sizeof(unsigned long) + ptrbuf[2] * sizeof(struct one_pmu);
+            kbuf = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL  | __GFP_ZERO);
+            if ( !kbuf )
               return -ENOMEM;
-            curr = (struct one_pmu *)(buf + 1);
+            curr = (struct one_pmu *)(kbuf + 1);
             // lock
             mutex_lock(m);
             // iterate
@@ -3456,13 +3366,8 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
             // unlock
             mutex_unlock(m);
             // copy to user
-            buf[0] = count;
-            if (copy_to_user((void*)ioctl_param, (void*)buf, kbuf_size) > 0)
-            {
-               kfree(buf);
-               return -EFAULT;
-            }
-            kfree(buf);
+            kbuf[0] = count;
+            goto copy_kbuf;
           }
         }
       break; /* IOCTL_GET_PMUS */
@@ -3491,12 +3396,12 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
           if (copy_to_user((void*)ioctl_param, (void*)ptrbuf, sizeof(ptrbuf[0])) > 0)
             return -EFAULT;
         } else {
-          size_t kbuf_size = sizeof(unsigned long) + ptrbuf[2] * sizeof(struct one_bpf_map);
           struct one_bpf_map *curr;
-          unsigned long *buf = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL  | __GFP_ZERO);
-          if ( !buf )
+          kbuf_size = sizeof(unsigned long) + ptrbuf[2] * sizeof(struct one_bpf_map);
+          kbuf = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL  | __GFP_ZERO);
+          if ( !kbuf )
              return -ENOMEM;
-          curr = (struct one_bpf_map *)(buf + 1);
+          curr = (struct one_bpf_map *)(kbuf + 1);
           idr_preload(GFP_KERNEL);
           // lock
           spin_lock_bh(lock);
@@ -3514,21 +3419,15 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
               curr->value_size = map->value_size;
               curr->id = map->id;
               strlcpy(curr->name, map->name, 16);
-              curr++;
+              curr++; count++;
             } else break;
-            count++;
           }
           // unlock
           spin_unlock_bh(lock);
           idr_preload_end();
           // copy to user
-          buf[0] = count;
-          if (copy_to_user((void*)ioctl_param, (void*)buf, kbuf_size) > 0)
-          {
-             kfree(buf);
-             return -EFAULT;
-          }
-          kfree(buf);
+          kbuf[0] = count;
+          goto copy_kbuf;
         }
       }
       break; /* IOCTL_GET_BPF_MAPS */
@@ -3549,13 +3448,13 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
           unsigned long cnt = ptrbuf[5];
           unsigned int hierarchy_id;
           struct cgroup_root *item;
-          int found = 0;
-          size_t kbuf_size = sizeof(unsigned long) + cnt * sizeof(struct one_bpf_prog);
           struct one_bpf_prog *curr;
-          unsigned long *buf = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL  | __GFP_ZERO);
-          if ( !buf )
+          int found = 0;
+          kbuf_size = sizeof(unsigned long) + cnt * sizeof(struct one_bpf_prog);
+          kbuf = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL  | __GFP_ZERO);
+          if ( !kbuf )
             return -ENOMEM;
-          curr = (struct one_bpf_prog *)(buf + 1);
+          curr = (struct one_bpf_prog *)(kbuf + 1);
           // lock
           mutex_lock(m);
           // iterate on roots
@@ -3594,18 +3493,13 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
           // check that we found root and cgroup
           if ( 3 != found )
           {
-             kfree(buf);
+             kfree(kbuf);
              return -ENOENT;
           }
           // copy to usermode
-          buf[0] = cnt;
+          kbuf[0] = cnt;
           kbuf_size = sizeof(unsigned long) + cnt * sizeof(struct one_bpf_prog);
-          if (copy_to_user((void*)ioctl_param, (void*)buf, kbuf_size) > 0)
-          {
-            kfree(buf);
-            return -EFAULT;
-          }
-          kfree(buf);          
+          goto copy_kbuf;
    	}
       break; /* IOCTL_GET_CGROUP_BPF */
 
@@ -3616,17 +3510,17 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
           struct idr *genl = (struct idr *)ptrbuf[0];
           struct mutex *m = (struct mutex *)ptrbuf[1];
           void *root = (void *)ptrbuf[2];
-          unsigned long cnt = ptrbuf[3];
           unsigned int hierarchy_id;
           struct cgroup_root *item;
-          int found = 0;
-          size_t kbuf_size = sizeof(unsigned long) + cnt * sizeof(struct one_cgroup);
           struct one_cgroup *curr;
-          unsigned long *buf = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL  | __GFP_ZERO);
-          if ( !buf )
+          int found = 0;
+          count = ptrbuf[3];
+          kbuf_size = sizeof(unsigned long) + count * sizeof(struct one_cgroup);
+          kbuf = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL  | __GFP_ZERO);
+          if ( !kbuf )
             return -ENOMEM;
-          curr = (struct one_cgroup *)(buf + 1);
-          cnt = 0;
+          curr = (struct one_cgroup *)(kbuf + 1);
+          count = 0;
           // lock
           mutex_lock(m);
           // iterate on roots
@@ -3638,12 +3532,12 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
              found++;
              rcu_read_lock();
              // iterate on childres
-             for (child = css_next_descendant_pre(NULL, &item->cgrp.self); child && cnt < ptrbuf[3]; child = css_next_descendant_pre(child, &item->cgrp.self) )
+             for (child = css_next_descendant_pre(NULL, &item->cgrp.self); child && count < ptrbuf[3]; child = css_next_descendant_pre(child, &item->cgrp.self) )
              {
                if ( child == &item->cgrp.self )
 	         continue;
                fill_one_cgroup(curr, child);
-               cnt++; curr++;
+               count++; curr++;
              }
              rcu_read_unlock();
              break;
@@ -3652,18 +3546,13 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
           mutex_unlock(m);
           if ( !found )
           {
-             kfree(buf);
+             kfree(kbuf);
              return -ENOENT;
           }
           // copy to usermode
-          buf[0] = cnt;
-          kbuf_size = sizeof(unsigned long) + cnt * sizeof(struct one_cgroup);
-          if (copy_to_user((void*)ioctl_param, (void*)buf, kbuf_size) > 0)
-          {
-            kfree(buf);
-            return -EFAULT;
-          }
-          kfree(buf);          
+          kbuf[0] = count;
+          kbuf_size = sizeof(unsigned long) + count * sizeof(struct one_cgroup);
+          goto copy_kbuf;
         }
       break; /* IOCTL_GET_CGROUPS */
 
@@ -3683,12 +3572,12 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
             mutex_unlock(m);
             goto copy_count;
           } else {
-            size_t kbuf_size = sizeof(unsigned long) + ptrbuf[2] * sizeof(struct one_group_root);
             struct one_group_root *curr;
-            unsigned long *buf = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL  | __GFP_ZERO);
-            if ( !buf )
+            kbuf_size = sizeof(unsigned long) + ptrbuf[2] * sizeof(struct one_group_root);
+            kbuf = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL  | __GFP_ZERO);
+            if ( !kbuf )
               return -ENOMEM;
-            curr = (struct one_group_root *)(buf + 1);
+            curr = (struct one_group_root *)(kbuf + 1);
             mutex_lock(m);
             // iterate
             idr_for_each_entry(genl, item, hierarchy_id)
@@ -3725,14 +3614,9 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
             // unlock
             mutex_unlock(m);
             // copy to usermode
-            buf[0] = count;
+            kbuf[0] = count;
             kbuf_size = sizeof(unsigned long) + count * sizeof(struct one_group_root);
-            if (copy_to_user((void*)ioctl_param, (void*)buf, kbuf_size) > 0)
-            {
-              kfree(buf);
-              return -EFAULT;
-            }
-            kfree(buf);
+            goto copy_kbuf;
           }
         }
       break; /* IOCTL_GET_CGRP_ROOTS */
@@ -3752,12 +3636,12 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
             genl_unlock();
             goto copy_count;
           } else {
-            size_t kbuf_size = sizeof(unsigned long) + ptrbuf[1] * sizeof(struct one_genl_family);
             struct one_genl_family *curr;
-            unsigned long *buf = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL);
-            if ( !buf )
+            kbuf_size = sizeof(unsigned long) + ptrbuf[1] * sizeof(struct one_genl_family);
+            kbuf = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL);
+            if ( !kbuf )
               return -ENOMEM;
-            curr = (struct one_genl_family *)(buf + 1);
+            curr = (struct one_genl_family *)(kbuf + 1);
             genl_lock();
             idr_for_each_entry(genl, family, id)
             {
@@ -3776,14 +3660,9 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
             }
             genl_unlock();
             // copy to usermode
-            buf[0] = count;
+            kbuf[0] = count;
             kbuf_size = sizeof(unsigned long) + count * sizeof(struct one_genl_family);
-            if (copy_to_user((void*)ioctl_param, (void*)buf, kbuf_size) > 0)
-            {
-              kfree(buf);
-              return -EFAULT;
-            }
-            kfree(buf);
+            goto copy_kbuf;
           }
         }
       break; /* IOCTL_GET_GENL_FAMILIES */
@@ -3799,13 +3678,13 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
           struct netlink_table *tab = *(struct netlink_table **)ptrbuf[0] + ptrbuf[2];
           rwlock_t *lock = (rwlock_t *)ptrbuf[1];
           int err = 0;
-          size_t kbuf_size = sizeof(unsigned long) + ptrbuf[3] * sizeof(struct one_nl_socket);
           struct rhashtable_iter iter;
           struct one_nl_socket *curr;
-          unsigned long *buf = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL);
-          if ( !buf )
+          kbuf_size = sizeof(unsigned long) + ptrbuf[3] * sizeof(struct one_nl_socket);
+          kbuf = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL);
+          if ( !kbuf )
             return -ENOMEM;
-          curr = (struct one_nl_socket *)(buf + 1);
+          curr = (struct one_nl_socket *)(kbuf + 1);
           // lock
           read_lock(lock);
           // iterate
@@ -3844,18 +3723,13 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
           read_unlock(lock);
           if ( err )
           {
-            kfree(buf);
+            kfree(kbuf);
             return err;
           }
           // copy to user
-          buf[0] = count;
+          kbuf[0] = count;
           kbuf_size = sizeof(unsigned long) + count * sizeof(struct one_nl_socket);
-          if (copy_to_user((void*)ioctl_param, (void*)buf, kbuf_size) > 0)
-          {
-            kfree(buf);
-            return -EFAULT;
-          }
-          kfree(buf);
+          goto copy_kbuf;
        }
      break; /* IOCTL_GET_NL_SK */
 
@@ -3919,12 +3793,12 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
             spin_unlock_bh(lock);
             goto copy_count;
          } else {
-            size_t kbuf_size = sizeof(unsigned long) + ptrbuf[2] * sizeof(struct one_bpf_prog);
             struct one_bpf_prog *curr;
-            unsigned long *buf = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL | __GFP_ZERO);
-            if ( !buf )
+            kbuf_size = sizeof(unsigned long) + ptrbuf[2] * sizeof(struct one_bpf_prog);
+            kbuf = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL | __GFP_ZERO);
+            if ( !kbuf )
               return -ENOMEM;
-            curr = (struct one_bpf_prog *)(buf + 1);
+            curr = (struct one_bpf_prog *)(kbuf + 1);
             spin_lock_bh(lock);
             idr_for_each_entry(links, prog, id)
             {
@@ -3937,14 +3811,9 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
             }
             spin_unlock_bh(lock);
             // copy to usermode
-            buf[0] = count;
+            kbuf[0] = count;
             kbuf_size = sizeof(unsigned long) + count * sizeof(struct one_bpf_prog);
-            if (copy_to_user((void*)ioctl_param, (void*)buf, kbuf_size) > 0)
-            {
-              kfree(buf);
-              return -EFAULT;
-            }
-            kfree(buf);
+            goto copy_kbuf;
          }
        }
      break; /* IOCTL_GET_BPF_PROGS */
@@ -3965,12 +3834,12 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
             spin_unlock_bh(lock);
             goto copy_count;
          } else {
-            size_t kbuf_size = sizeof(unsigned long) + ptrbuf[2] * sizeof(struct one_bpf_links);
             struct one_bpf_links *curr;
-            unsigned long *buf = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL | __GFP_ZERO);
-            if ( !buf )
+            kbuf_size = sizeof(unsigned long) + ptrbuf[2] * sizeof(struct one_bpf_links);
+            kbuf = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL | __GFP_ZERO);
+            if ( !kbuf )
               return -ENOMEM;
-            curr = (struct one_bpf_links *)(buf + 1);
+            curr = (struct one_bpf_links *)(kbuf + 1);
             spin_lock_bh(lock);
             idr_for_each_entry(links, link, id)
             {
@@ -4007,14 +3876,9 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
             }
             spin_unlock_bh(lock);
             // copy to usermode
-            buf[0] = count;
+            kbuf[0] = count;
             kbuf_size = sizeof(unsigned long) + count * sizeof(struct one_bpf_links);
-            if (copy_to_user((void*)ioctl_param, (void*)buf, kbuf_size) > 0)
-            {
-              kfree(buf);
-              return -EFAULT;
-            }
-            kfree(buf);
+            goto copy_kbuf;
          }
        }
      break; /* IOCTL_GET_BPF_LINKS */
@@ -4037,11 +3901,11 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
             goto copy_count;
           } else {
             struct one_trace_export *curr;
-            size_t kbuf_size = sizeof(unsigned long) + sizeof(struct one_trace_export) * ptrbuf[2];
-            unsigned long *buf = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL);
-            if ( !buf )
+            kbuf_size = sizeof(unsigned long) + sizeof(struct one_trace_export) * ptrbuf[2];
+            kbuf = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL);
+            if ( !kbuf )
               return -ENOMEM;
-            curr = (struct one_trace_export *)(buf + 1);
+            curr = (struct one_trace_export *)(kbuf + 1);
             mutex_lock(m);
             while( te )
             {
@@ -4056,14 +3920,9 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
               count++;
             }
             mutex_unlock(m);
-            buf[0] = count;
+            kbuf[0] = count;
             kbuf_size = sizeof(unsigned long) + sizeof(struct one_trace_export) * count;
-            if (copy_to_user((void*)ioctl_param, (void*)buf, kbuf_size) > 0)
-            {
-              kfree(buf);
-              return -EFAULT;
-            }
-            kfree(buf);
+            goto copy_kbuf;
           }
         }
      break; /* IOCTL_GET_TRACE_EXPORTS */
@@ -4080,11 +3939,11 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
             goto copy_count;
           } else {
             struct one_bpf_raw_event *curr;
-            size_t kbuf_size = sizeof(unsigned long) + sizeof(struct one_bpf_raw_event) * ptrbuf[2];
-            unsigned long *buf = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL);
-            if ( !buf )
+            kbuf_size = sizeof(unsigned long) + sizeof(struct one_bpf_raw_event) * ptrbuf[2];
+            kbuf = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL);
+            if ( !kbuf )
               return -ENOMEM;
-            curr = (struct one_bpf_raw_event *)(buf + 1);
+            curr = (struct one_bpf_raw_event *)(kbuf + 1);
             for ( ; start < end; start++ )
             {
               if ( count >= ptrbuf[2] )
@@ -4096,14 +3955,9 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
               curr++;
               count++;
             }
-            buf[0] = count;
+            kbuf[0] = count;
             kbuf_size = sizeof(unsigned long) + sizeof(struct one_bpf_raw_event) * count;
-            if (copy_to_user((void*)ioctl_param, (void*)buf, kbuf_size) > 0)
-            {
-              kfree(buf);
-              return -EFAULT;
-            }
-            kfree(buf);
+            goto copy_kbuf;
           }
         }
      break; /* IOCTL_GET_BPF_RAW_EVENTS */
@@ -4130,11 +3984,11 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
             goto copy_count;
           } else {
             struct one_ftrace_ops *curr;
-            size_t kbuf_size = sizeof(unsigned long) + sizeof(struct one_ftrace_ops) * ptrbuf[2];
-            unsigned long *buf = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL);
-            if ( !buf )
+            kbuf_size = sizeof(unsigned long) + sizeof(struct one_ftrace_ops) * ptrbuf[2];
+            kbuf = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL);
+            if ( !kbuf )
               return -ENOMEM;
-            curr = (struct one_ftrace_ops *)(buf + 1);
+            curr = (struct one_ftrace_ops *)(kbuf + 1);
             // lock
             mutex_lock(m);
             // iterate
@@ -4151,14 +4005,9 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
             }
             // unlock
             mutex_unlock(m);
-            buf[0] = count;
+            kbuf[0] = count;
             kbuf_size = sizeof(unsigned long) + sizeof(struct one_ftrace_ops) * count;
-            if (copy_to_user((void*)ioctl_param, (void*)buf, kbuf_size) > 0)
-            {
-              kfree(buf);
-              return -EFAULT;
-            }
-            kfree(buf);
+            goto copy_kbuf;
           }
         }
      break; /* IOCTL_GET_FTRACE_OPS */
@@ -4180,11 +4029,11 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
             goto copy_count;
           } else {
             struct one_tracefunc_cmd *curr;
-            size_t kbuf_size = sizeof(unsigned long) + sizeof(struct one_tracefunc_cmd) * ptrbuf[2];
-            unsigned long *buf = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL);
-            if ( !buf )
+            kbuf_size = sizeof(unsigned long) + sizeof(struct one_tracefunc_cmd) * ptrbuf[2];
+            kbuf = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL);
+            if ( !kbuf )
               return -ENOMEM;
-            curr = (struct one_tracefunc_cmd *)(buf + 1);
+            curr = (struct one_tracefunc_cmd *)(kbuf + 1);
             mutex_lock(m);
             list_for_each_entry(ti, head, list)
             {
@@ -4197,14 +4046,9 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
               count++;
             }
             mutex_unlock(m);
-            buf[0] = count;
+            kbuf[0] = count;
             kbuf_size = sizeof(unsigned long) + sizeof(struct one_tracefunc_cmd) * count;
-            if (copy_to_user((void*)ioctl_param, (void*)buf, kbuf_size) > 0)
-            {
-              kfree(buf);
-              return -EFAULT;
-            }
-            kfree(buf);
+            goto copy_kbuf;
           }
         }
      break; /* IOCTL_GET_FTRACE_CMDS */
@@ -4228,29 +4072,24 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
             goto copy_count;
           } else {
             struct one_tracepoint_func *curr;
-            size_t kbuf_size = sizeof(unsigned long) + sizeof(struct one_tracepoint_func) * ptrbuf[2];
-            unsigned long *buf = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL);
-            if ( !buf )
+            kbuf_size = sizeof(unsigned long) + sizeof(struct one_tracepoint_func) * ptrbuf[2];
+            kbuf = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL);
+            if ( !kbuf )
               return -ENOMEM;
-            curr = (struct one_tracepoint_func *)(buf + 1);
-            buf[0] = 0;
+            curr = (struct one_tracepoint_func *)(kbuf + 1);
+            kbuf[0] = 0;
             mutex_lock(m);
             list_for_each_entry(pos, head, list)
             {
-              if ( buf[0] >= ptrbuf[1] )
+              if ( kbuf[0] >= ptrbuf[1] )
                 break;
               curr->addr = (unsigned long)pos;
               curr->data = (unsigned long)pos->ops;
               curr++;
-              buf[0]++;
+              kbuf[0]++;
             }
             mutex_unlock(m);
-            if (copy_to_user((void*)ioctl_param, (void*)buf, kbuf_size) > 0)
-            {
-              kfree(buf);
-              return -EFAULT;
-            }
-            kfree(buf);
+            goto copy_kbuf;
           }
         }
      break; /* IOCTL_GET_DYN_EVENTS */
@@ -4271,11 +4110,11 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
             goto copy_count;
           } else {
             struct one_dyn_event_op *curr;
-            size_t kbuf_size = sizeof(unsigned long) + sizeof(struct one_dyn_event_op) * ptrbuf[2];
-            unsigned long *buf = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL);
-            if ( !buf )
+            kbuf_size = sizeof(unsigned long) + sizeof(struct one_dyn_event_op) * ptrbuf[2];
+            kbuf = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL);
+            if ( !kbuf )
               return -ENOMEM;
-            curr = (struct one_dyn_event_op *)(buf + 1);
+            curr = (struct one_dyn_event_op *)(kbuf + 1);
             mutex_lock(m);
             list_for_each_entry(ti, head, list)
             {
@@ -4291,14 +4130,9 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
               count++;
             }
             mutex_unlock(m);
-            buf[0] = count;
+            kbuf[0] = count;
             kbuf_size = sizeof(unsigned long) + sizeof(struct one_dyn_event_op) * count;
-            if (copy_to_user((void*)ioctl_param, (void*)buf, kbuf_size) > 0)
-            {
-              kfree(buf);
-              return -EFAULT;
-            }
-            kfree(buf);
+            goto copy_kbuf;
           }
         }
      break; /* IOCTL_GET_DYN_EVT_OPS */
@@ -4321,11 +4155,11 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
             goto copy_count;
           } else {
             struct one_trace_event_call *curr;
-            size_t kbuf_size = sizeof(unsigned long) + sizeof(struct one_trace_event_call) * ptrbuf[1];
-            unsigned long *buf = (unsigned long *)kzalloc(kbuf_size, GFP_KERNEL | __GFP_ZERO);
-            if ( !buf )
+            kbuf_size = sizeof(unsigned long) + sizeof(struct one_trace_event_call) * ptrbuf[1];
+            kbuf = (unsigned long *)kzalloc(kbuf_size, GFP_KERNEL | __GFP_ZERO);
+            if ( !kbuf )
               return -ENOMEM;
-            curr = (struct one_trace_event_call *)(buf + 1);
+            curr = (struct one_trace_event_call *)(kbuf + 1);
             down_read(s_trace_event_sem);
             list_for_each_entry_safe(call, p, s_ftrace_events, list)
             {
@@ -4337,25 +4171,20 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
               curr++;
             }
             up_read(s_trace_event_sem);
-            buf[0] = count;
+            kbuf[0] = count;
             kbuf_size = sizeof(unsigned long) + sizeof(struct one_trace_event_call) * count;
-            if (copy_to_user((void*)ioctl_param, (void*)buf, kbuf_size) > 0)
-            {
-              kfree(buf);
-              return -EFAULT;
-            }
-            kfree(buf);
+            goto copy_kbuf;
           }
         } else {
           // copy bpf_progs for some event
           struct one_bpf_prog *curr;
           int found = 0;
-          size_t kbuf_size = sizeof(unsigned long) + sizeof(struct one_bpf_prog) * ptrbuf[1];
-          unsigned long *buf = (unsigned long *)kzalloc(kbuf_size, GFP_KERNEL | __GFP_ZERO);
           struct trace_event_call *call, *p;
-          if ( !buf )
+          kbuf_size = sizeof(unsigned long) + sizeof(struct one_bpf_prog) * ptrbuf[1];
+          kbuf = (unsigned long *)kzalloc(kbuf_size, GFP_KERNEL | __GFP_ZERO);
+          if ( !kbuf )
             return -ENOMEM;
-          curr = (struct one_bpf_prog *)(buf + 1);
+          curr = (struct one_bpf_prog *)(kbuf + 1);
           down_read(s_trace_event_sem);
           list_for_each_entry_safe(call, p, s_ftrace_events, list)
           {
@@ -4380,17 +4209,12 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
           up_read(s_trace_event_sem);
           if ( !found )
           {
-             kfree(buf);
+             kfree(kbuf);
              return -ENOENT;
           }
-          buf[0] = count;
+          kbuf[0] = count;
           kbuf_size = sizeof(unsigned long) + sizeof(struct one_bpf_prog) * count;
-          if (copy_to_user((void*)ioctl_param, (void*)buf, kbuf_size) > 0)
-          {
-            kfree(buf);
-            return -EFAULT;
-          }
-          kfree(buf);
+          goto copy_kbuf;
         }
      break; /* IOCTL_GET_EVT_CALLS */
 
@@ -4410,11 +4234,11 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
             goto copy_count;
           } else {
             struct one_event_command *curr;
-            size_t kbuf_size = sizeof(unsigned long) + sizeof(struct one_event_command) * ptrbuf[2];
-            unsigned long *buf = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL);
-            if ( !buf )
+            kbuf_size = sizeof(unsigned long) + sizeof(struct one_event_command) * ptrbuf[2];
+            kbuf = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL);
+            if ( !kbuf )
               return -ENOMEM;
-            curr = (struct one_event_command *)(buf + 1);
+            curr = (struct one_event_command *)(kbuf + 1);
             mutex_lock(m);
             list_for_each_entry(ti, head, list)
             {
@@ -4434,14 +4258,9 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
               count++;
             }
             mutex_unlock(m);
-            buf[0] = count;
+            kbuf[0] = count;
             kbuf_size = sizeof(unsigned long) + sizeof(struct one_event_command) * count;
-            if (copy_to_user((void*)ioctl_param, (void*)buf, kbuf_size) > 0)
-            {
-              kfree(buf);
-              return -EFAULT;
-            }
-            kfree(buf);
+            goto copy_kbuf;
           }
         }
      break; /* IOCTL_GET_EVENT_CMDS */
@@ -4462,11 +4281,11 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
             goto copy_count;
           } else {
             struct one_bpf_reg *curr;
-            size_t kbuf_size = sizeof(unsigned long) + sizeof(struct one_bpf_reg) * ptrbuf[2];
-            unsigned long *buf = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL);
-            if ( !buf )
+            kbuf_size = sizeof(unsigned long) + sizeof(struct one_bpf_reg) * ptrbuf[2];
+            kbuf = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL);
+            if ( !kbuf )
               return -ENOMEM;
-            curr = (struct one_bpf_reg *)(buf + 1);
+            curr = (struct one_bpf_reg *)(kbuf + 1);
             mutex_lock(m);
             list_for_each_entry(ti, head, list)
             {
@@ -4485,14 +4304,9 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
               count++;
             }
             mutex_unlock(m);
-            buf[0] = count;
+            kbuf[0] = count;
             kbuf_size = sizeof(unsigned long) + sizeof(struct one_bpf_reg) * count;
-            if (copy_to_user((void*)ioctl_param, (void*)buf, kbuf_size) > 0)
-            {
-              kfree(buf);
-              return -EFAULT;
-            }
-            kfree(buf);
+            goto copy_kbuf;
           }
         }
      break; /* IOCTL_GET_BPF_REGS */
@@ -4513,11 +4327,11 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
             goto copy_count;
           } else {
             struct one_bpf_ksym *curr;
-            size_t kbuf_size = sizeof(unsigned long) + sizeof(struct one_bpf_ksym) * ptrbuf[2];
-            unsigned long *buf = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL);
-            if ( !buf )
+            kbuf_size = sizeof(unsigned long) + sizeof(struct one_bpf_ksym) * ptrbuf[2];
+            kbuf = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL);
+            if ( !kbuf )
               return -ENOMEM;
-            curr = (struct one_bpf_ksym *)(buf + 1);
+            curr = (struct one_bpf_ksym *)(kbuf + 1);
             spin_lock_bh(lock);
             list_for_each_entry(ti, head, lnode)
             {
@@ -4532,14 +4346,9 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
               count++;
             }
             spin_unlock_bh(lock);
-            buf[0] = count;
+            kbuf[0] = count;
             kbuf_size = sizeof(unsigned long) + sizeof(struct one_bpf_ksym) * count;
-            if (copy_to_user((void*)ioctl_param, (void*)buf, kbuf_size) > 0)
-            {
-              kfree(buf);
-              return -EFAULT;
-            }
-            kfree(buf);
+            goto copy_kbuf;
           }
        }
      break; /* IOCTL_GET_BPF_KSYMS */
@@ -4562,11 +4371,11 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
           return -EFAULT;
        } else {
           struct one_kcalgo *curr;
-          size_t kbuf_size = sizeof(unsigned long) + sizeof(struct one_kcalgo) * ptrbuf[2];
-          unsigned long *buf = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL | __GFP_ZERO);
-          if ( !buf )
+          kbuf_size = sizeof(unsigned long) + sizeof(struct one_kcalgo) * ptrbuf[2];
+          kbuf = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL | __GFP_ZERO);
+          if ( !kbuf )
             return -ENOMEM;
-          curr = (struct one_kcalgo *)(buf + 1);
+          curr = (struct one_kcalgo *)(kbuf + 1);
           down_read(cs);
           list_for_each_entry(q, head, cra_list)
           {
@@ -4608,14 +4417,9 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
             count++;
           }
           up_read(cs);
-          buf[0] = count;
+          kbuf[0] = count;
           kbuf_size = sizeof(unsigned long) + sizeof(struct one_kcalgo) * count;
-          if (copy_to_user((void*)ioctl_param, (void*)buf, kbuf_size) > 0)
-          {
-            kfree(buf);
-            return -EFAULT;
-          }
-          kfree(buf);
+          goto copy_kbuf;
        }
      }
      break; /* IOCTL_ENUM_CALGO */
@@ -4839,6 +4643,15 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
 copy_count:
   if (copy_to_user((void*)ioctl_param, (void*)&count, sizeof(count)) > 0)
     return -EFAULT;
+  return 0;
+copy_kbuf:
+  if ( copy_to_user((void*)ioctl_param, (void*)kbuf, kbuf_size) > 0 )
+  {
+    kfree(kbuf);
+    return -EFAULT;
+  }
+  // cleanup
+  kfree(kbuf);
   return 0;
 }
 
