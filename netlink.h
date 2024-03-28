@@ -5,10 +5,15 @@
 struct netlink_sock {
 	/* struct sock has to be the first member of netlink_sock */
 	struct sock		sk;
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6,1,55)
+	unsigned long		flags;
+#endif
 	u32			portid;
 	u32			dst_portid;
 	u32			dst_group;
+#if LINUX_VERSION_CODE < KERNEL_VERSION(6,1,55)
 	u32			flags;
+#endif
 	u32			subscriptions;
 	u32			ngroups;
 	unsigned long		*groups;
