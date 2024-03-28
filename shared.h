@@ -1185,7 +1185,17 @@ struct one_nft_af
 //  1 - count
 // out params
 //  N + N * one_nft_af
-
 #define IOCTL_ENUM_NFT_AF                _IOR(IOCTL_NUM, 0x52, int*)
+
+// get nf_hook_entries for net_dev ingress/egress
+// in params:
+// 0 - address of net from IOCTL_GET_NETS
+// 1 - address of net_dev
+// 2 - count - from one_net_dev num_ihook_entries/num_ehook_entries
+// 3 - 0 for ingress, otherwise for egress
+// out params
+//  N + N * hooks
+#define IOCTL_NFIEHOOKS                  _IOR(IOCTL_NUM, 0x53, int*)
+
 
 #endif /* LKCD_SHARED_H */
