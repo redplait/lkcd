@@ -76,6 +76,7 @@ struct rw_semaphore *s_net = 0;
 rwlock_t *s_dev_base_lock = 0;
 struct sock_diag_handler **s_sock_diag_handlers = 0;
 struct mutex *s_sock_diag_table_mutex = 0;
+struct mutex *s_nf_hook_mutex = 0;
 struct ftrace_ops *s_ftrace_end = 0;
 void *delayed_timer = 0;
 struct alarm_base *s_alarm = 0;
@@ -964,6 +965,16 @@ void fill_bpf_prog(struct one_bpf_prog *curr, struct bpf_prog *prog)
     curr->aux_id = 0;
     curr->used_map_cnt = curr->used_btf_cnt = curr->func_cnt = curr->stack_depth = curr->num_exentries = 0;
   }
+}
+
+// to avoid deadlock you must call up_read(s_net) somewhere below
+static struct net *peek_net(unsigned long addr)
+{
+  struct net *res;
+  down_read(s_net);
+  for_each_net(res)
+    if ( (unsigned long)res == addr ) return res;
+  return NULL;
 }
 
 static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long ioctl_param)
@@ -2902,28 +2913,22 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
           return -ENOCSI;
         // read count
         if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 2) > 0 )
-  	  return -EFAULT;
-  	if ( !ptrbuf[1] )
-  	{
-          struct net *net;
+  	     return -EFAULT;
+  	  if ( !ptrbuf[1] )
+  	  {
           struct net_device *dev;
-          int found = 0;
           unsigned long count = 0;
-          down_read(s_net);
-          for_each_net(net)
+          struct net *net = peek_net(ptrbuf[0]);
+          if ( !net )
           {
-            if ( ptrbuf[0] != (unsigned long)net )
-              continue;
-            found++;
-            read_lock(s_dev_base_lock);
-            for_each_netdev(net, dev)
-              count++;
-            read_unlock(s_dev_base_lock);
-            break;
-          }
-          up_read(s_net);
-          if ( !found )
+            up_read(s_net);
             return -ENOENT;
+          }
+          read_lock(s_dev_base_lock);
+          for_each_netdev(net, dev)
+            count++;
+          read_unlock(s_dev_base_lock);
+          up_read(s_net);
           // copy count to user
           if (copy_to_user((void*)ioctl_param, (void*)&count, sizeof(count)) > 0)
             return -EFAULT;
@@ -2964,10 +2969,16 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
               curr->xdp_prog    = (void *)dev->xdp_prog;
               curr->rx_handler  = (void *)dev->rx_handler;
               curr->rtnl_link_ops = (void *)dev->rtnl_link_ops;
+#ifdef CONFIG_NETFILTER_EGRESS
+              curr->nf_hooks_egress = (void *)dev->nf_hooks_egress;
+              if ( dev->nf_hooks_egress )
+                curr->num_ehook_entries = dev->nf_hooks_egress->num_hook_entries;
+
+#endif
 #ifdef CONFIG_NETFILTER_INGRESS
               curr->nf_hooks_ingress = (void *)dev->nf_hooks_ingress;
               if ( dev->nf_hooks_ingress )
-                curr->num_hook_entries = dev->nf_hooks_ingress->num_hook_entries;
+                curr->num_ihook_entries = dev->nf_hooks_ingress->num_hook_entries;
 #endif
 #ifdef CONFIG_NET_L3_MASTER_DEV
               curr->l3mdev_ops = (void *)dev->l3mdev_ops;
@@ -3136,24 +3147,18 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
 #else
         else {
           struct net *net;
-          int found = 0;
+          struct nft_af_info *afi;
           long cnt = 0;
           if ( !ptrbuf[1] ) // just count nft_af_info on some net
           {
-            down_read(s_net);
-            for_each_net(net)
+            net = peek_net(ptrbuf[0]);
+            if ( !net )
             {
-              if ( net == (void *)ptrbuf[0] )
-              {
-                struct nft_af_info *afi;
-                found = 1;
-                list_for_each_entry(afi, &net->nft.af_info, list) cnt++;
-                break;
-              }
+              up_read(s_net);
+              return -ENODEV;  
             }
+            list_for_each_entry(afi, &net->nft.af_info, list) cnt++;
             up_read(s_net);  
-            if ( !found )
-              return -ENODEV;
             if (copy_to_user((void*)ioctl_param, (void*)&cnt, sizeof(cnt)) > 0)
               return -EFAULT;
           } else {
@@ -3163,35 +3168,27 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
             if ( !buf )
               return -ENOMEM;
             curr = (struct one_nft_af *)(buf + 1);
-            down_read(s_net);
-            for_each_net(net)
+            net = peek_net(ptrbuf[0]);
+            if ( !net )
             {
-              if ( net == (void *)ptrbuf[0] )
-              {
-                struct nft_af_info *afi;
-                found = 1;
-                list_for_each_entry(afi, &net->nft.af_info, list)
-                {
-                  int ih;
-                  if ( cnt >= ptrbuf[1] ) break;
-                  // fill curr
-                  curr->addr = (void *)afi;
-                  curr->family = afi->family;
-                  curr->nhooks = afi->nhooks;
-                  curr->ops_init = (void *)afi->hook_ops_init;
-                  for ( ih = 0; ih < 8; ++ih ) curr->hooks[ih] = (void *)afi->hooks[ih];
-                  // for next item
-                  curr++; cnt++;
-                }
-                break;
-              }
+              up_read(s_net);
+              kfree(buf);
+              return -ENODEV;  
+            }
+            list_for_each_entry(afi, &net->nft.af_info, list)
+            {
+              int ih;
+              if ( cnt >= ptrbuf[1] ) break;
+              // fill curr
+              curr->addr = (void *)afi;
+              curr->family = afi->family;
+              curr->nhooks = afi->nhooks;
+              curr->ops_init = (void *)afi->hook_ops_init;
+              for ( ih = 0; ih < 8; ++ih ) curr->hooks[ih] = (void *)afi->hooks[ih];
+              // for next item
+              curr++; cnt++;
             }
             up_read(s_net);  
-            if ( !found )
-            {
-              kfree(buf);
-              return -ENODEV;
-            }
             // copy to user
             buf[0] = cnt;
             kbuf_size = sizeof(unsigned long) + buf[0] * sizeof(struct one_nft_af);
@@ -5122,6 +5119,9 @@ init_module (void)
   s_sock_diag_table_mutex = (struct mutex *)lkcd_lookup_name("sock_diag_table_mutex");
   if ( !s_sock_diag_table_mutex )
     printk("cannot find sock_diag_table_mutex\n");
+  s_nf_hook_mutex = (struct mutex *)lkcd_lookup_name("nf_hook_mutex");
+  if ( !s_nf_hook_mutex )
+    printk("cannot find nf_hook_mutex\n");
   // trace events data
   s_ftrace_end = (struct ftrace_ops *)lkcd_lookup_name("ftrace_list_end");
   if ( !s_ftrace_end )
