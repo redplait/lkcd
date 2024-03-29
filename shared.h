@@ -1219,4 +1219,12 @@ struct one_nf_logger
 //  N + N * one_nf_logger
 #define IOCTL_NFLOGGERS                  _IOR(IOCTL_NUM, 0x54, int*)
 
+// read NF hooks for some net->nf
+// in params:
+// 0 - address of net from IOCTL_GET_NETS
+// 1 - count
+// out params:
+//  N + N * one_nf_logger
+#define IOCTL_NFHOOKS                    _IOR(IOCTL_NUM, 0x55, int*)
+
 #endif /* LKCD_SHARED_H */

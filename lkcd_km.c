@@ -2872,6 +2872,165 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
         }
       break; /* IOCTL_NFIEHOOKS */
 
+     case IOCTL_NFHOOKS:
+        // check pre-req
+        if ( !s_net || !s_nf_log_mutex )
+          return -ENOCSI;
+        // read params
+        if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 2) > 0 )
+  	     return -EFAULT;
+        if ( !ptrbuf[1] )
+  	    {
+          struct net *net = peek_net(ptrbuf[0]);
+          int i;
+          if ( !net )
+          {
+            up_read(s_net);
+            return -ENOENT;
+          }
+          mutex_lock(s_nf_log_mutex);
+#if LINUX_VERSION_CODE <= KERNEL_VERSION(4,15,0)
+          for ( i = 0; i < ARRAY_SIZE(net->nf.hooks); ++i )
+          {
+            int j;
+            for ( j = 0; j < ARRAY_SIZE(net->nf.hooks[i]); ++j )
+              if ( net->nf.hooks[i][j] ) count++;
+          }
+#else
+          // ipv4
+          for ( i = 0; i < ARRAY_SIZE(net->nf.hooks_ipv4); ++i )
+            if ( net->nf.hooks_ipv4[i] ) count += net->nf.hooks_ipv4[i]->num_hook_entries;
+          // ipv6
+          for ( i = 0; i < ARRAY_SIZE(net->nf.hooks_ipv6); ++i )
+            if ( net->nf.hooks_ipv6[i] ) count += net->nf.hooks_ipv6[i]->num_hook_entries;
+#ifdef CONFIG_NETFILTER_FAMILY_ARP
+          for ( i = 0; i < ARRAY_SIZE(net->nf.hooks_arp); ++i )
+            if ( net->nf.hooks_arp[i] ) count += net->nf.hooks_arp[i]->num_hook_entries;
+#endif
+#ifdef CONFIG_NETFILTER_FAMILY_BRIDGE
+          for ( i = 0; i < ARRAY_SIZE(net->nf.hooks_bridge); ++i )
+            if ( net->nf.hooks_bridge[i] ) count += net->nf.hooks_bridge[i]->num_hook_entries;
+#endif
+#if IS_ENABLED(CONFIG_DECNET) && LINUX_VERSION_CODE <= KERNEL_VERSION(5,15,117)
+          for ( i = 0; i < ARRAY_SIZE(net->nf.hooks_decnet); ++i )
+            if ( net->nf.hooks_decnet[i] ) count += net->nf.hooks_decnet[i]->num_hook_entries;
+#endif
+#endif
+          mutex_unlock(s_nf_log_mutex);
+          up_read(s_net);
+          goto copy_count;
+        } else {
+          int i, j;
+          struct net *net;
+          struct one_nf_logger *curr;
+          kbuf_size = sizeof(unsigned long) + ptrbuf[1] * sizeof(struct one_nf_logger);
+          kbuf = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL | __GFP_ZERO);
+          if ( !kbuf )
+            return -ENOMEM;
+          net = peek_net(ptrbuf[0]);
+          if ( !net )
+          {
+            up_read(s_net);
+            kfree(kbuf);
+            return -ENOENT;
+          }
+          curr = (struct one_nf_logger *)(kbuf + 1);
+          mutex_lock(s_nf_log_mutex);
+#if LINUX_VERSION_CODE <= KERNEL_VERSION(4,15,0)
+          for ( i = 0; i < ARRAY_SIZE(net->nf.hooks); ++i )
+          {
+            for ( j = 0; j < ARRAY_SIZE(net->nf.hooks[i]); ++j )
+            {
+              if ( !net->nf.hooks[i][j] ) continue;
+              if ( count >= ptrbuf[1] ) break;
+              curr->fn = net->nf.hooks[i][j]->hook;
+              curr->type = i;
+              curr->idx = j;
+              // for next iteraton
+              count++; curr++;
+            }
+          }
+#else
+          // ipv4
+          for ( i = 0; i < ARRAY_SIZE(net->nf.hooks_ipv4); ++i )
+          {
+            if ( !net->nf.hooks_ipv4[i] ) continue;
+            for ( j = 0; j < net->nf.hooks_ipv4[i]->num_hook_entries; j++ )
+            {
+              if ( !net->nf.hooks_ipv4[i]->hooks[j].hook ) continue;
+              if ( count >= ptrbuf[1] ) goto skip_hooks;
+              curr->fn = net->nf.hooks_ipv4[i]->hooks[j].hook;
+              curr->type = NFPROTO_IPV4;
+              curr->idx = j;
+              count++; curr++;
+            }
+          }
+          // ipv6
+          for ( i = 0; i < ARRAY_SIZE(net->nf.hooks_ipv6); ++i )
+          {
+            for ( j = 0; j < net->nf.hooks_ipv6[i]->num_hook_entries; j++ )
+            {
+              if ( !net->nf.hooks_ipv6[i]->hooks[j].hook ) continue;
+              if ( count >= ptrbuf[1] ) goto skip_hooks;
+              curr->fn = net->nf.hooks_ipv6[i]->hooks[j].hook;
+              curr->type = NFPROTO_IPV6;
+              curr->idx = j;
+              count++; curr++;
+            }
+          }
+#ifdef CONFIG_NETFILTER_FAMILY_ARP
+          for ( i = 0; i < ARRAY_SIZE(net->nf.hooks_arp); ++i )
+          {
+            for ( j = 0; j < net->nf.hooks_arp[i]->num_hook_entries; j++ )
+            {
+              if ( !net->nf.hooks_arp[i]->hooks[j].hook ) continue;
+              if ( count >= ptrbuf[1] ) goto skip_hooks;
+              curr->fn = net->nf.hooks_arp[i]->hooks[j].hook;
+              curr->type = NFPROTO_ARP;
+              curr->idx = j;
+              count++; curr++;
+            }
+          }
+#endif
+#ifdef CONFIG_NETFILTER_FAMILY_BRIDGE
+          for ( i = 0; i < ARRAY_SIZE(net->nf.hooks_bridge); ++i )
+          {
+            for ( j = 0; j < net->nf.hooks_bridge[i]->num_hook_entries; j++ )
+            {
+              if ( !net->nf.hooks_bridge[i]->hooks[j].hook ) continue;
+              if ( count >= ptrbuf[1] ) goto skip_hooks;
+              curr->fn = net->nf.hooks_bridge[i]->hooks[j].hook;
+              curr->type = NFPROTO_BRIDGE;
+              curr->idx = j;
+              count++; curr++;
+            }
+          }
+#endif
+#if IS_ENABLED(CONFIG_DECNET) && LINUX_VERSION_CODE <= KERNEL_VERSION(5,15,117)
+          for ( i = 0; i < ARRAY_SIZE(net->nf.hooks_decnet); ++i )
+          {
+            for ( j = 0; j < net->nf.hooks_decnet[i]->num_hook_entries; j++ )
+            {
+              if ( !net->nf.hooks_decnet[i]->hooks[j].hook ) continue;
+              if ( count >= ptrbuf[1] ) goto skip_hooks;
+              curr->fn = net->nf.hooks_decnet[i]->hooks[j].hook;
+              curr->type = NFPROTO_DECNET;
+              curr->idx = j;
+              count++; curr++;
+            }
+          }
+#endif
+     skip_hooks: // actual count > provided from user mode
+#endif
+          mutex_unlock(s_nf_log_mutex);
+          up_read(s_net);
+          if ( !count ) goto copy_count;
+          kbuf_size = sizeof(unsigned long) + count * sizeof(struct one_nf_logger);
+          kbuf[0] = count;
+          goto copy_kbuf;
+        }
+      break; /* IOCTL_NFHOOKS */
+
      case IOCTL_NFLOGGERS:
         // check pre-req
         if ( !s_net || !s_nf_log_mutex )
