@@ -2555,6 +2555,41 @@ void dump_netf(int fd, sa64 delta, void *net)
   }
 }
 
+const char *get_nfproto(int i)
+{
+  // https://elixir.bootlin.com/linux/v4.14.336/source/include/uapi/linux/netfilter.h#L69
+  switch(i)
+  {
+    case 0: return "UNSPEC";
+    case 1: return "INET";
+    case 2: return "IPV4";
+    case 3: return "ARP";
+    case 5: return "NETDEV";
+    case 7: return "BRIDGE";
+    case 10: return "IPV6";
+    case 12: return "DECNET";
+  }
+  return NULL;
+}
+
+void dump_nf_hooks(int fd, sa64 delta, const char *pfx, unsigned long *d)
+{
+  int err = ioctl(fd, IOCTL_GET_NETS, (int *)d);
+  if ( err )
+  {
+    printf("IOCTL_NFIEHOOKS failed, error %d (%s)\n", errno, strerror(errno));
+    return;
+  }
+  if ( !d[0] ) return;
+  printf("  %sgress hooks:", pfx);
+  for ( int i = 0; i < d[0]; i++ )
+  {
+    if ( !d[i+1] ) continue;
+    printf("   [%d]", i);
+    dump_unnamed_kptr((unsigned long)d[i+1], delta);
+  }
+}
+
 void dump_nets(int fd, sa64 delta)
 {
   unsigned long cnt = 0;
@@ -2655,8 +2690,40 @@ void dump_nets(int fd, sa64 delta)
         dump_kptr((unsigned long)nd->dcbnl_ops, " dcbnl_ops", delta);
       if ( nd->macsec_ops )
         dump_kptr((unsigned long)nd->macsec_ops, " macsec_ops", delta);
-      if ( nd->num_hook_entries )
-        printf("num_hook_entries: %ld\n", nd->num_hook_entries);
+      const size_t l4size = 4 * sizeof(unsigned long);
+      if ( nd->num_ihook_entries )
+      {
+        printf("ingress num_hook_entries: %ld at %p\n", nd->num_ihook_entries, nd->nf_hooks_ingress);
+        // TODO: add nf_hook_entry dunp for nf_hooks_ingress
+        size_t dsize = std::max(l4size, sizeof(unsigned long) * (1 + nd->num_ihook_entries));
+        unsigned long *ing = (unsigned long *)malloc(dsize);
+        if ( ing )
+        {
+          dumb_free<unsigned long> tmp(ing);
+          ing[0] = (unsigned long)sb->addr;
+          ing[1] = (unsigned long)nd->addr;
+          ing[2] = nd->num_ihook_entries;
+          ing[3] = 0;
+          dump_nf_hooks(fd, delta, "in", ing);
+        }
+      }
+      if ( nd->num_ehook_entries )
+      {
+        printf("egress num_hook_entries: %ld at %p\n", nd->num_ehook_entries, nd->nf_hooks_egress);
+        // TODO: add nf_hook_entry dunp for nf_hooks_egress
+        size_t dsize = std::max(l4size, sizeof(unsigned long) * (1 + nd->num_ehook_entries));
+        unsigned long *ing = (unsigned long *)malloc(dsize);
+        if ( ing )
+        {
+          dumb_free<unsigned long> tmp(ing);
+          ing[0] = (unsigned long)sb->addr;
+          ing[1] = (unsigned long)nd->addr;
+          ing[2] = nd->num_ehook_entries;
+          ing[3] = 1;
+          dump_nf_hooks(fd, delta, "e", ing);
+        }
+      }
+
       // dump xdp_state
       for ( int xdp = 0; xdp < 3; xdp++ )
       {
