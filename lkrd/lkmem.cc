@@ -2568,6 +2568,43 @@ const char *get_nfproto(int i)
   return NULL;
 }
 
+void dump_nf_loggers(int fd, sa64 delta, void *net)
+{
+  unsigned long args[2] = { (unsigned long)net, 0 };
+  int err = ioctl(fd, IOCTL_NFLOGGERS, (int *)args);
+  if ( err )
+  {
+    printf("IOCTL_NFLOGGERS cont failed, error %d (%s)\n", errno, strerror(errno));
+    return;
+  }
+  if ( !args[0] ) return;
+  size_t size = calc_data_size<one_nf_logger>(args[0]);
+  unsigned long *buf = (unsigned long *)malloc(size);
+  if ( !buf )
+    return;
+  dumb_free<unsigned long> tmp(buf);
+  buf[0] = (unsigned long)net;
+  buf[1] = args[0];
+  err = ioctl(fd, IOCTL_NFLOGGERS, (int *)args);
+  if ( err )
+  {
+    printf("IOCTL_NFLOGGERS failed, error %d (%s)\n", errno, strerror(errno));
+    return;
+  }
+  printf("  %ld nf loggers:", buf[0]);
+  one_nf_logger *curr = (one_nf_logger *)(buf + 1);
+  for ( unsigned long i = 0; i < buf[0]; i++, curr++ )
+  {
+    printf("   [%ld] type %d ", i, curr->type);
+    auto name = get_nfproto(curr->idx);
+    if ( name )
+      printf(" %s", name);
+    else
+      printf(" idx %d", curr->idx);
+    dump_unnamed_kptr((unsigned long)buf[i+1], delta);
+  }
+}
+
 void dump_nf_hooks(int fd, sa64 delta, const char *pfx, unsigned long *d)
 {
   int err = ioctl(fd, IOCTL_GET_NETS, (int *)d);
@@ -2635,6 +2672,7 @@ void dump_nets(int fd, sa64 delta)
       dump_kptr((unsigned long)sb->nf_hook_drop, "nf_hook_drop", delta);
     // dump netfilter
     dump_netf(fd, delta, sb->addr);
+    dump_nf_loggers(fd, delta, sb->addr);
     // dump bpf
     if ( sb->progs[0] )
       printf(" netns_bpf[0]: %p\n", sb->progs[0]);
