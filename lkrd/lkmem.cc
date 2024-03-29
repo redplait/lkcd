@@ -2134,9 +2134,7 @@ void dump_rtnl_af_ops(int fd, a64 nca, sa64 delta)
   printf("\nrtnl_af_ops at %p: %ld\n", (void *)(nca + delta), args[0]);
   if ( !args[0] )
     return;
-  size_t m = args[0];
-  if ( m < 2 )
-    m = 2;
+  unsigned long m = std::max(args[0] + 1, 2UL);
   unsigned long *buf = (unsigned long *)malloc(m * sizeof(unsigned long));
   if ( !buf )
     return;
@@ -2167,9 +2165,7 @@ void dump_link_ops(int fd, a64 nca, sa64 delta)
   printf("\nlink_ops at %p: %ld\n", (void *)(nca + delta), args[0]);
   if ( !args[0] )
     return;
-  size_t m = args[0];
-  if ( m < 2 )
-    m = 2;
+  unsigned long m = std::max(args[0] + 1, 2UL);
   unsigned long *buf = (unsigned long *)malloc(m * sizeof(unsigned long));
   if ( !buf )
     return;
@@ -2520,10 +2516,10 @@ void dump_netf(int fd, sa64 delta, void *net)
 {
   unsigned long args[2] = { (unsigned long)net, 0 };
   int err = ioctl(fd, IOCTL_ENUM_NFT_AF, (int *)&args);
-  if ( err == EPROTO ) return;
   if ( err )
   {
-    printf("IOCTL_ENUM_NFT_AF count failed, error %d (%s)\n", errno, strerror(errno));
+    if ( errno != 71 /* EPROTO */ )
+      printf("IOCTL_ENUM_NFT_AF count failed, error %d (%s)\n", errno, strerror(errno));
     return;
   }
   size_t size = calc_data_size<one_nft_af>(args[0]);
@@ -2543,7 +2539,7 @@ void dump_netf(int fd, sa64 delta, void *net)
   struct one_nft_af *af = (struct one_nft_af *)(buf + 1);
   for ( size_t idx = 0; idx < size; idx++, af++ )
   {
-    printf(" NFT_AF[%d]: %p family %d nhooks %d\n", idx, af->addr, af->family, af->nhooks);
+    printf(" NFT_AF[%ld]: %p family %d nhooks %d\n", idx, af->addr, af->family, af->nhooks);
     if ( af->ops_init )
       dump_kptr((unsigned long)af->ops_init, " ops_init", delta);
     for ( int i = 0; i < 8; i++ )
@@ -2633,6 +2629,10 @@ void dump_nets(int fd, sa64 delta)
       dump_kptr((unsigned long)sb->diag_nlsk_proto, "diag_nlsk_proto", delta);
     if ( sb->diag_nlsk_filter )
       dump_kptr((unsigned long)sb->diag_nlsk_filter, "diag_nlsk_filter", delta);
+    if ( sb->nf_outfn )
+      dump_kptr((unsigned long)sb->nf_outfn, "nf_outfn", delta);
+    if ( sb->nf_hook_drop )
+      dump_kptr((unsigned long)sb->nf_hook_drop, "nf_hook_drop", delta);
     // dump netfilter
     dump_netf(fd, delta, sb->addr);
     // dump bpf
@@ -3268,7 +3268,7 @@ void dump_freq_ntfy(int fd, const char *pfx, unsigned long *buf, sa64 delta)
 void dump_freq_ntfy(int fd, sa64 delta)
 {
   int cpu_num = get_nprocs();
-  unsigned long arg[3];
+  unsigned long arg[3] = { 0, 0, 0 };
   for ( int i = 0; i < cpu_num; i++ )
   {
     arg[0] = i;
