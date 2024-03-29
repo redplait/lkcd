@@ -62,6 +62,9 @@
 #include <linux/timer.h>
 #include <linux/workqueue.h>
 #include <linux/alarmtimer.h>
+#ifdef CONFIG_NETFILTER
+#include <net/netfilter/nf_log.h>
+#endif
 #include "timers.h"
 #include "bpf.h"
 #include "event.h"
@@ -76,7 +79,10 @@ struct rw_semaphore *s_net = 0;
 rwlock_t *s_dev_base_lock = 0;
 struct sock_diag_handler **s_sock_diag_handlers = 0;
 struct mutex *s_sock_diag_table_mutex = 0;
+#ifdef CONFIG_NETFILTER
 struct mutex *s_nf_hook_mutex = 0;
+struct mutex *s_nf_log_mutex = 0;
+#endif /* CONFIG_NETFILTER */
 struct ftrace_ops *s_ftrace_end = 0;
 void *delayed_timer = 0;
 struct alarm_base *s_alarm = 0;
@@ -2795,6 +2801,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
         }
       break; /* IOCTL_GET_PROTOSW */
 
+#ifdef CONFIG_NETFILTER
      case IOCTL_NFIEHOOKS:
         if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 4) > 0 )
   	     return -EFAULT;
@@ -2806,10 +2813,120 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
 #endif
         if ( !s_net || !s_dev_base_lock || !s_nf_hook_mutex )
           return -ENOCSI;
+        if ( !ptrbuf[2] ) goto copy_count;
         else {
-
+          struct nf_hook_entries *nfh = NULL;
+          struct net_device *dev, *right_dev = NULL;
+          struct net *net;
+          kbuf_size = sizeof(unsigned long) * (1 + ptrbuf[2]);
+          kbuf = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL | __GFP_ZERO);
+          if ( !kbuf )
+            return -ENOMEM;
+          net = peek_net(ptrbuf[0]);
+          if ( !net )
+          {
+            up_read(s_net);
+            return -ENOENT;
+          }
+          // find right net_dev
+          read_lock(s_dev_base_lock);
+          for_each_netdev(net, dev)
+          {
+            if ( (unsigned long)dev == ptrbuf[1] )
+            {
+              right_dev = dev;
+              break;
+            }
+          }
+          if ( !right_dev )
+          {
+            read_unlock(s_dev_base_lock);
+            up_read(s_net);
+            kfree(kbuf);
+            return -ENODEV;
+          }
+#ifdef CONFIG_NETFILTER_EGRESS
+          if ( ptrbuf[3] ) nfh = right_dev->nf_hooks_egress;
+#endif
+#ifndef CONFIG_NETFILTER_INGRESS
+          if ( !ptrbuf[3] ) nfh = right_dev->nf_hooks_ingress;
+#endif
+          if ( !nfh )
+          {
+            read_unlock(s_dev_base_lock);
+            up_read(s_net);
+            kfree(kbuf);
+            goto copy_count;
+          }
+          // ok, copy hooks
+          mutex_lock(s_nf_hook_mutex);
+          for ( ; count < nfh->num_hook_entries && count < ptrbuf[2]; ++count )
+            kbuf[1 + count] = (unsigned long)nfh->hooks[count].hook;
+          mutex_unlock(s_nf_hook_mutex);
+          read_unlock(s_dev_base_lock);
+          up_read(s_net);
+          if ( !count ) goto copy_count;
+          kbuf_size = sizeof(unsigned long) * (1 + count);
+          kbuf[0] = count;
+          goto copy_kbuf;
         }
       break; /* IOCTL_NFIEHOOKS */
+
+     case IOCTL_NFLOGGERS:
+        // check pre-req
+        if ( !s_net || !s_nf_log_mutex )
+          return -ENOCSI;
+        // read params
+        if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 2) > 0 )
+  	     return -EFAULT;
+        if ( !ptrbuf[1] )
+  	    {
+          struct net *net = peek_net(ptrbuf[0]);
+          int i;
+          if ( !net )
+          {
+            up_read(s_net);
+            return -ENOENT;
+          }
+          mutex_lock(s_nf_log_mutex);
+          for ( i = 0; i < ARRAY_SIZE(net->nf.nf_loggers); i++ )
+            if ( net->nf.nf_loggers[i] ) count++;
+          mutex_unlock(s_nf_log_mutex);
+          up_read(s_net);
+          goto copy_count;
+        } else {
+          struct one_nf_logger *curr;
+          struct net *net; 
+          int i;
+          kbuf_size = sizeof(unsigned long) + ptrbuf[1] * sizeof(struct one_nf_logger);
+          kbuf = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL | __GFP_ZERO);
+          if ( !kbuf )
+            return -ENOMEM;
+          net = peek_net(ptrbuf[0]);
+          if ( !net )
+          {
+            up_read(s_net);
+            kfree(kbuf);
+            return -ENOENT;
+          }
+          curr = (struct one_nf_logger *)(kbuf + 1);
+          mutex_lock(s_nf_log_mutex);
+          for ( i = 0; i < ARRAY_SIZE(net->nf.nf_loggers) && count < ptrbuf[1]; i++ )
+          {
+            if ( !net->nf.nf_loggers[i] ) continue;
+            curr->type = net->nf.nf_loggers[i]->type;
+            curr->idx = i;
+            curr->fn = net->nf.nf_loggers[i]->logfn;
+            curr++; count++;
+          }
+          mutex_unlock(s_nf_log_mutex);
+          up_read(s_net);
+          kbuf[0] = count;
+          kbuf_size = sizeof(unsigned long) + count * sizeof(struct one_nf_logger);
+          goto copy_kbuf;
+        }
+      break; /* IOCTL_NFLOGGERS */
+#endif /* CONFIG_NETFILTER */
 
      case IOCTL_GET_NET_DEVS:
         // check pre-req
@@ -3147,6 +3264,13 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
                 curr->dev_cnt++;
               read_unlock(s_dev_base_lock);
             }
+#if defined(CONFIG_NETFILTER) && LINUX_VERSION_CODE < KERNEL_VERSION(5,15,0)
+            if ( net->queue_handler )
+            {
+              curr->nf_outfn = net->nf.queue_handler->outfn;
+              curr->nf_hook_drop = net->nf.queue_handler->nf_hook_drop;
+            }
+#endif
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(5,0,0)
             // copy netns_bpf
             curr->progs[0] = net->bpf.progs[0];
@@ -4848,9 +4972,14 @@ init_module (void)
   s_sock_diag_table_mutex = (struct mutex *)lkcd_lookup_name("sock_diag_table_mutex");
   if ( !s_sock_diag_table_mutex )
     printk("cannot find sock_diag_table_mutex\n");
+#ifdef CONFIG_NETFILTER
   s_nf_hook_mutex = (struct mutex *)lkcd_lookup_name("nf_hook_mutex");
   if ( !s_nf_hook_mutex )
     printk("cannot find nf_hook_mutex\n");
+  s_nf_log_mutex = (struct mutex *)lkcd_lookup_name("nf_log_mutex");
+  if ( !s_nf_log_mutex )
+    printk("cannot find nf_log_mutex\n");
+#endif
   // trace events data
   s_ftrace_end = (struct ftrace_ops *)lkcd_lookup_name("ftrace_list_end");
   if ( !s_ftrace_end )

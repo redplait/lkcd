@@ -326,6 +326,9 @@ struct one_net
   int ifindex;
   unsigned long dev_cnt;
   unsigned long netdev_chain_cnt;
+  // nf_queue_handler
+  void *nf_outfn;
+  void *nf_hook_drop;
   // netns_bpf - introduced in 5.x. MAX_NETNS_BPF_ATTACH_TYPE .eq. 2
   void *progs[2];
   unsigned long bpf_cnt[2];
@@ -1169,6 +1172,10 @@ struct one_kcalgo
 //  N + N * one_kcalgo
 #define IOCTL_ENUM_CALGO                _IOR(IOCTL_NUM, 0x51, int*)
 
+/* netfilter ioctls
+ * net->nf exists only if CONFIG_NETFILTER presents
+ */
+
 // struct nft_af_info
 struct one_nft_af
 {
@@ -1197,5 +1204,19 @@ struct one_nft_af
 //  N + N * hooks
 #define IOCTL_NFIEHOOKS                  _IOR(IOCTL_NUM, 0x53, int*)
 
+struct one_nf_logger
+{
+  int type;
+  int idx;
+  void *fn;
+};
+
+// get nf loggers for some net->nf
+// in params:
+// 0 - address of net from IOCTL_GET_NETS
+// 1 - count
+// out params:
+//  N + N * one_nf_logger
+#define IOCTL_NFLOGGERS                  _IOR(IOCTL_NUM, 0x54, int*)
 
 #endif /* LKCD_SHARED_H */
