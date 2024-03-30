@@ -2951,74 +2951,30 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
             }
           }
 #else
+#define ENUM_NF_TAB(tab, proto) \
+    for ( i = 0; i < ARRAY_SIZE(net->nf.tab); ++i ) { \
+      if ( !net->nf.tab[i] ) continue; \
+      for ( j = 0; j < net->nf.tab[i]->num_hook_entries; j++ ) { \
+        if ( !net->nf.tab[i]->hooks[j].hook ) continue; \
+        if ( count >= ptrbuf[1] ) goto skip_hooks; \
+        curr->fn = net->nf.tab[i]->hooks[j].hook; \
+        curr->type = proto; \
+        curr->idx = j; \
+        count++; curr++; \
+      } \
+    }
           // ipv4
-          for ( i = 0; i < ARRAY_SIZE(net->nf.hooks_ipv4); ++i )
-          {
-            if ( !net->nf.hooks_ipv4[i] ) continue;
-            for ( j = 0; j < net->nf.hooks_ipv4[i]->num_hook_entries; j++ )
-            {
-              if ( !net->nf.hooks_ipv4[i]->hooks[j].hook ) continue;
-              if ( count >= ptrbuf[1] ) goto skip_hooks;
-              curr->fn = net->nf.hooks_ipv4[i]->hooks[j].hook;
-              curr->type = NFPROTO_IPV4;
-              curr->idx = j;
-              count++; curr++;
-            }
-          }
+          ENUM_NF_TAB(hooks_ipv4, NFPROTO_IPV4)
           // ipv6
-          for ( i = 0; i < ARRAY_SIZE(net->nf.hooks_ipv6); ++i )
-          {
-            for ( j = 0; j < net->nf.hooks_ipv6[i]->num_hook_entries; j++ )
-            {
-              if ( !net->nf.hooks_ipv6[i]->hooks[j].hook ) continue;
-              if ( count >= ptrbuf[1] ) goto skip_hooks;
-              curr->fn = net->nf.hooks_ipv6[i]->hooks[j].hook;
-              curr->type = NFPROTO_IPV6;
-              curr->idx = j;
-              count++; curr++;
-            }
-          }
+          ENUM_NF_TAB(hooks_ipv6, NFPROTO_IPV6)
 #ifdef CONFIG_NETFILTER_FAMILY_ARP
-          for ( i = 0; i < ARRAY_SIZE(net->nf.hooks_arp); ++i )
-          {
-            for ( j = 0; j < net->nf.hooks_arp[i]->num_hook_entries; j++ )
-            {
-              if ( !net->nf.hooks_arp[i]->hooks[j].hook ) continue;
-              if ( count >= ptrbuf[1] ) goto skip_hooks;
-              curr->fn = net->nf.hooks_arp[i]->hooks[j].hook;
-              curr->type = NFPROTO_ARP;
-              curr->idx = j;
-              count++; curr++;
-            }
-          }
+          ENUM_NF_TAB(hooks_arp, NFPROTO_ARP)
 #endif
 #ifdef CONFIG_NETFILTER_FAMILY_BRIDGE
-          for ( i = 0; i < ARRAY_SIZE(net->nf.hooks_bridge); ++i )
-          {
-            for ( j = 0; j < net->nf.hooks_bridge[i]->num_hook_entries; j++ )
-            {
-              if ( !net->nf.hooks_bridge[i]->hooks[j].hook ) continue;
-              if ( count >= ptrbuf[1] ) goto skip_hooks;
-              curr->fn = net->nf.hooks_bridge[i]->hooks[j].hook;
-              curr->type = NFPROTO_BRIDGE;
-              curr->idx = j;
-              count++; curr++;
-            }
-          }
+          ENUM_NF_TAB(hooks_bridge, NFPROTO_BRIDGE)
 #endif
 #if IS_ENABLED(CONFIG_DECNET) && LINUX_VERSION_CODE <= KERNEL_VERSION(5,15,117)
-          for ( i = 0; i < ARRAY_SIZE(net->nf.hooks_decnet); ++i )
-          {
-            for ( j = 0; j < net->nf.hooks_decnet[i]->num_hook_entries; j++ )
-            {
-              if ( !net->nf.hooks_decnet[i]->hooks[j].hook ) continue;
-              if ( count >= ptrbuf[1] ) goto skip_hooks;
-              curr->fn = net->nf.hooks_decnet[i]->hooks[j].hook;
-              curr->type = NFPROTO_DECNET;
-              curr->idx = j;
-              count++; curr++;
-            }
-          }
+          ENUM_NF_TAB(hooks_decnet, NFPROTO_DECNET)
 #endif
      skip_hooks: // actual count > provided from user mode
 #endif
