@@ -2576,7 +2576,7 @@ void dum_nf_list(sa64 delta, unsigned long *buf)
     printf("   [%ld] type %2.2d ", i, curr->type);
     auto name = get_nfproto(curr->type);
     if ( name )
-      printf("%s", name);
+      printf("%s idx %d", name, curr->idx);
     else
       printf(" idx %d", curr->idx);
     dump_unnamed_kptr((unsigned long)curr->fn, delta);
@@ -2630,7 +2630,7 @@ void dump_nf_hooks(int fd, sa64 delta, void *net)
   err = ioctl(fd, IOCTL_NFHOOKS, (int *)buf);
   if ( err )
   {
-    printf("IOCTL_NFLOGGERS failed, error %d (%s)\n", errno, strerror(errno));
+    printf("IOCTL_NFHOOKS failed, error %d (%s)\n", errno, strerror(errno));
     return;
   }
   printf("  %ld nf hooks:\n", buf[0]);
@@ -2639,7 +2639,7 @@ void dump_nf_hooks(int fd, sa64 delta, void *net)
 
 void dump_nf_hooks(int fd, sa64 delta, const char *pfx, unsigned long *d)
 {
-  int err = ioctl(fd, IOCTL_GET_NETS, (int *)d);
+  int err = ioctl(fd, IOCTL_NFIEHOOKS, (int *)d);
   if ( err )
   {
     printf("IOCTL_NFIEHOOKS failed, error %d (%s)\n", errno, strerror(errno));
