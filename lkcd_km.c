@@ -65,6 +65,9 @@
 #ifdef CONFIG_NETFILTER
 #include <net/netfilter/nf_log.h>
 #endif
+#ifdef CONFIG_WIRELESS_EXT
+#include <net/iw_handler.h>
+#endif
 #include "timers.h"
 #include "bpf.h"
 #include "event.h"
@@ -3102,6 +3105,13 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
               curr->xdp_prog    = (void *)dev->xdp_prog;
               curr->rx_handler  = (void *)dev->rx_handler;
               curr->rtnl_link_ops = (void *)dev->rtnl_link_ops;
+#ifdef CONFIG_WIRELESS_EXT
+              if ( dev->wireless_handlers )
+              {
+                curr->wireless_handler = (void *)dev->wireless_handlers->standard;
+                curr->wireless_get_stat = (void *)dev->wireless_handlers->get_wireless_stats;
+              }
+#endif
 #ifdef CONFIG_NETFILTER_EGRESS
               curr->nf_hooks_egress = (void *)dev->nf_hooks_egress;
               if ( dev->nf_hooks_egress )

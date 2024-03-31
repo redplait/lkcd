@@ -348,6 +348,8 @@ struct one_net_dev
   char name[IFNAMSIZ];
   void *netdev_ops;
   void *ethtool_ops;
+  void *wireless_handler;  // CONFIG_WIRELESS_EXT - wireless_handlers->standard
+  void *wireless_get_stat; // CONFIG_WIRELESS_EXT - wireless_handlers->get_wireless_stats
   void *l3mdev_ops;  // if CONFIG_NET_L3_MASTER_DEV
   void *ndisc_ops;   // if CONFIG_IPV6
   void *xfrmdev_ops; // if CONFIG_XFRM_OFFLOAD
