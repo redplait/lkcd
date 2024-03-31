@@ -2699,9 +2699,9 @@ void dump_nets(int fd, sa64 delta)
     if ( sb->diag_nlsk_filter )
       dump_kptr((unsigned long)sb->diag_nlsk_filter, "diag_nlsk_filter", delta);
     if ( sb->nf_outfn )
-      dump_kptr((unsigned long)sb->nf_outfn, "nf_outfn", delta);
+      dump_kptr((unsigned long)sb->nf_outfn, "nf.queue_handler.outfn", delta);
     if ( sb->nf_hook_drop )
-      dump_kptr((unsigned long)sb->nf_hook_drop, "nf_hook_drop", delta);
+      dump_kptr((unsigned long)sb->nf_hook_drop, "nf.queue_handler.nf_hook_drop", delta);
     // dump netfilter
     dump_nf_hooks(fd, delta, sb->addr);
     dump_netf(fd, delta, sb->addr);
@@ -2737,6 +2737,10 @@ void dump_nets(int fd, sa64 delta)
       printf(" Dev[%ld]: %p %s ntfy_cnt %ld type %d mtu %d min_mtu %d max_mtu %d\n", 
         j, nd->addr, nd->name, nd->netdev_chain_cnt, nd->type, nd->mtu, nd->min_mtu, nd->max_mtu
       );
+      if ( nd->wireless_handler )
+        dump_kptr((unsigned long)nd->wireless_handler, " wireless_handler", delta);
+      if ( nd->wireless_get_stat )
+        dump_kptr((unsigned long)nd->wireless_handler, " wireless_get_stat", delta);
       if ( nd->netdev_ops )
         dump_kptr((unsigned long)nd->netdev_ops, " netdev_ops", delta);
       if ( nd->ethtool_ops )
