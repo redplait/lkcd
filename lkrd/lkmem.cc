@@ -684,9 +684,23 @@ void dump_keys(int fd, sa64 delta)
   // dump
   size = buf[0];
   one_key_type *curr = (one_key_type *)(buf + 1);
+  // calc max name length
+  size_t len = sizeof(unsigned long);
+  for ( size_t idx = 0; idx < size; idx++ )
+    len = std::max(len, curr[idx].len_name + 1);
+  char *kt_name = (char *)malloc(len);
   for ( size_t idx = 0; idx < size; idx++, curr++ )
   {
-    printf("[%ld] at %p def_datalen %lX\n", idx, curr->addr, curr->def_datalen);
+    bool has_name = false;
+    if ( curr->len_name && kt_name )
+    {
+      *(unsigned long *)kt_name = (unsigned long)curr->addr;
+      if ( !ioctl(fd, IOCTL_KEYTYPE_NAME, (int *)kt_name) ) has_name = true;
+    }
+    if ( has_name )
+      printf("[%ld] %s at %p def_datalen %lX\n", idx, kt_name, curr->addr, curr->def_datalen);
+    else
+      printf("[%ld] at %p def_datalen %lX\n", idx, curr->addr, curr->def_datalen);
     if ( curr->vet_description )
       dump_kptr((unsigned long)curr->vet_description, "  vet_description", delta);
     if ( curr->preparse )
@@ -720,6 +734,7 @@ void dump_keys(int fd, sa64 delta)
     if ( curr->asym_verify_signature )
       dump_kptr((unsigned long)curr->asym_verify_signature, "  asym_verify_signature", delta);
   }
+  if ( kt_name ) free(kt_name);
 }
 
 void dump_consoles(int fd, sa64 delta)
