@@ -59,6 +59,7 @@ void usage(const char *prog)
   printf("-h - hexdump\n");
   printf("-j jit.so\n");
   printf("-H - dump BPF opcodes\n");
+  printf("-K - dump keys\n");
   printf("-k - dump kprobes\n");
   printf("-kp addr byte - patch kernel\n");
   printf("-kpd addr - disable kprobe\n");
@@ -651,6 +652,74 @@ template <typename T>
 size_t calc_data_size(size_t n)
 {
   return n * sizeof(T) + sizeof(unsigned long);
+}
+
+void dump_keys(int fd, sa64 delta)
+{
+  unsigned long cnt = 0;
+  int err = ioctl(fd, IOCTL_KEY_TYPES, (int *)&cnt);
+  if ( err )
+  {
+    printf("IOCTL_KEY_TYPES count failed, error %d (%s)\n", errno, strerror(errno));
+    return;
+  }
+  printf("registered key types: %ld\n", cnt);
+  if ( !cnt )
+    return;
+  size_t size = calc_data_size<one_key_type>(cnt);
+  unsigned long *buf = (unsigned long *)malloc(size);
+  if ( !buf )
+  {
+    printf("cannot alloc buffer for key types, len %lX\n", size);
+    return;
+  }
+  dumb_free<unsigned long> tmp(buf);
+  buf[0] = cnt;
+  err = ioctl(fd, IOCTL_KEY_TYPES, (int *)buf);
+  if ( err )
+  {
+    printf("IOCTL_KEY_TYPES failed, error %d (%s)\n", errno, strerror(errno));
+    return;
+  }
+  // dump
+  size = buf[0];
+  one_key_type *curr = (one_key_type *)(buf + 1);
+  for ( size_t idx = 0; idx < size; idx++, curr++ )
+  {
+    printf("[%ld] at %p def_datalen %lX\n", idx, curr->addr, curr->def_datalen);
+    if ( curr->vet_description )
+      dump_kptr((unsigned long)curr->vet_description, "  vet_description", delta);
+    if ( curr->preparse )
+      dump_kptr((unsigned long)curr->preparse, "  preparse", delta);
+    if ( curr->free_preparse )
+      dump_kptr((unsigned long)curr->free_preparse, "  free_preparse", delta);
+    if ( curr->instantiate )
+      dump_kptr((unsigned long)curr->instantiate, "  instantiate", delta);
+    if ( curr->update )
+      dump_kptr((unsigned long)curr->update, "  update", delta);
+    if ( curr->match_preparse )
+      dump_kptr((unsigned long)curr->match_preparse, "  match_preparse", delta);
+    if ( curr->match_free )
+      dump_kptr((unsigned long)curr->match_free, "  match_free", delta);
+    if ( curr->revoke )
+      dump_kptr((unsigned long)curr->revoke, "  revoke", delta);
+    if ( curr->destroy )
+      dump_kptr((unsigned long)curr->destroy, "  destroy", delta);
+    if ( curr->describe )
+      dump_kptr((unsigned long)curr->describe, "  describe", delta);
+    if ( curr->read )
+      dump_kptr((unsigned long)curr->read, "  read", delta);
+    if ( curr->request_key )
+      dump_kptr((unsigned long)curr->request_key, "  request_key", delta);
+    if ( curr->lookup_restriction )
+      dump_kptr((unsigned long)curr->lookup_restriction, "  lookup_restriction", delta);
+    if ( curr->asym_query )
+      dump_kptr((unsigned long)curr->asym_query, "  asym_query", delta);
+    if ( curr->asym_eds_op )
+      dump_kptr((unsigned long)curr->asym_eds_op, "  asym_eds_op", delta);
+    if ( curr->asym_verify_signature )
+      dump_kptr((unsigned long)curr->asym_verify_signature, "  asym_verify_signature", delta);
+  }
 }
 
 void dump_consoles(int fd, sa64 delta)
@@ -3760,21 +3829,16 @@ void dump_addr_name(a64 addr)
 int main(int argc, char **argv)
 {
    // read options
-   int opt_f = 0,
-       opt_F = 0,
+   int opt_f = 0, opt_F = 0,
        opt_g = 0,
        opt_d = 0,
-       opt_c = 0,
-       opt_C = 0,
-       opt_k = 0,
+       opt_c = 0, opt_C = 0,
+       opt_k = 0, opt_K = 0,
        opt_n = 0,
        opt_r = 0,
-       opt_s = 0,
-       opt_S = 0,
-       opt_t = 0,
-       opt_T = 0,
-       opt_b = 0,
-       opt_B = 0,
+       opt_s = 0, opt_S = 0,
+       opt_t = 0, opt_T = 0,
+       opt_b = 0, opt_B = 0,
        opt_u = 0;
    int c;
    int fd = 0;
@@ -3824,7 +3888,7 @@ int main(int argc, char **argv)
        optind++;
        continue;
      }
-     c = getopt(argc, argv, "BbCcdFfghHknrSstTuvj:");
+     c = getopt(argc, argv, "BbCcdFfghHKknrSstTuvj:");
      if (c == -1)
       break;
 
@@ -3867,6 +3931,10 @@ int main(int argc, char **argv)
           opt_C = 1;
          break;
         case 'c':
+          opt_c = 1;
+         break;
+        case 'K':
+          opt_K = 1;
           opt_c = 1;
          break;
         case 'k':
@@ -3987,6 +4055,9 @@ int main(int argc, char **argv)
      }
      if ( opt_c && !patches.empty() )
         patch_kernel(fd, patches);
+     // dump keys
+     if ( opt_c && opt_K )
+       dump_keys(fd, delta);
      // dump consoles
      if ( opt_c && opt_C )
        dump_consoles(fd, delta);
