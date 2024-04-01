@@ -68,6 +68,9 @@
 #ifdef CONFIG_WIRELESS_EXT
 #include <net/iw_handler.h>
 #endif
+#ifdef CONFIG_KEYS
+#include <linux/key-type.h>
+#endif
 #include "timers.h"
 #include "bpf.h"
 #include "event.h"
@@ -86,6 +89,12 @@ struct mutex *s_sock_diag_table_mutex = 0;
 struct mutex *s_nf_hook_mutex = 0;
 struct mutex *s_nf_log_mutex = 0;
 #endif /* CONFIG_NETFILTER */
+#ifdef CONFIG_KEYS
+struct rw_semaphore *s_key_types_sem = 0;
+struct list_head *s_key_types_list = 0;
+struct rb_root *s_key_serial_tree = 0;
+spinlock_t *s_key_serial_lock = 0;
+#endif /* CONFIG_KEYS */
 struct ftrace_ops *s_ftrace_end = 0;
 void *delayed_timer = 0;
 struct alarm_base *s_alarm = 0;
@@ -4875,6 +4884,67 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
      }
      break; /* IOCTL_GET_KTIMERS */
 
+#ifdef CONFIG_KEYS
+    case IOCTL_KEY_TYPES:
+      if ( !s_key_types_sem || !s_key_types_list )
+        return -ENOCSI;
+      if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long)) > 0 )
+  	    return -EFAULT;
+      else {
+        struct key_type *p;
+        if ( !ptrbuf[0] )
+        {
+          down_write(s_key_types_sem);
+          list_for_each_entry(p, s_key_types_list, link) count++;
+          up_write(s_key_types_sem);
+          goto copy_count;
+        } else {
+          struct one_key_type *curr;
+          kbuf_size = sizeof(unsigned long) + ptrbuf[0] * sizeof(struct one_key_type);
+          kbuf = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL | __GFP_ZERO);
+          if ( !kbuf )
+            return -ENOMEM;
+          curr = (struct one_key_type *)(kbuf + 1);
+          down_write(s_key_types_sem);
+          list_for_each_entry(p, s_key_types_list, link)
+          {
+            if ( count >= ptrbuf[0] ) break;
+            curr->addr = (void *)p;
+            if ( p->name )
+              curr->len_name = strlen(p->name);
+            curr->def_datalen = p->def_datalen;
+            curr->vet_description = (void *)p->vet_description;
+            curr->preparse = (void *)p->preparse;
+            curr->free_preparse = (void *)p->free_preparse;
+            curr->instantiate = (void *)p->instantiate;
+            curr->update = (void *)p->update;
+            curr->match_preparse = (void *)p->match_preparse;
+            curr->match_free = (void *)p->match_free;
+            curr->revoke = (void *)p->revoke;
+            curr->destroy = (void *)p->destroy;
+            curr->describe = (void *)p->describe;
+            curr->read = (void *)p->read;
+            curr->request_key = (void *)p->request_key;
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4,12,0)
+            curr->lookup_restriction = (void *)p->lookup_restriction;
+#endif
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4,20,0)
+            curr->asym_query = (void *)p->asym_query;
+            curr->asym_eds_op = (void *)p->asym_eds_op;
+            curr->asym_verify_signature = (void *)p->asym_verify_signature;
+#endif
+            // for next iter
+            count++; curr++;
+          }
+          up_write(s_key_types_sem);
+          kbuf[0] = count;
+          kbuf_size = sizeof(unsigned long) + count * sizeof(struct one_key_type);
+          goto copy_kbuf;
+        }
+      }
+     break; /* IOCTL_KEY_TYPES */
+#endif /* CONFIG_KEYS */
+
     case IOCTL_PATCH_KTEXT1:
       if ( !s_patch_text )
           return -ENOCSI;
@@ -5104,6 +5174,21 @@ init_module (void)
   s_nf_log_mutex = (struct mutex *)lkcd_lookup_name("nf_log_mutex");
   if ( !s_nf_log_mutex )
     printk("cannot find nf_log_mutex\n");
+#endif
+  // keys
+#ifdef CONFIG_KEYS
+  s_key_types_sem = (struct rw_semaphore *)lkcd_lookup_name("key_types_sem");
+  if ( !s_key_types_sem )
+    printk("cannot find key_types_sem");
+  s_key_types_list = (struct list_head *)lkcd_lookup_name("key_types_list");
+  if ( !s_key_types_list )
+    printk("cannot find key_types_list");
+  s_key_serial_tree = (struct rb_root *)lkcd_lookup_name("key_serial_tree");
+  if ( !s_key_serial_tree )
+    printk("cannot find key_serial_tree");
+  s_key_serial_lock = (spinlock_t *)lkcd_lookup_name("key_serial_lock");
+  if ( !s_key_serial_lock )
+    printk("cannot find s_key_serial_lock");
 #endif
   // trace events data
   s_ftrace_end = (struct ftrace_ops *)lkcd_lookup_name("ftrace_list_end");

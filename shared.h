@@ -1229,4 +1229,39 @@ struct one_nf_logger
 //  N + N * one_nf_logger
 #define IOCTL_NFHOOKS                    _IOR(IOCTL_NUM, 0x55, int*)
 
+/*
+ * keys ioclts if CONFIG_NETFILTER presents
+ */
+struct one_key_type
+{
+  void *addr;
+  size_t len_name;
+  size_t def_datalen;
+  void *vet_description;
+  void *preparse;
+  void *free_preparse;
+  void *instantiate;
+  void *update;
+  void *match_preparse;
+  void *match_free;
+  void *revoke;
+  void *destroy;
+  void *describe;
+  void *read;
+  void *request_key;
+  // since 4.12
+  void *lookup_restriction;
+  // since 4.20
+  void *asym_query;
+  void *asym_eds_op;
+  void *asym_verify_signature;
+};
+
+// read key_types
+// in params:
+// 0 - count
+// out params:
+//  N + N * one_key_type
+#define IOCTL_KEY_TYPES                  _IOR(IOCTL_NUM, 0x56, int*)
+
 #endif /* LKCD_SHARED_H */
