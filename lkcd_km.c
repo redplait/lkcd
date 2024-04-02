@@ -70,6 +70,7 @@
 #endif
 #ifdef CONFIG_KEYS
 #include <linux/key-type.h>
+#include <linux/key.h>
 #endif
 #include "timers.h"
 #include "bpf.h"
@@ -3434,7 +3435,6 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
   	{
           struct list_head *head = (struct list_head *)ptrbuf[0];
           struct list_head *lh;
-          count = 0;
           rtnl_lock();
           list_for_each(lh, head)
             count++;
@@ -3772,13 +3772,11 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
           struct cgroup_root *item;
           struct one_cgroup *curr;
           int found = 0;
-          count = ptrbuf[3];
-          kbuf_size = sizeof(unsigned long) + count * sizeof(struct one_cgroup);
+          kbuf_size = sizeof(unsigned long) + ptrbuf[3] * sizeof(struct one_cgroup);
           kbuf = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL  | __GFP_ZERO);
           if ( !kbuf )
             return -ENOMEM;
           curr = (struct one_cgroup *)(kbuf + 1);
-          count = 0;
           // lock
           mutex_lock(m);
           // iterate on roots
@@ -4620,13 +4618,10 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
        struct crypto_alg *q;
        if ( !ptrbuf[2] )
        {
-         ptrbuf[0] = 0;
          down_read(cs);
-         list_for_each_entry(q, head, cra_list)
-           ptrbuf[0]++;
+         list_for_each_entry(q, head, cra_list) count++;
          up_read(cs);
-         if (copy_to_user((void*)ioctl_param, (void*)ptrbuf, sizeof(ptrbuf[0])) > 0)
-          return -EFAULT;
+         goto copy_count;
        } else {
           struct one_kcalgo *curr;
           kbuf_size = sizeof(unsigned long) + sizeof(struct one_kcalgo) * ptrbuf[2];
@@ -4691,33 +4686,27 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
   	   // there is no sync - all numerous security_xxx just call call_xx_hook
     	 if ( !ptrbuf[1] )
   	   {
-            ptrbuf[0] = 0;
-            hlist_for_each_entry(shl, head, list)
-              ptrbuf[0]++;
-            if (copy_to_user((void*)ioctl_param, (void*)ptrbuf, sizeof(ptrbuf[0])) > 0)
-              return -EFAULT;
-          } else {
-            size_t kbuf_size = sizeof(unsigned long) * (ptrbuf[1] + 1);
-            unsigned long *buf = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL);
-            if ( !buf )
-              return -ENOMEM;
-            hlist_for_each_entry(shl, head, list)
-            {
-              if ( count >= ptrbuf[1] )
-                break;
-              buf[1 + count] = *(unsigned long *)(&shl->hook);
-              count++;
-            }
-            buf[0] = count;
-            kbuf_size = sizeof(unsigned long) * (count + 1);
-            if (copy_to_user((void*)ioctl_param, (void*)buf, kbuf_size) > 0)
-            {
-              kfree(buf);
-              return -EFAULT;
-            }
-            kfree(buf);
+          ptrbuf[0] = 0;
+          hlist_for_each_entry(shl, head, list)
+            count++;
+          goto copy_count;
+        } else {
+          kbuf_size = sizeof(unsigned long) * (ptrbuf[1] + 1);
+          kbuf = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL);
+          if ( !kbuf )
+            return -ENOMEM;
+          hlist_for_each_entry(shl, head, list)
+          {
+            if ( count >= ptrbuf[1] )
+              break;
+            kbuf[1 + count] = *(unsigned long *)(&shl->hook);
+            count++;
           }
+          kbuf[0] = count;
+          kbuf_size = sizeof(unsigned long) * (count + 1);
+          goto copy_kbuf;
         }
+      }
       break; /* IOCTL_GET_LSM_HOOKS */
 
     case IOCTL_GET_ALARMS:
@@ -4747,9 +4736,9 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
           if (copy_to_user((void*)ioctl_param, (void*)ptrbuf, sizeof(ptrbuf[0]) * 3) > 0)
             return -EFAULT;
         } else {
-          size_t size = sizeof(unsigned long) + ptrbuf[1] * sizeof(struct one_alarm);
           struct one_alarm *curr;
-          unsigned long *kbuf = (unsigned long *)kmalloc(size, GFP_KERNEL);
+          kbuf_size = sizeof(unsigned long) + ptrbuf[1] * sizeof(struct one_alarm);
+          kbuf = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL);
           if ( !kbuf )
             return -ENOMEM;
           curr = (struct one_alarm *)(kbuf + 1);
@@ -4769,13 +4758,9 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
           // unlock
           spin_unlock_irqrestore(&ca->lock, flags);
           kbuf[0] = count;
+          kbuf_size = sizeof(unsigned long) + count * sizeof(struct one_alarm);
           // copy collected data to user-mode
-          if (copy_to_user((void*)ioctl_param, (void*)kbuf, size) > 0)
-          {
-           kfree(kbuf);
-           return -EFAULT;
-          }
-          kfree(kbuf);
+          goto copy_kbuf;
         }
       }
      break; /* IOCTL_GET_ALARMS */
@@ -4795,7 +4780,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
         for ( idx = 0; idx < WHEEL_SIZE; idx++ )
         {
           hlist_for_each_entry(tl, &tb->vectors[idx], entry)
-             ptrbuf[1]++;
+            count++;
         }
         // unlock
         raw_spin_unlock_irqrestore(&tb->lock, flags);
@@ -4806,7 +4791,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
         for ( idx = 0; idx < WHEEL_SIZE; idx++ )
         {
           hlist_for_each_entry(tl, &tb->vectors[idx], entry)
-             ptrbuf[1]++;
+            count++;
         }
         // unlock
         raw_spin_unlock_irqrestore(&tb->lock, flags);
@@ -4814,8 +4799,8 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
         goto copy_count;
       } else {
          struct ktimer *curr;
-         unsigned long size = sizeof(unsigned long) + ptrbuf[1] * sizeof(struct ktimer);
-         unsigned long *kbuf = (unsigned long *)kmalloc(size, GFP_KERNEL);
+         kbuf_size = sizeof(unsigned long) + ptrbuf[1] * sizeof(struct ktimer);
+         kbuf = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL | __GFP_ZERO);
          if ( !kbuf )
           return -ENOMEM;
          curr = (struct ktimer *)(kbuf + 1);
@@ -4874,12 +4859,8 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
 #endif
          // copy collected data to user-mode
          kbuf[0] = count;
-         if (copy_to_user((void*)ioctl_param, (void*)kbuf, size) > 0)
-         {
-          kfree(kbuf);
-          return -EFAULT;
-         }
-         kfree(kbuf);
+         kbuf_size = sizeof(unsigned long) + count * sizeof(struct ktimer);
+         goto copy_kbuf;
       }
      }
      break; /* IOCTL_GET_KTIMERS */
@@ -4909,6 +4890,58 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
         return -ENOKEY;
       }
      break; /* IOCTL_KEYTYPE_NAME */
+
+    case IOCTL_ENUM_KEYS:
+      if ( !s_key_serial_tree || !s_key_serial_lock )
+        return -ENOCSI;
+      if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long)) > 0 )
+  	    return -EFAULT;
+      else {
+        struct rb_node *iter;
+        if ( !ptrbuf[0] )
+        {
+          spin_lock(s_key_serial_lock);
+          for ( iter = rb_first(s_key_serial_tree); iter != NULL; iter = rb_next(iter) )
+            count++;
+          spin_unlock(s_key_serial_lock);
+          goto copy_count;
+        } else {
+          struct key *xkey;
+          struct one_key *curr;
+          kbuf_size = sizeof(unsigned long) + ptrbuf[0] * sizeof(struct one_key);
+          kbuf = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL | __GFP_ZERO);
+          if ( !kbuf )
+            return -ENOMEM;
+          curr = (struct one_key *)(kbuf + 1);
+          // lock
+          spin_lock(s_key_serial_lock);
+          for ( iter = rb_first(s_key_serial_tree); iter != NULL; iter = rb_next(iter) )
+          {
+            if ( count >= ptrbuf[0] ) break;
+            xkey = rb_entry(iter, struct key, serial_node);
+            curr->addr = (void *)xkey;
+            curr->serial = xkey->serial;
+            curr->expiry = xkey->expiry;
+            curr->uid = xkey->uid.val;
+            curr->gid = xkey->gid.val;
+            curr->state = xkey->state;
+            curr->perm = xkey->perm;
+            curr->datalen = xkey->datalen;
+            curr->flags = xkey->flags;
+            curr->type = xkey->type;
+            if ( xkey->restrict_link )
+              curr->rest_check = (void *)xkey->restrict_link->check;
+            // for next iteration
+            curr++; count++;
+          }
+          // unlock
+          spin_unlock(s_key_serial_lock);
+          kbuf[0] = count;
+          kbuf_size = sizeof(unsigned long) + count * sizeof(struct one_key);
+          goto copy_kbuf;
+        }
+      }
+     break; /* IOCTL_ENUM_KEYS */
 
     case IOCTL_KEY_TYPES:
       if ( !s_key_types_sem || !s_key_types_list )

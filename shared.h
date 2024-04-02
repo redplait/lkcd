@@ -1271,4 +1271,25 @@ struct one_key_type
 //  string
 #define IOCTL_KEYTYPE_NAME               _IOR(IOCTL_NUM, 0x57, int*)
 
+
+struct one_key
+{
+  void *addr;
+  int serial;
+  int64_t expiry;
+  short gid, uid, state;
+  unsigned short datalen;
+  unsigned int perm;
+  unsigned long flags;
+  void *type;
+  void *rest_check; // restrict_link->check
+};
+
+// enum keys
+// in params:
+//  0 - count
+// out:
+//  N + N * one_key
+#define IOCTL_ENUM_KEYS                  _IOR(IOCTL_NUM, 0x58, int*)
+
 #endif /* LKCD_SHARED_H */
