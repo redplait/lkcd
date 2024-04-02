@@ -1264,4 +1264,11 @@ struct one_key_type
 //  N + N * one_key_type
 #define IOCTL_KEY_TYPES                  _IOR(IOCTL_NUM, 0x56, int*)
 
+// read name of key_type
+// in params:
+// 0 - address of key_type from IOCTL_KEY_TYPES
+// out params:
+//  string
+#define IOCTL_KEYTYPE_NAME               _IOR(IOCTL_NUM, 0x57, int*)
+
 #endif /* LKCD_SHARED_H */

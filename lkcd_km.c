@@ -4885,6 +4885,31 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
      break; /* IOCTL_GET_KTIMERS */
 
 #ifdef CONFIG_KEYS
+    case IOCTL_KEYTYPE_NAME:
+      if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long)) > 0 )
+  	    return -EFAULT;
+      else {
+        struct key_type *p;
+        size_t len;
+        int err;
+        down_write(s_key_types_sem);
+        list_for_each_entry(p, s_key_types_list, link)
+        {
+          if ( (unsigned long)p != ptrbuf[0] ) continue;
+          if ( !p->name ) {
+            up_write(s_key_types_sem);
+            return -ENOTNAM;    
+          }
+          len = strlen(p->name);
+          err = copy_to_user((void*)ioctl_param, (void*)p->name, len + 1);
+          up_write(s_key_types_sem);
+          return (err > 0) ? -EFAULT : 0;
+        }
+        up_write(s_key_types_sem);
+        return -ENOKEY;
+      }
+     break; /* IOCTL_KEYTYPE_NAME */
+
     case IOCTL_KEY_TYPES:
       if ( !s_key_types_sem || !s_key_types_list )
         return -ENOCSI;
