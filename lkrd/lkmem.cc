@@ -752,6 +752,8 @@ void dump_keys(int fd, sa64 delta)
       dump_kptr((unsigned long)curr->asym_verify_signature, "  asym_verify_signature", delta);
   }
   if ( kt_name ) free(kt_name);
+  kt_name = 0;
+  // enum keys
   cnt = 0;
   err = ioctl(fd, IOCTL_ENUM_KEYS, (int *)&cnt);
   if ( err )
@@ -775,7 +777,19 @@ void dump_keys(int fd, sa64 delta)
     printf("IOCTL_ENUM_KEYS failed, error %d (%s)\n", errno, strerror(errno));
     return;
   }
+  // calc max description length
+  len = 0;
   one_key *kc = (one_key *)(kbuf + 1);
+  for ( size_t idx = 0; idx < kbuf[0]; idx++ )
+  {
+    int ld = kc[idx].len_desc & 0xffff;
+    if ( !ld ) continue;
+    len = std::max(len, (size_t)(ld + 1));
+  }
+  len = std::max(sizeof(unsigned long), len);
+  kt_name = (char *)malloc(len);
+  // iterate on keys
+  kc = (one_key *)(kbuf + 1);
   for ( size_t idx = 0; idx < kbuf[0]; idx++, kc++ )
   {
     auto titer = t_names.find(kc->type);
@@ -787,12 +801,30 @@ void dump_keys(int fd, sa64 delta)
       printf(" [%ld] %p serial %lX uid %d gid %d state %d perm %X flags %lX type %p (%s) len %d\n",
         idx, kc->addr, kc->serial, kc->uid, kc->gid, kc->state, kc->perm, kc->flags, kc->type, titer->second.c_str(), kc->datalen
       );
+    int dlen = kc->len_desc & 0xffff;
+    if ( dlen )
+    {
+      printf("  desc_len %X\n", dlen);
+      bool has_desc = false;
+      if ( kt_name )
+      {
+        *(unsigned long *)kt_name = (unsigned long)kc->serial;
+        if ( !ioctl(fd, IOCTL_GET_KEY_DESC, (int *)kt_name) ) has_desc = true;
+      }
+      if ( has_desc ) printf("  desc: %s\n", kt_name);
+    }
     if ( kc->expiry )
     {
-      printf(" expiry: ");
+      printf("  expiry: ");
       dump_time((time_t *)&kc->expiry);
     }
+    if ( kc->last_used )
+    {
+      printf("  last_used: ");
+      dump_time((time_t *)&kc->last_used);
+    }
   }
+  if ( kt_name ) free(kt_name);
 }
 
 void dump_consoles(int fd, sa64 delta)
