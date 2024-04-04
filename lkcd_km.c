@@ -91,6 +91,8 @@ struct mutex *s_nf_hook_mutex = 0;
 struct mutex *s_nf_log_mutex = 0;
 #endif /* CONFIG_NETFILTER */
 #ifdef CONFIG_KEYS
+typedef struct key *(*my_key_lookup)(key_serial_t id);
+my_key_lookup f_key_lookup = 0;
 struct rw_semaphore *s_key_types_sem = 0;
 struct list_head *s_key_types_list = 0;
 struct rb_root *s_key_serial_tree = 0;
@@ -4686,7 +4688,6 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
   	   // there is no sync - all numerous security_xxx just call call_xx_hook
     	 if ( !ptrbuf[1] )
   	   {
-          ptrbuf[0] = 0;
           hlist_for_each_entry(shl, head, list)
             count++;
           goto copy_count;
@@ -4891,6 +4892,27 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
       }
      break; /* IOCTL_KEYTYPE_NAME */
 
+    case IOCTL_GET_KEY_DESC:
+      if ( !f_key_lookup)
+        return -ENOCSI;
+      if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long)) > 0 )
+  	    return -EFAULT;
+      else {
+        int len, err;
+        struct key *k = f_key_lookup((key_serial_t)ptrbuf[0]);
+        if ( IS_ERR(k) ) return -PTR_ERR(k);
+        if ( !(k->len_desc & 0xffff) || !k->description )
+        {
+          key_put(k);
+          return -ENOTNAM;
+        }
+        len = k->len_desc & 0xffff;
+        err = copy_to_user((void*)ioctl_param, (void*)k->description, len + 1);
+        key_put(k);
+        return (err > 0) ? -EFAULT : 0;
+      }
+     break; /* IOCTL_GET_KEY_DESC */
+
     case IOCTL_ENUM_KEYS:
       if ( !s_key_serial_tree || !s_key_serial_lock )
         return -ENOCSI;
@@ -4922,11 +4944,13 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
             curr->addr = (void *)xkey;
             curr->serial = xkey->serial;
             curr->expiry = xkey->expiry;
+            curr->last_used = xkey->last_used_at;
             curr->uid = xkey->uid.val;
             curr->gid = xkey->gid.val;
             curr->state = xkey->state;
             curr->perm = xkey->perm;
             curr->datalen = xkey->datalen;
+            curr->len_desc = xkey->len_desc;
             curr->flags = xkey->flags;
             curr->type = xkey->type;
             if ( xkey->restrict_link )
@@ -5235,6 +5259,7 @@ init_module (void)
 #endif
   // keys
 #ifdef CONFIG_KEYS
+  SYM_LOAD("key_lookup", my_key_lookup, f_key_lookup)
   s_key_types_sem = (struct rw_semaphore *)lkcd_lookup_name("key_types_sem");
   if ( !s_key_types_sem )
     printk("cannot find key_types_sem");

@@ -1271,12 +1271,11 @@ struct one_key_type
 //  string
 #define IOCTL_KEYTYPE_NAME               _IOR(IOCTL_NUM, 0x57, int*)
 
-
 struct one_key
 {
   void *addr;
-  int serial;
-  int64_t expiry;
+  int serial, len_desc;
+  int64_t expiry, last_used;
   short gid, uid, state;
   unsigned short datalen;
   unsigned int perm;
@@ -1291,5 +1290,13 @@ struct one_key
 // out:
 //  N + N * one_key
 #define IOCTL_ENUM_KEYS                  _IOR(IOCTL_NUM, 0x58, int*)
+
+// read key description
+// in params:
+//  0 - serial
+// out:
+//  string
+#define IOCTL_GET_KEY_DESC               _IOR(IOCTL_NUM, 0x59, int*)
+
 
 #endif /* LKCD_SHARED_H */
