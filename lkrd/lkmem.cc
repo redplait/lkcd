@@ -8,6 +8,7 @@
 #include <errno.h>
 #include <net/if.h>
 #include <inttypes.h>
+#include <time.h>
 #include <linux/netlink.h>
 #include <linux/genetlink.h>
 #endif
@@ -381,6 +382,19 @@ const char *find_addr(const elfio& reader, a64 addr)
   return s->get_data() + (addr - s->get_address());
 }
 
+void dump_time(time_t *t, bool endl = true)
+{
+  struct tm tm;
+  localtime_r(t, &tm);
+  char ts[260];
+  strftime(ts, sizeof(ts) - 1, "%c", &tm);
+  ts[sizeof(ts) - 1] = 0;
+  if ( endl )
+   printf("%s\n", ts);
+  else
+   printf("%s", ts);
+}
+
 template <typename F>
 void dump_arm64_ftraces(const elfio& reader, a64 start, a64 end, F func)
 {
@@ -689,6 +703,7 @@ void dump_keys(int fd, sa64 delta)
   for ( size_t idx = 0; idx < size; idx++ )
     len = std::max(len, curr[idx].len_name + 1);
   char *kt_name = (char *)malloc(len);
+  std::map<void *, std::string> t_names;
   for ( size_t idx = 0; idx < size; idx++, curr++ )
   {
     bool has_name = false;
@@ -698,8 +713,10 @@ void dump_keys(int fd, sa64 delta)
       if ( !ioctl(fd, IOCTL_KEYTYPE_NAME, (int *)kt_name) ) has_name = true;
     }
     if ( has_name )
+    {
       printf("[%ld] %s at %p def_datalen %lX\n", idx, kt_name, curr->addr, curr->def_datalen);
-    else
+      t_names[curr->addr] = kt_name;
+    } else
       printf("[%ld] at %p def_datalen %lX\n", idx, curr->addr, curr->def_datalen);
     if ( curr->vet_description )
       dump_kptr((unsigned long)curr->vet_description, "  vet_description", delta);
@@ -735,6 +752,47 @@ void dump_keys(int fd, sa64 delta)
       dump_kptr((unsigned long)curr->asym_verify_signature, "  asym_verify_signature", delta);
   }
   if ( kt_name ) free(kt_name);
+  cnt = 0;
+  err = ioctl(fd, IOCTL_ENUM_KEYS, (int *)&cnt);
+  if ( err )
+  {
+    printf("IOCTL_ENUM_KEYS count failed, error %d (%s)\n", errno, strerror(errno));
+    return;
+  }
+  printf("\n%ld registered keys\n", cnt);
+  size_t klen = calc_data_size<one_key>(cnt);
+  unsigned long *kbuf = (unsigned long *)malloc(klen);
+  if ( !kbuf )
+  {
+    printf("cannot alloc buffer for keys, len %lX\n", klen);
+    return;
+  }
+  dumb_free<unsigned long> tmp2(kbuf);
+  kbuf[0] = cnt;
+  err = ioctl(fd, IOCTL_ENUM_KEYS, (int *)kbuf);
+  if ( err )
+  {
+    printf("IOCTL_ENUM_KEYS failed, error %d (%s)\n", errno, strerror(errno));
+    return;
+  }
+  one_key *kc = (one_key *)(kbuf + 1);
+  for ( size_t idx = 0; idx < kbuf[0]; idx++, kc++ )
+  {
+    auto titer = t_names.find(kc->type);
+    if ( titer == t_names.end() )
+      printf(" [%ld] %p serial %lX uid %d gid %d state %d perm %X flags %lX type %p len %d\n",
+        idx, kc->addr, kc->serial, kc->uid, kc->gid, kc->state, kc->perm, kc->flags, kc->type, kc->datalen
+      );
+    else
+      printf(" [%ld] %p serial %lX uid %d gid %d state %d perm %X flags %lX type %p (%s) len %d\n",
+        idx, kc->addr, kc->serial, kc->uid, kc->gid, kc->state, kc->perm, kc->flags, kc->type, titer->second.c_str(), kc->datalen
+      );
+    if ( kc->expiry )
+    {
+      printf(" expiry: ");
+      dump_time((time_t *)&kc->expiry);
+    }
+  }
 }
 
 void dump_consoles(int fd, sa64 delta)
