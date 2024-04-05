@@ -4899,7 +4899,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
   	    return -EFAULT;
       else {
         struct key *k = f_key_lookup((key_serial_t)ptrbuf[0]);
-        if ( IS_ERR(k) ) return -PTR_ERR(k);
+        if ( IS_ERR(k) ) return PTR_ERR(k);
         if ( !k->datalen || !k->type || !k->type->read ) 
         {
           key_put(k);
@@ -4928,7 +4928,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
         }
       }
      break; /* IOCTL_READ_KEY */
-     
+
     case IOCTL_GET_KEY_DESC:
       if ( !f_key_lookup)
         return -ENOCSI;
@@ -4937,7 +4937,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
       else {
         int len, err;
         struct key *k = f_key_lookup((key_serial_t)ptrbuf[0]);
-        if ( IS_ERR(k) ) return -PTR_ERR(k);
+        if ( IS_ERR(k) ) return PTR_ERR(k);
         if ( !(k->len_desc & 0xffff) || !k->description )
         {
           key_put(k);
