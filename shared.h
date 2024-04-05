@@ -1298,5 +1298,12 @@ struct one_key
 //  string
 #define IOCTL_GET_KEY_DESC               _IOR(IOCTL_NUM, 0x59, int*)
 
+// read key
+// in params:
+//  0 - serial
+//  1 - size (from key->datalen)
+// out:
+//  data with size
+#define IOCTL_READ_KEY                   _IOR(IOCTL_NUM, 0x5A, int*)
 
 #endif /* LKCD_SHARED_H */

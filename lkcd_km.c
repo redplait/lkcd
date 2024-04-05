@@ -4874,7 +4874,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
         struct key_type *p;
         size_t len;
         int err;
-        down_write(s_key_types_sem);
+        down_read(s_key_types_sem);
         list_for_each_entry(p, s_key_types_list, link)
         {
           if ( (unsigned long)p != ptrbuf[0] ) continue;
@@ -4887,11 +4887,48 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
           up_write(s_key_types_sem);
           return (err > 0) ? -EFAULT : 0;
         }
-        up_write(s_key_types_sem);
+        up_read(s_key_types_sem);
         return -ENOKEY;
       }
      break; /* IOCTL_KEYTYPE_NAME */
 
+    case IOCTL_READ_KEY:
+      if ( !f_key_lookup)
+        return -ENOCSI;
+      if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 2) > 0 )
+  	    return -EFAULT;
+      else {
+        struct key *k = f_key_lookup((key_serial_t)ptrbuf[0]);
+        if ( IS_ERR(k) ) return -PTR_ERR(k);
+        if ( !k->datalen || !k->type || !k->type->read ) 
+        {
+          key_put(k);
+          return -ENODATA;
+        } else {
+          long ret;
+          kbuf_size = ptrbuf[1];
+          kbuf = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL);
+          if ( !kbuf )
+          {
+            key_put(k);
+            return -ENOMEM;
+          }
+          // ripped from __keyctl_read_key
+          down_read(&k->sem);
+          ret = key_validate(k);
+          if ( ret == 0 ) ret = k->type->read(k, (char *)kbuf, kbuf_size);
+          up_read(&k->sem);
+          key_put(k);
+          if ( ret )
+          {
+            kfree(kbuf);
+            return ret;
+          }
+          goto copy_kbuf;
+        }
+      }
+     break; /* IOCTL_READ_KEY */
+     
     case IOCTL_GET_KEY_DESC:
       if ( !f_key_lookup)
         return -ENOCSI;
@@ -4987,7 +5024,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
           if ( !kbuf )
             return -ENOMEM;
           curr = (struct one_key_type *)(kbuf + 1);
-          down_write(s_key_types_sem);
+          down_read(s_key_types_sem);
           list_for_each_entry(p, s_key_types_list, link)
           {
             if ( count >= ptrbuf[0] ) break;
@@ -5018,7 +5055,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
             // for next iter
             count++; curr++;
           }
-          up_write(s_key_types_sem);
+          up_read(s_key_types_sem);
           kbuf[0] = count;
           kbuf_size = sizeof(unsigned long) + count * sizeof(struct one_key_type);
           goto copy_kbuf;
