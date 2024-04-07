@@ -1124,14 +1124,14 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
          {
            for ( b = cf->constraints.min_freq_notifiers.head; b != NULL; b = b->next )
              out_buf[1]++;
-         }  
+         }
          up_write(&cf->constraints.min_freq_notifiers.rwsem);
          down_write(&cf->constraints.max_freq_notifiers.rwsem);
          if ( cf->constraints.max_freq_notifiers.head != NULL )
          {
            for ( b = cf->constraints.max_freq_notifiers.head; b != NULL; b = b->next )
              out_buf[2]++;
-         }  
+         }
          up_write(&cf->constraints.max_freq_notifiers.rwsem);
          cpufreq_cpu_put(cf);
          if ( copy_to_user((void*)(ioctl_param), (void*)out_buf, sizeof(out_buf)) > 0 )
@@ -2297,14 +2297,14 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
            return -EFBIG;
          // lock
          mutex_lock(m);
-	       head = (struct hlist_head *)ptrbuf[0] + ptrbuf[2];
+         head = (struct hlist_head *)ptrbuf[0] + ptrbuf[2];
          // traverse
          hlist_for_each_entry(p, head, hlist)
          {
            if ( (unsigned long)p != ptrbuf[3] )
            {
              struct kprobe *kp;
-             if ( !is_krpobe_aggregated(p) )           
+             if ( !is_krpobe_aggregated(p) )
                continue;
              list_for_each_entry_rcu(kp, &p->list, list)
              {
@@ -2369,7 +2369,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
          if ( !ptrbuf[4] )
          {
            // lock
-	         mutex_lock(m);
+           mutex_lock(m);
            // traverse
            hlist_for_each_entry(p, head, hlist)
            {
@@ -2398,7 +2398,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
               return -ENOMEM;
             out_buf = (struct one_kprobe *)(kbuf + 1);
             // lock
-	          mutex_lock(m);
+            mutex_lock(m);
             // traverse
             hlist_for_each_entry(p, head, hlist)
             {
@@ -2470,8 +2470,8 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
            struct mutex *m = (struct mutex *)ptrbuf[1];
            struct one_kprobe *out_buf = (struct one_kprobe *)(kbuf + 1);
            // lock
-	         mutex_lock(m);
-	         head = (struct hlist_head *)ptrbuf[0] + ptrbuf[2];
+           mutex_lock(m);
+           head = (struct hlist_head *)ptrbuf[0] + ptrbuf[2];
            // traverse
            hlist_for_each_entry(p, head, hlist)
            {
@@ -2483,7 +2483,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
              out_buf[curr].post_handler = (void *)p->post_handler;
 #if LINUX_VERSION_CODE < KERNEL_VERSION(5,14,0)
              out_buf[curr].fault_handler = (void *)p->fault_handler;
-#endif             
+#endif
              out_buf[curr].flags = (unsigned int)p->flags;
              out_buf[curr].is_aggr = is_krpobe_aggregated(p);
              // check for kretprobe
@@ -4796,7 +4796,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
         }
         // unlock
         raw_spin_unlock_irqrestore(&tb->lock, flags);
-#endif 
+#endif
         goto copy_count;
       } else {
          struct ktimer *curr;
@@ -5072,7 +5072,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
       else {
         s_patch_text((void*)ptrbuf[0], ptrbuf + 1, 1);
       }
-      break; /* IOCTL_PATCH_KTEXT1 */     
+      break; /* IOCTL_PATCH_KTEXT1 */
 
     default:
      return -EBADRQC;
@@ -5235,7 +5235,9 @@ static const struct file_operations kmem_fops = {
 static struct miscdevice lkcd_dev = {
     .minor = MISC_DYNAMIC_MINOR,
     .name = "lkcd",
-    .fops = &kmem_fops
+    .fops = &kmem_fops,
+ // https://stackoverflow.com/questions/23424884/linux-kernel-setting-the-permissions-for-a-dev-file-that-was-created-via-crea
+    .mode = 0444
 };
 
 #ifdef HAS_ARM64_THUNKS
@@ -5393,6 +5395,6 @@ void cleanup_module (void)
 #endif
 #ifdef HAS_ARM64_THUNKS
   finit_bti_thunks();
-#endif  
+#endif
   misc_deregister(&lkcd_dev);
 }
