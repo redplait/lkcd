@@ -777,17 +777,27 @@ void dump_keys(int fd, sa64 delta)
     printf("IOCTL_ENUM_KEYS failed, error %d (%s)\n", errno, strerror(errno));
     return;
   }
-  // calc max description length
+  // calc max description length & key len
   len = 0;
+  const unsigned short k_add = (unsigned short)(sizeof(unsigned long) * 2);
+  unsigned short key_len = 0;
   one_key *kc = (one_key *)(kbuf + 1);
   for ( size_t idx = 0; idx < kbuf[0]; idx++ )
   {
     int ld = kc[idx].len_desc & 0xffff;
-    if ( !ld ) continue;
-    len = std::max(len, (size_t)(ld + 1));
+    // description
+    if ( ld )
+      len = std::max(len, (size_t)(ld + 1));
+    if ( kc[idx].datalen )
+      key_len = std::max(kc[idx].datalen, key_len);
   }
-  len = std::max(sizeof(unsigned long), len);
-  kt_name = (char *)malloc(len);
+  if ( len ) // IOCTL_GET_KEY_DESC has 1 arg
+    len = std::max(sizeof(unsigned long), len);
+  if ( key_len ) // IOCTL_READ_KEY has 2 args
+    key_len = std::max(k_add, key_len);
+  len = std::max(len, (size_t)key_len);
+  if ( len )
+    kt_name = (char *)malloc(len);
   // iterate on keys
   kc = (one_key *)(kbuf + 1);
   for ( size_t idx = 0; idx < kbuf[0]; idx++, kc++ )
@@ -812,6 +822,17 @@ void dump_keys(int fd, sa64 delta)
         if ( !ioctl(fd, IOCTL_GET_KEY_DESC, (int *)kt_name) ) has_desc = true;
       }
       if ( has_desc ) printf("  desc: %s\n", kt_name);
+    }
+    if ( kc->datalen && kt_name )
+    {
+      unsigned long *kargs = (unsigned long *)kt_name;
+      kargs[0] = kc->serial;
+      kargs[1] = kc->datalen;
+      err = ioctl(fd, IOCTL_READ_KEY, (int *)kt_name);
+      if ( err )
+        printf("IOCTL_READ_KEY failed, error %d (%s)\n", errno, strerror(errno));
+      else
+        HexDump((unsigned char *)kt_name, kc->datalen);
     }
     if ( kc->expiry )
     {
