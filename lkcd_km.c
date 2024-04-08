@@ -4919,7 +4919,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
           if ( ret == 0 ) ret = k->type->read(k, (char *)kbuf, kbuf_size);
           up_read(&k->sem);
           key_put(k);
-          if ( ret )
+          if ( ret <= 0 )
           {
             kfree(kbuf);
             return ret;
