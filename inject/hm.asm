@@ -49,8 +49,7 @@ entry_malloc_hook:
  jnz .tail
  ret
 .tail:
- push rax
- ret
+ jmp rax
 
 align 8
 ; __malloc_hook original
