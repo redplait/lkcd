@@ -1306,4 +1306,29 @@ struct one_key
 //  data with size
 #define IOCTL_READ_KEY                   _IOR(IOCTL_NUM, 0x5A, int*)
 
+struct one_task_info
+{
+  void *addr;
+  void *sched_class;
+  unsigned long thread_flags; // from thread_info.flags
+  unsigned int flags;
+  unsigned int ptrace;
+  unsigned long works_count;
+  void *seccomp_filter;
+};
+
+// get task info
+// in params:
+//  0 - pid
+// out params
+//  one_task_info
+#define IOCTL_TASK_INFO                    _IOR(IOCTL_NUM, 0x5B, int*)
+
+// test mmap
+// in params:
+//  0 - size
+//  1 - prot
+// out: address
+#define IOCTL_TEST_MMAP                    _IOR(IOCTL_NUM, 0x59, int*)
+
 #endif /* LKCD_SHARED_H */
