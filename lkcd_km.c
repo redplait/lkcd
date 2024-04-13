@@ -104,6 +104,9 @@ struct ftrace_ops *s_ftrace_end = 0;
 void *delayed_timer = 0;
 struct alarm_base *s_alarm = 0;
 
+typedef int (*my_mprotect_pkey)(unsigned long start, size_t len, unsigned long prot, int pkey);
+my_mprotect_pkey s_mprotect = 0;
+
 #define KPROBE_HASH_BITS 6
 #define KPROBE_TABLE_SIZE (1 << KPROBE_HASH_BITS)
 
@@ -1567,11 +1570,24 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
     case IOCTL_TEST_MMAP:
       if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 2) > 0 ) return -EFAULT;
       else {
-        unsigned long alloced = vm_mmap(NULL, ptrbuf[0], ptrbuf[1], MAP_ANONYMOUS | MAP_PRIVATE, -1, 0);
-        if ( IS_ERR((void *)alloced) ) return PTR_ERR((void *)alloced);
+        unsigned long alloced = vm_mmap(NULL, 0, ptrbuf[0], ptrbuf[1], MAP_ANONYMOUS | MAP_PRIVATE, 0);
+        if ( IS_ERR((void *)alloced) )
+        {
+          // printk("vm_mmap returned %ld", PTR_ERR((void *)alloced));
+          return PTR_ERR((void *)alloced);
+        }
         if ( copy_to_user((void*)ioctl_param, (void*)&alloced, sizeof(alloced)) > 0 ) return -EFAULT;
       }
      break; /* IOCTL_TEST_MMAP */
+
+    case IOCTL_TEST_MPROTECT:
+      if ( !s_mprotect ) return -ENOCSI;
+      if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 3) > 0 ) return -EFAULT;
+      else {
+        int err = s_mprotect(ptrbuf[0], ptrbuf[1], ptrbuf[2], -1);
+        if ( err ) return err;
+      }
+     break; /* IOCTL_TEST_MPROTECT */
 
     case IOCTL_TASK_INFO:
       if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long)) > 0 ) return -EFAULT;
@@ -5330,6 +5346,7 @@ init_module (void)
     printk("cannot find debugfs_full_proxy_file_operations\n");
   SYM_LOAD("kernfs_node_from_dentry", krnf_node_type, krnf_node_ptr)
   SYM_LOAD("iterate_supers", und_iterate_supers, iterate_supers_ptr)
+  SYM_LOAD("do_mprotect_pkey", my_mprotect_pkey, s_mprotect)
   mount_lock = (seqlock_t *)lkcd_lookup_name("mount_lock");
   if ( !mount_lock )
     printk("cannot find mount_lock\n");
