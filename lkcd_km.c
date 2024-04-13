@@ -6,6 +6,8 @@
 #include <linux/version.h>
 #include <linux/slab.h>
 #include <asm/io.h>
+#include <linux/vmalloc.h>
+#include <linux/mman.h>
 #include <linux/fs.h>
 #include <linux/debugfs.h>
 #include <linux/namei.h>
@@ -1561,6 +1563,61 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
        goto copy_count;
      }
      break; /* IOCTL_CNTSNTFYCHAIN */
+
+    case IOCTL_TEST_MMAP:
+      if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 2) > 0 ) return -EFAULT;
+      else {
+        unsigned long alloced = vm_mmap(NULL, ptrbuf[0], ptrbuf[1], MAP_ANONYMOUS | MAP_PRIVATE, -1, 0);
+        if ( IS_ERR((void *)alloced) ) return PTR_ERR((void *)alloced);
+        if ( copy_to_user((void*)ioctl_param, (void*)&alloced, sizeof(alloced)) > 0 ) return -EFAULT;
+      }
+     break; /* IOCTL_TEST_MMAP */
+
+    case IOCTL_TASK_INFO:
+      if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long)) > 0 ) return -EFAULT;
+      else {
+        struct pid *p;
+        if ((pid_t)(ptrbuf[0]) <= 0)
+		      return -EINVAL;
+        p = find_get_pid((pid_t)(ptrbuf[0]));
+        if ( !p) return -ESRCH;
+        else {
+          struct one_task_info ti;
+          struct task_struct *task = pid_task(p, PIDTYPE_PID);
+          struct callback_head **pprev, *work;
+	        unsigned long flags;
+
+          put_pid(p);
+          if ( !task ) return -ESRCH;
+          ti.addr = task;
+          ti.sched_class = (void *)task->sched_class;
+#ifdef CONFIG_THREAD_INFO_IN_TASK
+          ti.thread_flags = task->thread_info.flags;
+#else
+          ti.thread_flags = 0;
+#endif
+          ti.flags = task->flags;
+          ti.ptrace = task->ptrace;
+#ifdef CONFIG_SECCOMP
+          ti.seccomp_filter = task->seccomp.filter;
+#else
+          ti.seccomp_filter = 0;
+#endif
+          ti.works_count = 0;
+          pprev = &task->task_works;
+          raw_spin_lock_irqsave(&task->pi_lock, flags);
+	        while ((work = READ_ONCE(*pprev))) {
+			      pprev = &work->next;
+            ti.works_count++;
+	        }
+	        raw_spin_unlock_irqrestore(&task->pi_lock, flags);
+          put_task_struct(task);
+          // copy to user
+          if ( copy_to_user((void*)ioctl_param, (void*)&ti, sizeof(ti)) > 0 )
+            return -EFAULT;
+        }
+      }
+     break; /* IOCTL_TASK_INFO */
 
     case IOCTL_TRACEV_CNT:
      {

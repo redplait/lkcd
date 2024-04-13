@@ -1329,6 +1329,6 @@ struct one_task_info
 //  0 - size
 //  1 - prot
 // out: address
-#define IOCTL_TEST_MMAP                    _IOR(IOCTL_NUM, 0x59, int*)
+#define IOCTL_TEST_MMAP                    _IOR(IOCTL_NUM, 0x5C, int*)
 
 #endif /* LKCD_SHARED_H */
