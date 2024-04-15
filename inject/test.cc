@@ -2,7 +2,6 @@
 #include <getopt.h>
 #include <iostream>
 #include <string.h>
-#include <dlfcn.h>
 #include <sys/mman.h>
 #include <sys/types.h>
 #include <sys/stat.h>
@@ -11,9 +10,11 @@
 #include <net/if.h>
 #include <linux/genetlink.h>
 #include <sys/ioctl.h>
+#include "injparams.h"
 #include "../shared.h"
 
 int g_fd = -1;
+std::string inj_path;
 
 const unsigned char payload[] = {
 #include "hm.inc"
@@ -24,15 +25,25 @@ void usage(const char *prog)
   printf("%s usage: [options]\n", prog);
   printf("Options:\n");
   printf("-d - test-case with driver\n");
+  printf("-i path to .so to inject\n");
+  printf("-p PID\n");
+  printf("-t - test node\n");
   exit(6);
 }
 
-int inject()
+void patch(char **tab, inj_params *ip)
 {
- // find marker
- size_t paysize = std::size(payload);
- size_t off = 0;
- for ( size_t i = 0; i < paysize - 8; ++i )
+  tab[0] = ip->mh;
+  tab[2] = ip->fh;
+  tab[4] = ip->dlopen;
+  tab[5] = ip->dlsym;
+}
+
+int find_markers(size_t &off, size_t &poff)
+{
+  size_t paysize = std::size(payload);
+  off = poff = 0;
+  for ( size_t i = 0; i < paysize - 8; ++i )
  {
    if ( 'E' != payload[i] ) continue;
    if ( 'b' != payload[i+1] ) continue;
@@ -43,6 +54,26 @@ int inject()
    printf("cannot find marker");
    return 0;
  }
+ if ( inj_path.empty() ) return 1;
+ // find path offset
+ for ( size_t i = paysize - 2; i > off; --i )
+ {
+   if ( !payload[i] )
+   {
+     poff = i + 1;
+     return 1;
+   }
+ }
+ printf("cannot find path offset\n");
+ return 0;
+}
+
+int inject(inj_params *ip)
+{
+ // find marker
+ size_t paysize = std::size(payload);
+ size_t off = 0, poff = 0;
+ if ( !find_markers(off, poff) ) return 0;
  // alloc
  char *alloced = nullptr;
  if ( g_fd != -1 )
@@ -61,24 +92,14 @@ int inject()
  printf("alloced at %p\n", alloced);
  // copy and fill
  memcpy(alloced, payload, paysize);
- void **tab = (void **)(alloced + off);
- auto c = dlopen("libc.so.6", RTLD_NOLOAD);
- auto sym_m = dlsym(c, "__malloc_hook");
- if ( !sym_m )
+ if ( poff )
  {
-   printf("cannot find malloc_hook\n");
-   return 0;
+// printf("poff %ld\n", poff);
+   memcpy(alloced + poff, inj_path.c_str(), inj_path.size());
+   alloced[poff + inj_path.size()] = 0;
  }
- tab[0] = sym_m;
- auto sym_f = dlsym(c, "__free_hook");
- if ( !sym_f )
- {
-   printf("cannot find free_hook\n");
-   return 0;
- }
- tab[2] = sym_f;
- tab[4] = dlsym(c, "dlopen");
- tab[5] = dlsym(c, "dlsym");
+ char **tab = (char **)(alloced + off);
+ patch(tab, ip);
  // mprotect
  if ( g_fd != -1 )
  {
@@ -90,12 +111,12 @@ printf("err %d\n", err);
    if ( mprotect(alloced, 4096, PROT_READ | PROT_EXEC ) ) goto emprot;
  }
  // set hooks
- *(void **)sym_m = alloced;
- *(void **)sym_f = alloced + 9;
+ *(void **)ip->mh = alloced;
+ *(void **)ip->fh = alloced + 9;
  return 1;
 emprot:
-   printf("cannot mprotect, errno %d (%s)", errno, strerror(errno));
-   return 0;
+  printf("cannot mprotect, errno %d (%s)", errno, strerror(errno));
+  return 0;
 }
 
 void open_driver()
@@ -109,25 +130,39 @@ void open_driver()
   }
 }
 
-
-int main(int argc, char **argv)
+void loop()
 {
-  int c;
-  while(1)
-  {
-    c = getopt(argc, argv, "dp:i:");
-    if ( c == -1 ) break;
-    switch(c)
-    {
-      case 'd': open_driver();
-        break;
-      default: usage(argv[0]);
-    }
-  }
-  if ( !inject() ) return 1;
   printf("pid %d\n", getpid());
   do {
      std::string s;
      std::cin >> s;
   } while(1);
+}
+
+int main(int argc, char **argv)
+{
+  int c;
+  long pid = 0;
+  while(1)
+  {
+    char *end;
+    c = getopt(argc, argv, "dtp:i:");
+    if ( c == -1 ) break;
+    switch(c)
+    {
+      case 'd': open_driver();
+        break;
+      case 't': loop(); return 0;
+      case 'i': inj_path = optarg;
+        break;
+      case 'p': pid = strtol(optarg, &end, 10);
+        if ( !pid ) usage(argv[0]);
+        break;
+      default: usage(argv[0]);
+    }
+  }
+  inj_params ip;
+  if ( !fill_myself(&ip) ) return 1;
+  if ( !inject(&ip) ) return 1;
+  loop();
 }
