@@ -12,5 +12,7 @@ struct inj_params
 };
 
 int fill_myself(inj_params *);
+int fill_params(long pid, inj_params *);
 int find_libc(std::string *);
+void HexDump(unsigned char *From, int Len);
 

@@ -19,6 +19,7 @@ std::string inj_path;
 const unsigned char payload[] = {
 #include "hm.inc"
 };
+const size_t paysize = std::size(payload);
 
 void usage(const char *prog)
 {
@@ -41,7 +42,6 @@ void patch(char **tab, inj_params *ip)
 
 int find_markers(size_t &off, size_t &poff)
 {
-  size_t paysize = std::size(payload);
   off = poff = 0;
   for ( size_t i = 0; i < paysize - 8; ++i )
  {
@@ -68,10 +68,23 @@ int find_markers(size_t &off, size_t &poff)
  return 0;
 }
 
+void fill_buffer(char *alloced, size_t off, size_t poff, inj_params *ip)
+{
+ // copy and fill
+ memcpy(alloced, payload, paysize);
+ if ( poff )
+ {
+// printf("poff %ld\n", poff);
+   memcpy(alloced + poff, inj_path.c_str(), inj_path.size());
+   alloced[poff + inj_path.size()] = 0;
+ }
+ char **tab = (char **)(alloced + off);
+ patch(tab, ip);
+}
+
 int inject(inj_params *ip)
 {
  // find marker
- size_t paysize = std::size(payload);
  size_t off = 0, poff = 0;
  if ( !find_markers(off, poff) ) return 0;
  // alloc
@@ -90,22 +103,13 @@ int inject(inj_params *ip)
    return 0;
  }
  printf("alloced at %p\n", alloced);
- // copy and fill
- memcpy(alloced, payload, paysize);
- if ( poff )
- {
-// printf("poff %ld\n", poff);
-   memcpy(alloced + poff, inj_path.c_str(), inj_path.size());
-   alloced[poff + inj_path.size()] = 0;
- }
- char **tab = (char **)(alloced + off);
- patch(tab, ip);
+ fill_buffer(alloced, off, poff, ip);
  // mprotect
  if ( g_fd != -1 )
  {
    unsigned long args[3] = { (unsigned long)alloced, 4096, PROT_READ | PROT_EXEC };
    int err = ioctl(g_fd, IOCTL_TEST_MPROTECT, (int *)args);
-printf("err %d\n", err);
+printf("mprot err %d\n", err);
    if ( err ) goto emprot;
  } else {
    if ( mprotect(alloced, 4096, PROT_READ | PROT_EXEC ) ) goto emprot;
@@ -165,6 +169,21 @@ int main(int argc, char **argv)
   if ( pid )
   {
     if ( !fill_params(pid, &ip) ) return 1;
+    // find marker
+    size_t off = 0, poff = 0;
+    if ( !find_markers(off, poff) ) return 1;
+    // calc size
+    size_t res = paysize;
+    if ( !inj_path.empty() )
+      res = poff + inj_path.size() + 1;
+    char *buf = (char *)malloc(res);
+    if ( !res )
+    {
+      printf("cannot alloc buffer len %lX\n", res);
+      return 1;
+    }
+    fill_buffer(buf, off, poff, &ip);
+    HexDump((unsigned char *)buf, (int)res);
   } else {
     if ( !fill_myself(&ip) ) return 1;
     if ( !inject(&ip) ) return 1;

@@ -46,6 +46,7 @@ int fill_params(long pid, inj_params *res)
     printf("cannot find base for %s\n", libc.c_str());
     return 0;
   }
+  printf("%s base %lX\n", libc.c_str(), base);
   // ok, lets read symbol table
   using namespace ELFIO;
   elfio reader;
