@@ -162,7 +162,12 @@ int main(int argc, char **argv)
     }
   }
   inj_params ip;
-  if ( !fill_myself(&ip) ) return 1;
-  if ( !inject(&ip) ) return 1;
-  loop();
+  if ( pid )
+  {
+    if ( !fill_params(pid, &ip) ) return 1;
+  } else {
+    if ( !fill_myself(&ip) ) return 1;
+    if ( !inject(&ip) ) return 1;
+    loop();
+  }
 }

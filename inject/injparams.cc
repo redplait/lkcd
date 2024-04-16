@@ -3,6 +3,9 @@
 #include <stdio.h>
 #include "injparams.h"
 
+extern void *__libc_dlopen_mode(const char *__name, int __mode);
+extern void *__libc_dlsym(void *__map, const char *__name);
+
 int fill_myself(inj_params *res)
 {
   std::string libc;
@@ -28,8 +31,8 @@ int fill_myself(inj_params *res)
     return 0;
   }
   res->fh = (char *)sym_f;
-  res->dlopen = (char *)dlsym(c, "dlopen");
-  res->dlsym = (char *)dlsym(c, "dlsym");
+  res->dlopen = (char *)dlsym(c, "__libc_dlopen_mode");
+  res->dlsym = (char *)dlsym(c, "__libc_dlsym");
   return 1;
 }
 
