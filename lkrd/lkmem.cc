@@ -36,6 +36,7 @@ int g_opt_h = 0;
 int g_dump_bpf_ops = 0;
 int g_event_foff = 0;
 std::set<unsigned long> g_kpe, g_kpd; // enable-disable kprobe, key is just address
+int g_fd = -1;
 
 using namespace ELFIO;
 
@@ -357,6 +358,15 @@ static const x64_thunk s_x64_thunks[] = {
   { "__x86_indirect_thunk_r15", UD_R_R15 },
 };
 
+// 32bit x86 don`t supported but just for completness
+static const x64_thunk s_x86_thunks[] = {
+  { "__x86_indirect_thunk_eax", UD_R_EAX },
+  { "__x86_indirect_thunk_ebx", UD_R_EBX },
+  { "__x86_indirect_thunk_edx", UD_R_EDX },
+  { "__x86_indirect_thunk_ecx", UD_R_ECX },
+  { "__x86_indirect_thunk_esi", UD_R_ESI },
+};
+
 section* find_section(const elfio& reader, a64 addr)
 {
   Elf_Half n = reader.sections.size();
@@ -483,7 +493,7 @@ void dump_patched(a64 curr_addr, char *ptr, char *arg, sa64 delta)
      printf("mem at %p patched to %p\n", ptr, arg);
 }
 
-void dump_and_check(int fd, int opt_c, sa64 delta, int has_syms, std::map<a64, a64> &filled)
+void dump_and_check(int opt_c, sa64 delta, int has_syms, std::map<a64, a64> &filled)
 {
   for ( auto &c: filled )
   {
@@ -516,7 +526,7 @@ void dump_and_check(int fd, int opt_c, sa64 delta, int has_syms, std::map<a64, a
       {
          char *ptr = (char *)curr_addr + delta;
          char *arg = ptr;
-         int err = ioctl(fd, IOCTL_READ_PTR, (int *)&arg);
+         int err = ioctl(g_fd, IOCTL_READ_PTR, (int *)&arg);
          if ( err )
          {
            printf("read at %p failed, error %d (%s)\n", ptr, errno, strerror(errno));
@@ -649,14 +659,14 @@ class dumb_free
    void *m_ptr;
 };
 
-void patch_kernel(int fd, std::map<unsigned long, unsigned char> &what)
+void patch_kernel(std::map<unsigned long, unsigned char> &what)
 {
   unsigned long args[2];
   for ( auto iter: what )
   {
     args[0] = iter.first;
     args[1] = iter.second;
-    int err = ioctl(fd, IOCTL_PATCH_KTEXT1, (int *)args);
+    int err = ioctl(g_fd, IOCTL_PATCH_KTEXT1, (int *)args);
     if ( err )
       printf("IOCTL_PATCH_KTEXT1 on %p failed, error %d (%s)\n", (void *)iter.first, errno, strerror(errno));
   }
@@ -668,10 +678,10 @@ size_t calc_data_size(size_t n)
   return n * sizeof(T) + sizeof(unsigned long);
 }
 
-void dump_keys(int fd, sa64 delta)
+void dump_keys(sa64 delta)
 {
   unsigned long cnt = 0;
-  int err = ioctl(fd, IOCTL_KEY_TYPES, (int *)&cnt);
+  int err = ioctl(g_fd, IOCTL_KEY_TYPES, (int *)&cnt);
   if ( err )
   {
     printf("IOCTL_KEY_TYPES count failed, error %d (%s)\n", errno, strerror(errno));
@@ -689,7 +699,7 @@ void dump_keys(int fd, sa64 delta)
   }
   dumb_free<unsigned long> tmp(buf);
   buf[0] = cnt;
-  err = ioctl(fd, IOCTL_KEY_TYPES, (int *)buf);
+  err = ioctl(g_fd, IOCTL_KEY_TYPES, (int *)buf);
   if ( err )
   {
     printf("IOCTL_KEY_TYPES failed, error %d (%s)\n", errno, strerror(errno));
@@ -710,7 +720,7 @@ void dump_keys(int fd, sa64 delta)
     if ( curr->len_name && kt_name )
     {
       *(unsigned long *)kt_name = (unsigned long)curr->addr;
-      if ( !ioctl(fd, IOCTL_KEYTYPE_NAME, (int *)kt_name) ) has_name = true;
+      if ( !ioctl(g_fd, IOCTL_KEYTYPE_NAME, (int *)kt_name) ) has_name = true;
     }
     if ( has_name )
     {
@@ -755,7 +765,7 @@ void dump_keys(int fd, sa64 delta)
   kt_name = 0;
   // enum keys
   cnt = 0;
-  err = ioctl(fd, IOCTL_ENUM_KEYS, (int *)&cnt);
+  err = ioctl(g_fd, IOCTL_ENUM_KEYS, (int *)&cnt);
   if ( err )
   {
     printf("IOCTL_ENUM_KEYS count failed, error %d (%s)\n", errno, strerror(errno));
@@ -771,7 +781,7 @@ void dump_keys(int fd, sa64 delta)
   }
   dumb_free<unsigned long> tmp2(kbuf);
   kbuf[0] = cnt;
-  err = ioctl(fd, IOCTL_ENUM_KEYS, (int *)kbuf);
+  err = ioctl(g_fd, IOCTL_ENUM_KEYS, (int *)kbuf);
   if ( err )
   {
     printf("IOCTL_ENUM_KEYS failed, error %d (%s)\n", errno, strerror(errno));
@@ -819,7 +829,7 @@ void dump_keys(int fd, sa64 delta)
       if ( kt_name )
       {
         *(unsigned long *)kt_name = (unsigned long)kc->serial;
-        if ( !ioctl(fd, IOCTL_GET_KEY_DESC, (int *)kt_name) ) has_desc = true;
+        if ( !ioctl(g_fd, IOCTL_GET_KEY_DESC, (int *)kt_name) ) has_desc = true;
       }
       if ( has_desc ) printf("  desc: %s\n", kt_name);
     }
@@ -828,7 +838,7 @@ void dump_keys(int fd, sa64 delta)
       unsigned long *kargs = (unsigned long *)kt_name;
       kargs[0] = kc->serial;
       kargs[1] = kc->datalen;
-      err = ioctl(fd, IOCTL_READ_KEY, (int *)kt_name);
+      err = ioctl(g_fd, IOCTL_READ_KEY, (int *)kt_name);
       if ( err )
         printf("IOCTL_READ_KEY failed, error %d (%s)\n", errno, strerror(errno));
       else
@@ -848,10 +858,10 @@ void dump_keys(int fd, sa64 delta)
   if ( kt_name ) free(kt_name);
 }
 
-void dump_consoles(int fd, sa64 delta)
+void dump_consoles(sa64 delta)
 {
   unsigned long cnt = 0;
-  int err = ioctl(fd, IOCTL_READ_CONSOLES, (int *)&cnt);
+  int err = ioctl(g_fd, IOCTL_READ_CONSOLES, (int *)&cnt);
   if ( err )
   {
     printf("IOCTL_READ_CONSOLES count failed, error %d (%s)\n", errno, strerror(errno));
@@ -870,7 +880,7 @@ void dump_consoles(int fd, sa64 delta)
   }
   dumb_free<unsigned long> tmp(buf);
   buf[0] = cnt;
-  err = ioctl(fd, IOCTL_READ_CONSOLES, (int *)buf);
+  err = ioctl(g_fd, IOCTL_READ_CONSOLES, (int *)buf);
   if ( err )
   {
     printf("IOCTL_READ_CONSOLES failed, error %d (%s)\n", errno, strerror(errno));
@@ -900,10 +910,10 @@ void dump_consoles(int fd, sa64 delta)
 }
 
 template <typename T, typename F>
-void dump_data1arg(int fd, a64 list, sa64 delta, int code, const char *header, const char *ioctl_name, const char *bname, F func)
+void dump_data1arg(a64 list, sa64 delta, int code, const char *header, const char *ioctl_name, const char *bname, F func)
 {
   unsigned long args[2] = { list + delta, 0 };
-  int err = ioctl(fd, code, (int *)args);
+  int err = ioctl(g_fd, code, (int *)args);
   if ( err )
   {
     printf("%s count failed, error %d (%s)\n", ioctl_name, errno, strerror(errno));
@@ -922,7 +932,7 @@ void dump_data1arg(int fd, a64 list, sa64 delta, int code, const char *header, c
   dumb_free<unsigned long> tmp(buf);
   buf[0] = list + delta;
   buf[1] = args[0];
-  err = ioctl(fd, code, (int *)buf);
+  err = ioctl(g_fd, code, (int *)buf);
   if ( err )
   {
     printf("%s failed, error %d (%s)\n", ioctl_name, errno, strerror(errno));
@@ -937,10 +947,10 @@ void dump_data1arg(int fd, a64 list, sa64 delta, int code, const char *header, c
 }
 
 template <typename T, typename F>
-void dump_data2arg(int fd, a64 list, a64 lock, sa64 delta, int code, const char *header, const char *ioctl_name, const char *bname, F func)
+void dump_data2arg(a64 list, a64 lock, sa64 delta, int code, const char *header, const char *ioctl_name, const char *bname, F func)
 {
   unsigned long args[3] = { list + delta, lock + delta, 0 };
-  int err = ioctl(fd, code, (int *)args);
+  int err = ioctl(g_fd, code, (int *)args);
   if ( err )
   {
     printf("%s count failed, error %d (%s)\n", ioctl_name, errno, strerror(errno));
@@ -960,7 +970,7 @@ void dump_data2arg(int fd, a64 list, a64 lock, sa64 delta, int code, const char 
   buf[0] = list + delta;
   buf[1] = lock + delta;
   buf[2] = args[0];
-  err = ioctl(fd, code, (int *)buf);
+  err = ioctl(g_fd, code, (int *)buf);
   if ( err )
   {
     printf("%s failed, error %d (%s)\n", ioctl_name, errno, strerror(errno));
@@ -974,7 +984,7 @@ void dump_data2arg(int fd, a64 list, a64 lock, sa64 delta, int code, const char 
   }
 }
 
-void check_bpf_protos(int fd, sa64 delta)
+void check_bpf_protos(sa64 delta)
 {
   std::list<one_bpf_proto> bpf_protos;
   if ( !fill_bpf_protos(bpf_protos) )
@@ -983,7 +993,7 @@ void check_bpf_protos(int fd, sa64 delta)
   {    
     char *ptr = (char *)c.proto.addr + delta;
     char *arg = ptr;
-    int err = ioctl(fd, IOCTL_READ_PTR, (int *)&arg);
+    int err = ioctl(g_fd, IOCTL_READ_PTR, (int *)&arg);
     if ( err )
     {
        printf("read at %p failed, error %d (%s)\n", ptr, errno, strerror(errno));
@@ -995,7 +1005,7 @@ void check_bpf_protos(int fd, sa64 delta)
   }
 }
 
-void dump_devfreq_ntfy(int fd, a64 list, a64 lock, sa64 delta)
+void dump_devfreq_ntfy(a64 list, a64 lock, sa64 delta)
 {
   if ( !list )
   {
@@ -1007,7 +1017,7 @@ void dump_devfreq_ntfy(int fd, a64 list, a64 lock, sa64 delta)
     printf("cannot find devfreq_list_lock\n");
     return;
   }
-  dump_data2arg<clk_ntfy>(fd, list, lock, delta, READ_DEVFREQ_NTFY, "devfreq_list", "READ_DEVFREQ_NTFY", "clk_ntfy",
+  dump_data2arg<clk_ntfy>(list, lock, delta, READ_DEVFREQ_NTFY, "devfreq_list", "READ_DEVFREQ_NTFY", "clk_ntfy",
    [=](size_t idx, const clk_ntfy *curr) {
     printf(" [%ld] devfreq at %p", idx, (void *)curr->clk);
     dump_kptr((unsigned long)curr->ntfy, " ntfy", delta);
@@ -1015,7 +1025,7 @@ void dump_devfreq_ntfy(int fd, a64 list, a64 lock, sa64 delta)
   );
 }
 
-void dump_clk_ntfy(int fd, a64 list, a64 lock, sa64 delta)
+void dump_clk_ntfy(a64 list, a64 lock, sa64 delta)
 {
   if ( !list )
   {
@@ -1027,7 +1037,7 @@ void dump_clk_ntfy(int fd, a64 list, a64 lock, sa64 delta)
     printf("cannot find prepare_lock\n");
     return;
   }
-  dump_data2arg<clk_ntfy>(fd, list, lock, delta, READ_CLK_NTFY, "clk_notifier_list", "READ_CLK_NTFY", "clk_ntfy",
+  dump_data2arg<clk_ntfy>(list, lock, delta, READ_CLK_NTFY, "clk_notifier_list", "READ_CLK_NTFY", "clk_ntfy",
    [=](size_t idx, const clk_ntfy *curr) {
     printf(" [%ld] clk at %p", idx, (void *)curr->clk);
     dump_kptr((unsigned long)curr->ntfy, " ntfy", delta);
@@ -1035,7 +1045,7 @@ void dump_clk_ntfy(int fd, a64 list, a64 lock, sa64 delta)
   );
 }
 
-void dump_ftrace_ops(int fd, a64 list, a64 lock, sa64 delta)
+void dump_ftrace_ops(a64 list, a64 lock, sa64 delta)
 {
   if ( !list )
   {
@@ -1047,7 +1057,7 @@ void dump_ftrace_ops(int fd, a64 list, a64 lock, sa64 delta)
     printf("cannot find ftrace_lock\n");
     return;
   }
-  dump_data2arg<one_ftrace_ops>(fd, list, lock, delta, IOCTL_GET_FTRACE_OPS, "ftrace_ops_list", "IOCTL_GET_FTRACE_OPS", "ftrace_ops",
+  dump_data2arg<one_ftrace_ops>(list, lock, delta, IOCTL_GET_FTRACE_OPS, "ftrace_ops_list", "IOCTL_GET_FTRACE_OPS", "ftrace_ops",
    [=](size_t idx, const one_ftrace_ops *curr) {
     printf(" [%ld] flags %lX at", idx, curr->flags);
     dump_unnamed_kptr((unsigned long)curr->addr, delta);
@@ -1059,7 +1069,7 @@ void dump_ftrace_ops(int fd, a64 list, a64 lock, sa64 delta)
   );
 }
 
-void dump_dynamic_events(int fd, a64 list, a64 lock, sa64 delta)
+void dump_dynamic_events(a64 list, a64 lock, sa64 delta)
 {
   if ( !list )
   {
@@ -1071,7 +1081,7 @@ void dump_dynamic_events(int fd, a64 list, a64 lock, sa64 delta)
     printf("cannot find event_mutex\n");
     return;
   }
-  dump_data2arg<one_tracepoint_func>(fd, list, lock, delta, IOCTL_GET_DYN_EVENTS, "dyn_event_list", "IOCTL_GET_DYN_EVENTS", "dyn_event_list",
+  dump_data2arg<one_tracepoint_func>(list, lock, delta, IOCTL_GET_DYN_EVENTS, "dyn_event_list", "IOCTL_GET_DYN_EVENTS", "dyn_event_list",
    [=](size_t idx, const one_tracepoint_func *curr) {
     printf(" [%ld] at", idx);
     dump_unnamed_kptr((unsigned long)curr->addr, delta);
@@ -1081,7 +1091,7 @@ void dump_dynamic_events(int fd, a64 list, a64 lock, sa64 delta)
   );
 }
 
-void dump_dynevents_ops(int fd, a64 list, a64 lock, sa64 delta)
+void dump_dynevents_ops(a64 list, a64 lock, sa64 delta)
 {
   if ( !list )
   {
@@ -1093,7 +1103,7 @@ void dump_dynevents_ops(int fd, a64 list, a64 lock, sa64 delta)
     printf("cannot find dyn_event_ops_mutex\n");
     return;
   }
-  dump_data2arg<one_dyn_event_op>(fd, list, lock, delta, IOCTL_GET_DYN_EVT_OPS, "dyn_event_ops_list", "IOCTL_GET_DYN_EVT_OPS", "dynevents_ops",
+  dump_data2arg<one_dyn_event_op>(list, lock, delta, IOCTL_GET_DYN_EVT_OPS, "dyn_event_ops_list", "IOCTL_GET_DYN_EVT_OPS", "dynevents_ops",
    [=](size_t idx, const one_dyn_event_op *curr) {
     printf(" [%ld] at", idx);
     dump_unnamed_kptr((unsigned long)curr->addr, delta);
@@ -1111,7 +1121,7 @@ void dump_dynevents_ops(int fd, a64 list, a64 lock, sa64 delta)
   );
 }
 
-void dump_tracefunc_cmds(int fd, a64 list, a64 lock, sa64 delta)
+void dump_tracefunc_cmds(a64 list, a64 lock, sa64 delta)
 {
   if ( !list )
   {
@@ -1123,7 +1133,7 @@ void dump_tracefunc_cmds(int fd, a64 list, a64 lock, sa64 delta)
     printf("cannot find ftrace_cmd_mutex\n");
     return;
   }
-  dump_data2arg<one_tracefunc_cmd>(fd, list, lock, delta, IOCTL_GET_FTRACE_CMDS, "ftrace_commands", "IOCTL_GET_FTRACE_CMDS", "ftrace_func_commands", 
+  dump_data2arg<one_tracefunc_cmd>(list, lock, delta, IOCTL_GET_FTRACE_CMDS, "ftrace_commands", "IOCTL_GET_FTRACE_CMDS", "ftrace_func_commands", 
    [=](size_t idx, const one_tracefunc_cmd *curr) {
     printf(" [%ld] %s at", idx, curr->name);
     dump_unnamed_kptr((unsigned long)curr->addr, delta);
@@ -1133,7 +1143,7 @@ void dump_tracefunc_cmds(int fd, a64 list, a64 lock, sa64 delta)
   );
 }
 
-void dump_trace_exports(int fd, a64 list, a64 lock, sa64 delta)
+void dump_trace_exports(a64 list, a64 lock, sa64 delta)
 {
   if ( !list )
   {
@@ -1145,7 +1155,7 @@ void dump_trace_exports(int fd, a64 list, a64 lock, sa64 delta)
     printf("cannot find ftrace_export_lock\n");
     return;
   }
-  dump_data2arg<one_trace_export>(fd, list, lock, delta, IOCTL_GET_TRACE_EXPORTS, "trace_exports", "IOCTL_GET_TRACE_EXPORTS", "trace_exports",
+  dump_data2arg<one_trace_export>(list, lock, delta, IOCTL_GET_TRACE_EXPORTS, "trace_exports", "IOCTL_GET_TRACE_EXPORTS", "trace_exports",
    [=](size_t idx, const one_trace_export *curr) {
     printf(" [%ld] flags %d at", idx, curr->flags);
     dump_unnamed_kptr((unsigned long)curr->addr, delta);
@@ -1155,7 +1165,7 @@ void dump_trace_exports(int fd, a64 list, a64 lock, sa64 delta)
   );
 }
 
-void dump_pmus(int fd, a64 list, a64 lock, sa64 delta)
+void dump_pmus(a64 list, a64 lock, sa64 delta)
 {
   if ( !list )
   {
@@ -1167,7 +1177,7 @@ void dump_pmus(int fd, a64 list, a64 lock, sa64 delta)
     printf("cannot find pmus_lock\n");
     return;
   }
-  dump_data2arg<one_pmu>(fd, list, lock, delta, IOCTL_GET_PMUS, "pmus", "IOCTL_GET_PMUS", "pmus",
+  dump_data2arg<one_pmu>(list, lock, delta, IOCTL_GET_PMUS, "pmus", "IOCTL_GET_PMUS", "pmus",
    [=](size_t idx, const one_pmu *curr) {
      printf(" [%ld] type %X capabilities %X at ", idx, curr->type, curr->capabilities);
      dump_unnamed_kptr((unsigned long)curr->addr, delta);
@@ -1223,7 +1233,7 @@ void dump_pmus(int fd, a64 list, a64 lock, sa64 delta)
   );
 }
 
-void dump_event_cmds(int fd, a64 list, a64 lock, sa64 delta)
+void dump_event_cmds(a64 list, a64 lock, sa64 delta)
 {
   if ( !list )
   {
@@ -1235,7 +1245,7 @@ void dump_event_cmds(int fd, a64 list, a64 lock, sa64 delta)
     printf("cannot find trigger_cmd_mutex\n");
     return;
   }
-  dump_data2arg<one_event_command>(fd, list, lock, delta, IOCTL_GET_EVENT_CMDS, "trigger_commands", "IOCTL_GET_EVENT_CMDS", "trigger_commands",
+  dump_data2arg<one_event_command>(list, lock, delta, IOCTL_GET_EVENT_CMDS, "trigger_commands", "IOCTL_GET_EVENT_CMDS", "trigger_commands",
    [=](size_t idx, const one_event_command *curr) {
     printf(" [%ld] %s trigger_type %d flags %d at", idx, curr->name, curr->trigger_type, curr->flags);
     dump_unnamed_kptr((unsigned long)curr->addr, delta);
@@ -1371,7 +1381,7 @@ struct uprobe_args
   unsigned long a1, a2, a3, a4;
 };
 
-void dump_trace_event_call(int fd, size_t idx, one_trace_event_call *curr, sa64 delta, uprobe_args *ua = NULL)
+void dump_trace_event_call(size_t idx, one_trace_event_call *curr, sa64 delta, uprobe_args *ua = NULL)
 {
     if ( curr->bpf_prog )
     {
@@ -1419,7 +1429,7 @@ void dump_trace_event_call(int fd, size_t idx, one_trace_event_call *curr, sa64 
       bpf_buf[2] = ua->a3;
       bpf_buf[3] = ua->a4;
       bpf_buf[4] = curr->bpf_cnt;
-      int err = ioctl(fd, IOCTL_TRACE_UPROBE_BPFS, (int *)bpf_buf);
+      int err = ioctl(g_fd, IOCTL_TRACE_UPROBE_BPFS, (int *)bpf_buf);
       if ( err )
       {
         printf("IOCTL_TRACE_UPROBE_BPFS for uprobe %ld bpf_progs failed, error %d (%s)\n", idx, errno, strerror(errno));
@@ -1439,7 +1449,7 @@ void dump_trace_event_call(int fd, size_t idx, one_trace_event_call *curr, sa64 
       dumb_free<unsigned long> tmp2(bpf_buf);
       bpf_buf[0] = (unsigned long)curr->addr;
       bpf_buf[1] = curr->bpf_cnt;
-      int err = ioctl(fd, IOCTL_GET_EVT_CALLS, (int *)bpf_buf);
+      int err = ioctl(g_fd, IOCTL_GET_EVT_CALLS, (int *)bpf_buf);
       if ( err )
       {
         printf("IOCTL_GET_EVT_CALLS for tracepoint %ld bpf_progs failed, error %d (%s)\n", idx, errno, strerror(errno));
@@ -1450,10 +1460,10 @@ void dump_trace_event_call(int fd, size_t idx, one_trace_event_call *curr, sa64 
    }
 }
 
-void dump_registered_trace_event_calls(int fd, sa64 delta)
+void dump_registered_trace_event_calls(sa64 delta)
 {
   unsigned long args[2] = { 0, 0 };
-  int err = ioctl(fd, IOCTL_GET_EVT_CALLS, (int *)args);
+  int err = ioctl(g_fd, IOCTL_GET_EVT_CALLS, (int *)args);
   if ( err )
   {
     printf("IOCTL_GET_EVT_CALLS count failed, error %d (%s)\n", errno, strerror(errno));
@@ -1472,7 +1482,7 @@ void dump_registered_trace_event_calls(int fd, sa64 delta)
   dumb_free<unsigned long> tmp(buf);
   buf[0] = 0;
   buf[1] = args[0];
-  err = ioctl(fd, IOCTL_GET_EVT_CALLS, (int *)buf);
+  err = ioctl(g_fd, IOCTL_GET_EVT_CALLS, (int *)buf);
   if ( err )
   {
     printf("IOCTL_GET_EVT_CALLS failed, error %d (%s)\n", errno, strerror(errno));
@@ -1482,11 +1492,11 @@ void dump_registered_trace_event_calls(int fd, sa64 delta)
   one_trace_event_call *curr = (one_trace_event_call *)(buf + 1);
   for ( size_t idx = 0; idx < size; idx++, curr++ )
   {
-    dump_trace_event_call(fd, idx, curr, delta);
+    dump_trace_event_call(idx, curr, delta);
   }
 }
 
-void dump_bpf_ksyms(int fd, a64 list, a64 lock, sa64 delta)
+void dump_bpf_ksyms(a64 list, a64 lock, sa64 delta)
 {
   if ( !list )
   {
@@ -1498,7 +1508,7 @@ void dump_bpf_ksyms(int fd, a64 list, a64 lock, sa64 delta)
     printf("cannot find bpf_lock\n");
     return;
   }
-  dump_data2arg<one_bpf_ksym>(fd, list, lock, delta, IOCTL_GET_BPF_KSYMS, "bpf_kallsyms", "IOCTL_GET_BPF_KSYMS", "bpf_ksyms",
+  dump_data2arg<one_bpf_ksym>(list, lock, delta, IOCTL_GET_BPF_KSYMS, "bpf_kallsyms", "IOCTL_GET_BPF_KSYMS", "bpf_ksyms",
    [](size_t idx, const one_bpf_ksym *curr) {
      printf(" [%ld] ksym %p %p %p %d %s\n", idx, curr->addr, (void *)curr->start, (void *)curr->end, curr->prog ? 1 : 0, curr->name);
    }
@@ -1512,7 +1522,7 @@ void dump_holes(const char *body, std::list<const char *> *holes)
    printf("%p %lX\n", c, c - body);
 }
 
-void dump_bpf_progs(int fd, a64 list, a64 lock, sa64 delta, std::map<void *, std::string> &map_names)
+void dump_bpf_progs(a64 list, a64 lock, sa64 delta, std::map<void *, std::string> &map_names)
 {
   if ( !list )
   {
@@ -1524,7 +1534,7 @@ void dump_bpf_progs(int fd, a64 list, a64 lock, sa64 delta, std::map<void *, std
     printf("cannot find prog_idr_lock\n");
     return;
   }
-  dump_data2arg<one_bpf_prog>(fd, list, lock, delta, IOCTL_GET_BPF_PROGS, "prog_idr", "IOCTL_GET_BPF_PROGS", "bpf_progs",
+  dump_data2arg<one_bpf_prog>(list, lock, delta, IOCTL_GET_BPF_PROGS, "prog_idr", "IOCTL_GET_BPF_PROGS", "bpf_progs",
    [=,&map_names](size_t idx, const one_bpf_prog *curr) {
     printf(" [%ld] prog %p id %d len %d jited_len %d aux %p used_maps %d used_btf %d func_cnt %d\n", idx, curr->prog, curr->aux_id, curr->len, curr->jited_len,
       curr->aux, curr->used_map_cnt, curr->used_btf_cnt, curr->func_cnt
@@ -1559,7 +1569,7 @@ void dump_bpf_progs(int fd, a64 list, a64 lock, sa64 delta, std::map<void *, std
       l[1] = lock + delta;
       l[2] = (unsigned long)curr->prog;
       l[3] = body_len;
-      int err = ioctl(fd, IOCTL_GET_BPF_USED_MAPS, (int *)l);
+      int err = ioctl(g_fd, IOCTL_GET_BPF_USED_MAPS, (int *)l);
       if ( err )
       {
         printf("IOCTL_GET_BPF_USED_MAPS failed, error %d (%s)\n", errno, strerror(errno));
@@ -1601,7 +1611,7 @@ void dump_bpf_progs(int fd, a64 list, a64 lock, sa64 delta, std::map<void *, std
       jit_body[1] = lock + delta;
       jit_body[2] = (unsigned long)curr->prog;
       jit_body[3] = curr->jited_len;
-      int err = ioctl(fd, IOCTL_GET_BPF_PROG_BODY, (int *)jit_body);
+      int err = ioctl(g_fd, IOCTL_GET_BPF_PROG_BODY, (int *)jit_body);
       if ( err )
       {
         printf("IOCTL_GET_BPF_PROG_BODY failed, error %d (%s)\n", errno, strerror(errno));
@@ -1631,7 +1641,7 @@ void dump_bpf_progs(int fd, a64 list, a64 lock, sa64 delta, std::map<void *, std
       l[1] = lock + delta;
       l[2] = (unsigned long)curr->prog;
       l[3] = curr->len * 8;
-      int err = ioctl(fd, IOCTL_GET_BPF_OPCODES, (int *)l);
+      int err = ioctl(g_fd, IOCTL_GET_BPF_OPCODES, (int *)l);
       if ( err )
       {
         printf("IOCTL_GET_BPF_OPCODES failed, error %d (%s)\n", errno, strerror(errno));
@@ -1752,7 +1762,7 @@ static const char *get_bpf_link_type_name(int idx)
   return bpf_link_type_names[idx];
 }
 
-void dump_bpf_links(int fd, a64 list, a64 lock, sa64 delta)
+void dump_bpf_links(a64 list, a64 lock, sa64 delta)
 {
   if ( !list )
   {
@@ -1764,7 +1774,7 @@ void dump_bpf_links(int fd, a64 list, a64 lock, sa64 delta)
     printf("cannot find link_idr_lock\n");
     return;
   }
-  dump_data2arg<one_bpf_links>(fd, list, lock, delta, IOCTL_GET_BPF_LINKS, "link_idr", "IOCTL_GET_BPF_LINKS", "bpf_links",
+  dump_data2arg<one_bpf_links>(list, lock, delta, IOCTL_GET_BPF_LINKS, "link_idr", "IOCTL_GET_BPF_LINKS", "bpf_links",
    [=](size_t idx, const one_bpf_links *curr) {
     printf(" [%ld] at %p id %d\n", idx, curr->addr, curr->id);
     printf("  type: %d %s\n", curr->type, get_bpf_link_type_name(curr->type));
@@ -1795,11 +1805,11 @@ void dump_bpf_links(int fd, a64 list, a64 lock, sa64 delta)
 }
 
 template <typename T>
-void dump_jit_option(int fd, a64 addr, sa64 delta, const char *fmt)
+void dump_jit_option(a64 addr, sa64 delta, const char *fmt)
 {
   char *ptr = (char *)addr + delta;
   char *arg = ptr;
-  int err = ioctl(fd, IOCTL_READ_PTR, (int *)&arg);
+  int err = ioctl(g_fd, IOCTL_READ_PTR, (int *)&arg);
   if ( err )
   {
      printf("read at %p failed, error %d (%s)\n", ptr, errno, strerror(errno));
@@ -1809,51 +1819,51 @@ void dump_jit_option(int fd, a64 addr, sa64 delta, const char *fmt)
   printf(fmt, val);
 }
 
-void dump_ftrace_options(int fd, sa64 delta)
+void dump_ftrace_options(sa64 delta)
 {
   auto addr = get_addr("ftrace_enabled");
   if ( addr )
-    dump_jit_option<int>(fd, addr, delta, "ftrace_enabled: %d\n");
+    dump_jit_option<int>(addr, delta, "ftrace_enabled: %d\n");
   addr = get_addr("ftrace_disabled");
   if ( addr )
-    dump_jit_option<int>(fd, addr, delta, "ftrace_disabled: %d\n");
+    dump_jit_option<int>(addr, delta, "ftrace_disabled: %d\n");
   addr = get_addr("last_ftrace_enabled");
   if ( addr )
-    dump_jit_option<int>(fd, addr, delta, "last_ftrace_enabled: %d\n");
+    dump_jit_option<int>(addr, delta, "last_ftrace_enabled: %d\n");
   addr = get_addr("ftrace_profile_enabled");
   if ( addr )
-    dump_jit_option<int>(fd, addr, delta, "ftrace_profile_enabled: %d\n");
+    dump_jit_option<int>(addr, delta, "ftrace_profile_enabled: %d\n");
   addr = get_addr("ftrace_graph_active");
   if ( addr )
-    dump_jit_option<int>(fd, addr, delta, "ftrace_graph_active: %d\n");
+    dump_jit_option<int>(addr, delta, "ftrace_graph_active: %d\n");
   addr = get_addr("ftrace_direct_func_count");
   if ( addr )
-    dump_jit_option<int>(fd, addr, delta, "ftrace_direct_func_count: %d\n");
+    dump_jit_option<int>(addr, delta, "ftrace_direct_func_count: %d\n");
   addr = get_addr("ftrace_number_of_groups");
   if ( addr )
-    dump_jit_option<int>(fd, addr, delta, "ftrace_number_of_groups: %d\n");
+    dump_jit_option<int>(addr, delta, "ftrace_number_of_groups: %d\n");
 }
 
-void dump_jit_options(int fd, sa64 delta)
+void dump_jit_options(sa64 delta)
 {
   auto addr = get_addr("bpf_jit_enable");
   if ( addr )
-    dump_jit_option<int>(fd, addr, delta, "bpf_jit_enable: %d\n");
+    dump_jit_option<int>(addr, delta, "bpf_jit_enable: %d\n");
   addr = get_addr("bpf_jit_harden");
   if ( addr )
-    dump_jit_option<int>(fd, addr, delta, "bpf_jit_harden: %d\n");
+    dump_jit_option<int>(addr, delta, "bpf_jit_harden: %d\n");
   addr = get_addr("bpf_jit_kallsyms");
   if ( addr )
-    dump_jit_option<int>(fd, addr, delta, "bpf_jit_kallsyms: %d\n");
+    dump_jit_option<int>(addr, delta, "bpf_jit_kallsyms: %d\n");
   addr = get_addr("bpf_jit_limit");
   if ( addr )
-    dump_jit_option<long>(fd, addr, delta, "bpf_jit_limit: %ld\n");
+    dump_jit_option<long>(addr, delta, "bpf_jit_limit: %ld\n");
   addr = get_addr("bpf_jit_limit_max");
   if ( addr )
-    dump_jit_option<long>(fd, addr, delta, "bpf_jit_limit_max: %ld\n");
+    dump_jit_option<long>(addr, delta, "bpf_jit_limit_max: %ld\n");
 }
 
-void dump_bpf_raw_events(int fd, a64 start, a64 end, sa64 delta)
+void dump_bpf_raw_events(a64 start, a64 end, sa64 delta)
 {
   if ( !start )
   {
@@ -1865,7 +1875,7 @@ void dump_bpf_raw_events(int fd, a64 start, a64 end, sa64 delta)
     printf("cannot find __stop__bpf_raw_tp\n");
     return;
   }
-  dump_data2arg<one_bpf_raw_event>(fd, start, end, delta, IOCTL_GET_BPF_RAW_EVENTS, "bpf_raw_tps", "IOCTL_GET_BPF_RAW_EVENTS", "bpf_raw_tps",
+  dump_data2arg<one_bpf_raw_event>(start, end, delta, IOCTL_GET_BPF_RAW_EVENTS, "bpf_raw_tps", "IOCTL_GET_BPF_RAW_EVENTS", "bpf_raw_tps",
    [=](size_t idx, const one_bpf_raw_event *curr) {
      printf(" [%ld] num_args %d ", idx, curr->num_args);
      dump_kptr2((unsigned long)curr->addr, "addr", delta);
@@ -1877,7 +1887,7 @@ void dump_bpf_raw_events(int fd, a64 start, a64 end, sa64 delta)
   );
 }
 
-void dump_bpf_maps(int fd, a64 list, a64 lock, sa64 delta, std::map<void *, std::string> &map_names)
+void dump_bpf_maps(a64 list, a64 lock, sa64 delta, std::map<void *, std::string> &map_names)
 {
   if ( !list )
   {
@@ -1889,7 +1899,7 @@ void dump_bpf_maps(int fd, a64 list, a64 lock, sa64 delta, std::map<void *, std:
     printf("cannot find map_idr_lock\n");
     return;
   }
-  dump_data2arg<one_bpf_map>(fd, list, lock, delta, IOCTL_GET_BPF_MAPS, "bpf_maps", "IOCTL_GET_BPF_MAPS", "bpf_maps",
+  dump_data2arg<one_bpf_map>(list, lock, delta, IOCTL_GET_BPF_MAPS, "bpf_maps", "IOCTL_GET_BPF_MAPS", "bpf_maps",
    [=,&map_names](size_t idx, const one_bpf_map *curr) {
       printf(" [%ld] id %d %s at %p\n", idx, curr->id, curr->name, curr->addr);
       if ( curr->ops )
@@ -1903,7 +1913,7 @@ void dump_bpf_maps(int fd, a64 list, a64 lock, sa64 delta, std::map<void *, std:
   );
 }
 
-void dump_ckalgos(int fd, a64 list, a64 lock, sa64 delta)
+void dump_ckalgos(a64 list, a64 lock, sa64 delta)
 {
   if ( !list )
   {
@@ -1915,7 +1925,7 @@ void dump_ckalgos(int fd, a64 list, a64 lock, sa64 delta)
     printf("cannot find crypto_alg_sem\n");
     return;
   }
-  dump_data2arg<one_kcalgo>(fd, list, lock, delta, IOCTL_ENUM_CALGO, "crypto_algos", "IOCTL_ENUM_CALGO", "crypto_algo",
+  dump_data2arg<one_kcalgo>(list, lock, delta, IOCTL_ENUM_CALGO, "crypto_algos", "IOCTL_ENUM_CALGO", "crypto_algo",
    [=](size_t idx, const one_kcalgo *curr) {
      printf(" [%ld] flags %X %s ", idx, curr->flags, curr->name);
      dump_kptr2((unsigned long)curr->addr, "addr", delta);
@@ -1965,7 +1975,7 @@ void dump_ckalgos(int fd, a64 list, a64 lock, sa64 delta)
   printf("\n");
 }
 
-void dump_bpf_targets(int fd, a64 list, a64 lock, sa64 delta)
+void dump_bpf_targets(a64 list, a64 lock, sa64 delta)
 {
   if ( !list )
   {
@@ -1977,7 +1987,7 @@ void dump_bpf_targets(int fd, a64 list, a64 lock, sa64 delta)
     printf("cannot find targets_mutex\n");
     return;
   }
-  dump_data2arg<one_bpf_reg>(fd, list, lock, delta, IOCTL_GET_BPF_REGS, "bpf_iter_reg", "IOCTL_GET_BPF_REGS", "bpf_regs",
+  dump_data2arg<one_bpf_reg>(list, lock, delta, IOCTL_GET_BPF_REGS, "bpf_iter_reg", "IOCTL_GET_BPF_REGS", "bpf_regs",
    [=](size_t idx, const one_bpf_reg *curr) {
     printf(" [%ld] feature %d at", idx, curr->feature);
     dump_unnamed_kptr((unsigned long)curr->addr, delta);
@@ -1995,7 +2005,7 @@ void dump_bpf_targets(int fd, a64 list, a64 lock, sa64 delta)
   );
 }
 
-void dump_lsm(int fd, sa64 delta)
+void dump_lsm(sa64 delta)
 {
   for ( auto &c: s_hooks )
   {
@@ -2010,7 +2020,7 @@ void dump_lsm(int fd, sa64 delta)
 #ifdef _DEBUG
     printf("%s at %p\n", c.name.c_str(), (void *)args[0]);
 #endif /* _DEBUG */
-    int err = ioctl(fd, IOCTL_GET_LSM_HOOKS, (int *)&args);
+    int err = ioctl(g_fd, IOCTL_GET_LSM_HOOKS, (int *)&args);
     if ( err )
     {
       printf("IOCTL_GET_LSM_HOOKS for %s failed, error %d (%s)\n", c.name.c_str(), errno, strerror(errno));
@@ -2027,7 +2037,7 @@ void dump_lsm(int fd, sa64 delta)
     // fill args
     buf[0] = c.list + delta;
     buf[1] = args[0];
-    err = err = ioctl(fd, IOCTL_GET_LSM_HOOKS, (int *)buf);
+    err = err = ioctl(g_fd, IOCTL_GET_LSM_HOOKS, (int *)buf);
     if ( err )
     {
       printf("IOCTL_GET_LSM_HOOKS for %s failed, error %d (%s)\n", c.name.c_str(), errno, strerror(errno));
@@ -2046,7 +2056,7 @@ size_t calc_cgroup_bpf_size(unsigned long n)
   return res < args_size ? args_size : res;
 }
 
-void dump_cgroup(const one_cgroup *cg, sa64 delta, int fd, unsigned long a1, unsigned long a2, unsigned long root)
+void dump_cgroup(const one_cgroup *cg, sa64 delta, unsigned long a1, unsigned long a2, unsigned long root)
 {
   printf(" cgroup at %p id %ld serial_nr %ld flags %lX level %d kn %p\n", cg->addr, cg->id, cg->serial_nr, cg->flags, cg->level, cg->kn);
   if ( cg->ss )
@@ -2081,7 +2091,7 @@ void dump_cgroup(const one_cgroup *cg, sa64 delta, int fd, unsigned long a1, uns
     buf[3] = (unsigned long)cg->addr;
     buf[4] = i;
     buf[5] = cg->prog_array_cnt[i];
-    int err = ioctl(fd, IOCTL_GET_CGROUP_BPF, (int *)buf);
+    int err = ioctl(g_fd, IOCTL_GET_CGROUP_BPF, (int *)buf);
     if ( err )
     {
       printf("IOCTL_GET_CGRP_ROOTS for cgroup %p and index %d failed, error %d (%s)\n", cg->addr, i, errno, strerror(errno));
@@ -2092,7 +2102,7 @@ void dump_cgroup(const one_cgroup *cg, sa64 delta, int fd, unsigned long a1, uns
   }
 }
 
-void dump_groups(int fd, sa64 delta)
+void dump_groups(sa64 delta)
 {
   unsigned long a1 = get_addr("cgroup_hierarchy_idr");
   if ( !a1 )
@@ -2107,7 +2117,7 @@ void dump_groups(int fd, sa64 delta)
     return;
   }
   unsigned long params[3] = { a1 + delta, a2 + delta, 0 };
-  int err = ioctl(fd, IOCTL_GET_CGRP_ROOTS, (int *)&params);
+  int err = ioctl(g_fd, IOCTL_GET_CGRP_ROOTS, (int *)&params);
   if ( err )
   {
     printf("IOCTL_GET_CGRP_ROOTS count failed, error %d (%s)\n", errno, strerror(errno));
@@ -2127,7 +2137,7 @@ void dump_groups(int fd, sa64 delta)
   buf[0] = a1 + delta;
   buf[1] = a2 + delta;
   buf[2] = params[0];
-  err = ioctl(fd, IOCTL_GET_CGRP_ROOTS, (int *)buf);
+  err = ioctl(g_fd, IOCTL_GET_CGRP_ROOTS, (int *)buf);
   if ( err )
   {
     printf("IOCTL_GET_CGRP_ROOTS failed, error %d (%s)\n", errno, strerror(errno));
@@ -2137,7 +2147,7 @@ void dump_groups(int fd, sa64 delta)
   for ( auto cnt = 0; cnt < buf[0]; cnt++, gr++ )
   {
     printf("[%d] %s at %p flags %X hierarchy_id %d nr_cgrps %ld real_cnt %ld\n", cnt, gr->name, gr->addr, gr->flags, gr->hierarchy_id, gr->nr_cgrps, gr->real_cnt);
-    dump_cgroup(&gr->grp, delta, fd, a1 + delta, a2 + delta, (unsigned long)gr->addr);
+    dump_cgroup(&gr->grp, delta, a1 + delta, a2 + delta, (unsigned long)gr->addr);
     if ( !gr->real_cnt )
       continue;
     size = calc_data_size<one_cgroup>(gr->real_cnt);
@@ -2150,7 +2160,7 @@ void dump_groups(int fd, sa64 delta)
     cbuf[1] = a2 + delta;
     cbuf[2] = (unsigned long)gr->addr;
     cbuf[3] = gr->real_cnt;
-    err = ioctl(fd, IOCTL_GET_CGROUPS, (int *)cbuf);
+    err = ioctl(g_fd, IOCTL_GET_CGROUPS, (int *)cbuf);
     if ( err )
     {
       printf("IOCTL_GET_CGROUPS failed, error %d (%s)\n", errno, strerror(errno));
@@ -2160,12 +2170,12 @@ void dump_groups(int fd, sa64 delta)
     for ( auto cgnt = 0; cgnt < cbuf[0]; cgnt++, cg++ )
     {
       printf(" child %d:\n", cgnt);
-      dump_cgroup(cg, delta, fd, a1 + delta, a2 + delta, (unsigned long)gr->addr);
+      dump_cgroup(cg, delta, a1 + delta, a2 + delta, (unsigned long)gr->addr);
     }
   }
 }
 
-void dump_uprobes(int fd, sa64 delta)
+void dump_uprobes(sa64 delta)
 {
   unsigned long ud = get_addr("uprobe_dispatcher");
   unsigned long a1 = get_addr("uprobes_tree");
@@ -2181,7 +2191,7 @@ void dump_uprobes(int fd, sa64 delta)
     return;
   }
   unsigned long params[2] = { a1 + delta, a2 + delta };
-  int err = ioctl(fd, IOCTL_CNT_UPROBES, (int *)&params);
+  int err = ioctl(g_fd, IOCTL_CNT_UPROBES, (int *)&params);
   if ( err )
   {
     printf("IOCTL_CNT_UPROBES count failed, error %d (%s)\n", errno, strerror(errno));
@@ -2201,7 +2211,7 @@ void dump_uprobes(int fd, sa64 delta)
   buf[0] = a1 + delta;
   buf[1] = a2 + delta;
   buf[2] = params[0];
-  err = ioctl(fd, IOCTL_UPROBES, (int *)buf);
+  err = ioctl(g_fd, IOCTL_UPROBES, (int *)buf);
   if ( err )
   {
     printf("IOCTL_UPROBES failed, error %d (%s)\n", errno, strerror(errno));
@@ -2227,7 +2237,7 @@ void dump_uprobes(int fd, sa64 delta)
       cbuf[1] = a2 + delta;
       cbuf[2] = (unsigned long)up[cnt].addr;
       cbuf[3] = up[cnt].cons_cnt;
-      err = ioctl(fd, IOCTL_UPROBES_CONS, (int *)cbuf);
+      err = ioctl(g_fd, IOCTL_UPROBES_CONS, (int *)cbuf);
       if ( err )
       {
         printf("IOCTL_UPROBES_CONS for %p failed, error %d (%s)\n", up[cnt].addr, errno, strerror(errno));
@@ -2262,25 +2272,25 @@ void dump_uprobes(int fd, sa64 delta)
         cbuf[1] = a2 + delta;
         cbuf[2] = (unsigned long)up[cnt].addr;
         cbuf[3] = (unsigned long)uc[cnt2].addr;
-        err = ioctl(fd, IOCTL_TRACE_UPROBE, (int *)cbuf);
+        err = ioctl(g_fd, IOCTL_TRACE_UPROBE, (int *)cbuf);
         if ( err )
         {
           printf("IOCTL_TRACE_UPROBE for %p failed, error %d (%s)\n", up[cnt].addr, errno, strerror(errno));
           continue;
         }
         uprobe_args ua { a1 + delta, a2 + delta, (unsigned long)up[cnt].addr, (unsigned long)uc[cnt2].addr };
-        dump_trace_event_call(fd, cnt2, (one_trace_event_call *)cbuf, delta, &ua);
+        dump_trace_event_call(cnt2, (one_trace_event_call *)cbuf, delta, &ua);
       }
   }
 }
 
-void dump_protosw(int fd, a64 list, a64 lock, sa64 delta, const char *what)
+void dump_protosw(a64 list, a64 lock, sa64 delta, const char *what)
 {
   printf("\n%s at %p:\n", what, (void *)(list + delta));
   for ( int i = 0; i < 11; i++ )
   {
     unsigned long args[4] = { list + delta, lock + delta, (unsigned long)i, 0 };
-    int err = ioctl(fd, IOCTL_GET_PROTOSW, (int *)args);
+    int err = ioctl(g_fd, IOCTL_GET_PROTOSW, (int *)args);
     if ( err )
     {
       printf("IOCTL_GET_PROTOSW count for %d failed, error %d (%s)\n", i, errno, strerror(errno));
@@ -2297,7 +2307,7 @@ void dump_protosw(int fd, a64 list, a64 lock, sa64 delta, const char *what)
     buf[1] = lock + delta;
     buf[2] = i;
     buf[3] = args[0];
-    err = ioctl(fd, IOCTL_GET_PROTOSW, (int *)buf);
+    err = ioctl(g_fd, IOCTL_GET_PROTOSW, (int *)buf);
     if ( err )
     {
       printf("IOCTL_GET_PROTOSW for %d failed, error %d (%s)\n", i, errno, strerror(errno));
@@ -2317,10 +2327,10 @@ void dump_protosw(int fd, a64 list, a64 lock, sa64 delta, const char *what)
   }
 }
 
-void dump_rtnl_af_ops(int fd, a64 nca, sa64 delta)
+void dump_rtnl_af_ops(a64 nca, sa64 delta)
 {
   unsigned long args[2] = { nca + delta, 0 };
-  int err = ioctl(fd, IOCTL_GET_RTNL_AF_OPS, (int *)args);
+  int err = ioctl(g_fd, IOCTL_GET_RTNL_AF_OPS, (int *)args);
   if ( err )
   {
     printf("IOCTL_GET_RTNL_AF_OPS count failed, error %d (%s)\n", errno, strerror(errno));
@@ -2336,7 +2346,7 @@ void dump_rtnl_af_ops(int fd, a64 nca, sa64 delta)
   dumb_free<unsigned long> tmp(buf);
   buf[0] = nca + delta;
   buf[1] = args[0];
-  err = ioctl(fd, IOCTL_GET_RTNL_AF_OPS, (int *)buf);
+  err = ioctl(g_fd, IOCTL_GET_RTNL_AF_OPS, (int *)buf);
   if ( err )
   {
     printf("IOCTL_GET_RTNL_AF_OPS failed, error %d (%s)\n", errno, strerror(errno));
@@ -2348,10 +2358,10 @@ void dump_rtnl_af_ops(int fd, a64 nca, sa64 delta)
   }
 }
 
-void dump_link_ops(int fd, a64 nca, sa64 delta)
+void dump_link_ops(a64 nca, sa64 delta)
 {
   unsigned long args[2] = { nca + delta, 0 };
-  int err = ioctl(fd, IOCTL_GET_LINKS_OPS, (int *)args);
+  int err = ioctl(g_fd, IOCTL_GET_LINKS_OPS, (int *)args);
   if ( err )
   {
     printf("IOCTL_GET_LINKS_OPS count failed, error %d (%s)\n", errno, strerror(errno));
@@ -2367,7 +2377,7 @@ void dump_link_ops(int fd, a64 nca, sa64 delta)
   dumb_free<unsigned long> tmp(buf);
   buf[0] = nca + delta;
   buf[1] = args[0];
-  err = ioctl(fd, IOCTL_GET_LINKS_OPS, (int *)buf);
+  err = ioctl(g_fd, IOCTL_GET_LINKS_OPS, (int *)buf);
   if ( err )
   {
     printf("IOCTL_GET_LINKS_OPS failed, error %d (%s)\n", errno, strerror(errno));
@@ -2379,7 +2389,7 @@ void dump_link_ops(int fd, a64 nca, sa64 delta)
   }
 }
 
-void dump_ulps(int fd, a64 nca, a64 plock, sa64 delta)
+void dump_ulps(a64 nca, a64 plock, sa64 delta)
 {
   if ( !nca )
   {
@@ -2391,7 +2401,7 @@ void dump_ulps(int fd, a64 nca, a64 plock, sa64 delta)
     printf("cannot find tcp_ulp_list_lock\n");
     return;
   }
-  dump_data2arg<one_tcp_ulp_ops>(fd, nca, plock, delta, IOCTL_GET_ULP_OPS, "tcp_ulp_list", "IOCTL_GET_ULP_OPS", "tcp_ulp_ops",
+  dump_data2arg<one_tcp_ulp_ops>(nca, plock, delta, IOCTL_GET_ULP_OPS, "tcp_ulp_list", "IOCTL_GET_ULP_OPS", "tcp_ulp_ops",
    [=](size_t idx, const one_tcp_ulp_ops *sb) {
     printf(" [%ld] at %p %s", idx, sb->addr, sb->name);
     dump_unnamed_kptr((unsigned long)sb->addr, delta);
@@ -2411,7 +2421,7 @@ void dump_ulps(int fd, a64 nca, a64 plock, sa64 delta)
   );
 }
 
-void dump_pernet_ops(int fd, a64 nca, a64 plock, sa64 delta)
+void dump_pernet_ops(a64 nca, a64 plock, sa64 delta)
 {
   if ( !nca )
   {
@@ -2423,7 +2433,7 @@ void dump_pernet_ops(int fd, a64 nca, a64 plock, sa64 delta)
     printf("cannot find pernet_ops_rwsem\n");
     return;
   }
-  dump_data2arg<one_pernet_ops>(fd, nca, plock, delta, IOCTL_GET_PERNET_OPS, "pernet_ops", "IOCTL_GET_PERNET_OPS", "pernet_ops",
+  dump_data2arg<one_pernet_ops>(nca, plock, delta, IOCTL_GET_PERNET_OPS, "pernet_ops", "IOCTL_GET_PERNET_OPS", "pernet_ops",
    [=](size_t idx, const one_pernet_ops *sb) {
     printf(" [%ld] at %p", idx, sb->addr);
     dump_unnamed_kptr((unsigned long)sb->addr, delta);
@@ -2442,10 +2452,10 @@ static size_t calc_net_chains_size(size_t n)
   return (n + 1) * sizeof(unsigned long);
 }
 
-void dump_block_chain(int fd, a64 nca, sa64 delta, const char *name)
+void dump_block_chain(a64 nca, sa64 delta, const char *name)
 {
   unsigned long val = nca + delta;
-  int err = ioctl(fd, IOCTL_CNTNTFYCHAIN, (int *)&val);
+  int err = ioctl(g_fd, IOCTL_CNTNTFYCHAIN, (int *)&val);
   if ( err )
   {
     printf("IOCTL_CNTSNTFYCHAIN for %s failed, error %d (%s)\n", name, errno, strerror(errno));
@@ -2461,7 +2471,7 @@ void dump_block_chain(int fd, a64 nca, sa64 delta, const char *name)
   dumb_free<unsigned long> tmp(buf);
   buf[0] = nca + delta;
   buf[1] = val;
-  err = ioctl(fd, IOCTL_ENUMNTFYCHAIN, (int *)buf);
+  err = ioctl(g_fd, IOCTL_ENUMNTFYCHAIN, (int *)buf);
   if ( err )
   {
     printf("IOCTL_ENUMNTFYCHAIN for %s failed, error %d (%s)\n", name, errno, strerror(errno));
@@ -2474,7 +2484,7 @@ void dump_block_chain(int fd, a64 nca, sa64 delta, const char *name)
   }
 }
 
-void dump_net_chains(int fd, a64 nca, size_t cnt, sa64 delta)
+void dump_net_chains(a64 nca, size_t cnt, sa64 delta)
 {
   size_t size = calc_net_chains_size(cnt);
   unsigned long *buf = (unsigned long *)malloc(size);
@@ -2483,7 +2493,7 @@ void dump_net_chains(int fd, a64 nca, size_t cnt, sa64 delta)
   dumb_free<unsigned long> tmp(buf);
   buf[0] = nca + delta;
   buf[1] = cnt;
-  int err = ioctl(fd, IOCTL_GET_NETDEV_CHAIN, (int *)buf);
+  int err = ioctl(g_fd, IOCTL_GET_NETDEV_CHAIN, (int *)buf);
   if ( err )
   {
     printf("IOCTL_GET_NETDEV_CHAIN failed, error %d (%s)\n", errno, strerror(errno));
@@ -2496,7 +2506,7 @@ void dump_net_chains(int fd, a64 nca, size_t cnt, sa64 delta)
   }
 }
 
-void dump_genl(int fd, a64 addr, sa64 delta)
+void dump_genl(a64 addr, sa64 delta)
 {
   if ( !addr )
   {
@@ -2504,7 +2514,7 @@ void dump_genl(int fd, a64 addr, sa64 delta)
     return;
   }
   unsigned long args[2] = { addr + delta, 0 };
-  int err = ioctl(fd, IOCTL_GET_GENL_FAMILIES, (int *)args);
+  int err = ioctl(g_fd, IOCTL_GET_GENL_FAMILIES, (int *)args);
   if ( err )
   {
     printf("IOCTL_GET_GENL_FAMILIES count failed, error %d (%s)\n", errno, strerror(errno));
@@ -2520,7 +2530,7 @@ void dump_genl(int fd, a64 addr, sa64 delta)
   dumb_free<unsigned long> tmp(buf);
   buf[0] = addr + delta;
   buf[1] = args[0];
-  err = ioctl(fd, IOCTL_GET_GENL_FAMILIES, (int *)buf);
+  err = ioctl(g_fd, IOCTL_GET_GENL_FAMILIES, (int *)buf);
   if ( err )
   {
     printf("IOCTL_GET_GENL_FAMILIES failed, error %d (%s)\n", errno, strerror(errno));
@@ -2584,7 +2594,7 @@ static const char *const nlk_names[MAX_LINKS] = {
  NULL,
 };
 
-void dump_netlinks(int fd, a64 nca, a64 lock, sa64 delta)
+void dump_netlinks(a64 nca, a64 lock, sa64 delta)
 {
   netlink_args args;
   if ( !nca )
@@ -2602,7 +2612,7 @@ void dump_netlinks(int fd, a64 nca, a64 lock, sa64 delta)
     args.args[0] = nca + delta;
     args.args[1] = lock + delta;
     args.args[2] = (unsigned long)i;
-    int err = ioctl(fd, IOCTL_GET_NLTAB, (int *)&args);
+    int err = ioctl(g_fd, IOCTL_GET_NLTAB, (int *)&args);
     if ( err )
     {
       printf("IOCTL_GET_NLTAB index %d failed, error %d (%s)\n", i, errno, strerror(errno));
@@ -2629,7 +2639,7 @@ void dump_netlinks(int fd, a64 nca, a64 lock, sa64 delta)
     buf[1] = lock + delta;
     buf[2] = (unsigned long)i;
     buf[3] = args.out.sk_count;
-    err = ioctl(fd, IOCTL_GET_NL_SK, (int *)buf);
+    err = ioctl(g_fd, IOCTL_GET_NL_SK, (int *)buf);
     if ( err )
     {
       printf("IOCTL_GET_NL_SK index %d failed, error %d (%s)\n", i, errno, strerror(errno));
@@ -2663,7 +2673,7 @@ static size_t calc_proto_size(size_t n)
   return (n + 1) * sizeof(unsigned long);
 }
 
-void dump_protos(int fd, a64 nca, a64 lock, sa64 delta)
+void dump_protos(a64 nca, a64 lock, sa64 delta)
 {
   if ( !nca )
   {
@@ -2676,7 +2686,7 @@ void dump_protos(int fd, a64 nca, a64 lock, sa64 delta)
     return;
   }
   unsigned long args[3] = { nca + delta, lock + delta, 0 };
-  int err = ioctl(fd, IOCTL_GET_PROTOS, (int *)args);
+  int err = ioctl(g_fd, IOCTL_GET_PROTOS, (int *)args);
   if ( err )
   {
     printf("IOCTL_GET_PROTOS count failed, error %d (%s)\n", errno, strerror(errno));
@@ -2693,7 +2703,7 @@ void dump_protos(int fd, a64 nca, a64 lock, sa64 delta)
   buf[0] = nca + delta;
   buf[1] = lock + delta;
   buf[2] = args[0];
-  err = ioctl(fd, IOCTL_GET_PROTOS, (int *)buf);
+  err = ioctl(g_fd, IOCTL_GET_PROTOS, (int *)buf);
   if ( err )
   {
     printf("IOCTL_GET_PROTOS failed, error %d (%s)\n", errno, strerror(errno));
@@ -2707,10 +2717,10 @@ void dump_protos(int fd, a64 nca, a64 lock, sa64 delta)
   }
 }
 
-void dump_netf(int fd, sa64 delta, void *net)
+void dump_netf(sa64 delta, void *net)
 {
   unsigned long args[2] = { (unsigned long)net, 0 };
-  int err = ioctl(fd, IOCTL_ENUM_NFT_AF, (int *)&args);
+  int err = ioctl(g_fd, IOCTL_ENUM_NFT_AF, (int *)&args);
   if ( err )
   {
     if ( errno != 71 /* EPROTO */ )
@@ -2724,7 +2734,7 @@ void dump_netf(int fd, sa64 delta, void *net)
   dumb_free<unsigned long> tmp(buf);
   buf[0] = (unsigned long)net;
   buf[1] = args[0];
-  err = ioctl(fd, IOCTL_ENUM_NFT_AF, (int *)buf);
+  err = ioctl(g_fd, IOCTL_ENUM_NFT_AF, (int *)buf);
   if ( err )
   {
     printf("IOCTL_ENUM_NFT_AF failed, error %d (%s)\n", errno, strerror(errno));
@@ -2778,10 +2788,10 @@ void dum_nf_list(sa64 delta, unsigned long *buf)
   }
 }
 
-void dump_nf_loggers(int fd, sa64 delta, void *net)
+void dump_nf_loggers(sa64 delta, void *net)
 {
   unsigned long args[2] = { (unsigned long)net, 0 };
-  int err = ioctl(fd, IOCTL_NFLOGGERS, (int *)args);
+  int err = ioctl(g_fd, IOCTL_NFLOGGERS, (int *)args);
   if ( err )
   {
     printf("IOCTL_NFLOGGERS cont failed, error %d (%s)\n", errno, strerror(errno));
@@ -2795,7 +2805,7 @@ void dump_nf_loggers(int fd, sa64 delta, void *net)
   dumb_free<unsigned long> tmp(buf);
   buf[0] = (unsigned long)net;
   buf[1] = args[0];
-  err = ioctl(fd, IOCTL_NFLOGGERS, (int *)buf);
+  err = ioctl(g_fd, IOCTL_NFLOGGERS, (int *)buf);
   if ( err )
   {
     printf("IOCTL_NFLOGGERS failed, error %d (%s)\n", errno, strerror(errno));
@@ -2805,10 +2815,10 @@ void dump_nf_loggers(int fd, sa64 delta, void *net)
   dum_nf_list(delta, buf);
 }
 
-void dump_nf_hooks(int fd, sa64 delta, void *net)
+void dump_nf_hooks(sa64 delta, void *net)
 {
   unsigned long args[2] = { (unsigned long)net, 0 };
-  int err = ioctl(fd, IOCTL_NFHOOKS, (int *)args);
+  int err = ioctl(g_fd, IOCTL_NFHOOKS, (int *)args);
   if ( err )
   {
     printf("IOCTL_NFHOOKS count failed, error %d (%s)\n", errno, strerror(errno));
@@ -2822,7 +2832,7 @@ void dump_nf_hooks(int fd, sa64 delta, void *net)
   dumb_free<unsigned long> tmp(buf);
   buf[0] = (unsigned long)net;
   buf[1] = args[0];
-  err = ioctl(fd, IOCTL_NFHOOKS, (int *)buf);
+  err = ioctl(g_fd, IOCTL_NFHOOKS, (int *)buf);
   if ( err )
   {
     printf("IOCTL_NFHOOKS failed, error %d (%s)\n", errno, strerror(errno));
@@ -2832,9 +2842,9 @@ void dump_nf_hooks(int fd, sa64 delta, void *net)
   dum_nf_list(delta, buf);
 }
 
-void dump_nf_hooks(int fd, sa64 delta, const char *pfx, unsigned long *d)
+void dump_nf_hooks(sa64 delta, const char *pfx, unsigned long *d)
 {
-  int err = ioctl(fd, IOCTL_NFIEHOOKS, (int *)d);
+  int err = ioctl(g_fd, IOCTL_NFIEHOOKS, (int *)d);
   if ( err )
   {
     printf("IOCTL_NFIEHOOKS failed, error %d (%s)\n", errno, strerror(errno));
@@ -2850,10 +2860,10 @@ void dump_nf_hooks(int fd, sa64 delta, const char *pfx, unsigned long *d)
   }
 }
 
-void dump_nets(int fd, sa64 delta)
+void dump_nets(sa64 delta)
 {
   unsigned long cnt = 0;
-  int err = ioctl(fd, IOCTL_GET_NETS, (int *)&cnt);
+  int err = ioctl(g_fd, IOCTL_GET_NETS, (int *)&cnt);
   if ( err )
   {
     printf("IOCTL_GET_NETS count failed, error %d (%s)\n", errno, strerror(errno));
@@ -2868,7 +2878,7 @@ void dump_nets(int fd, sa64 delta)
     return;
   dumb_free<unsigned long> tmp(buf);
   buf[0] = cnt;
-  err = ioctl(fd, IOCTL_GET_NETS, (int *)buf);
+  err = ioctl(g_fd, IOCTL_GET_NETS, (int *)buf);
   if ( err )
   {
     printf("IOCTL_GET_NETS failed, error %d (%s)\n", errno, strerror(errno));
@@ -2898,9 +2908,9 @@ void dump_nets(int fd, sa64 delta)
     if ( sb->nf_hook_drop )
       dump_kptr((unsigned long)sb->nf_hook_drop, "nf.queue_handler.nf_hook_drop", delta);
     // dump netfilter
-    dump_nf_hooks(fd, delta, sb->addr);
-    dump_netf(fd, delta, sb->addr);
-    dump_nf_loggers(fd, delta, sb->addr);
+    dump_nf_hooks(delta, sb->addr);
+    dump_netf(delta, sb->addr);
+    dump_nf_loggers(delta, sb->addr);
     // dump bpf
     if ( sb->progs[0] )
       printf(" netns_bpf[0]: %p\n", sb->progs[0]);
@@ -2919,7 +2929,7 @@ void dump_nets(int fd, sa64 delta)
     dumb_free<unsigned long> tmp2(dbuf);
     dbuf[0] = (unsigned long)sb->addr;
     dbuf[1] = sb->dev_cnt;
-    err = ioctl(fd, IOCTL_GET_NET_DEVS, (int *)dbuf);
+    err = ioctl(g_fd, IOCTL_GET_NET_DEVS, (int *)dbuf);
     if ( err )
     {
       printf("IOCTL_GET_NET_DEVS failed, error %d (%s)\n", errno, strerror(errno));
@@ -2974,7 +2984,7 @@ void dump_nets(int fd, sa64 delta)
           ing[1] = (unsigned long)nd->addr;
           ing[2] = nd->num_ihook_entries;
           ing[3] = 0;
-          dump_nf_hooks(fd, delta, "in", ing);
+          dump_nf_hooks(delta, "in", ing);
         }
       }
       if ( nd->num_ehook_entries )
@@ -2990,7 +3000,7 @@ void dump_nets(int fd, sa64 delta)
           ing[1] = (unsigned long)nd->addr;
           ing[2] = nd->num_ehook_entries;
           ing[3] = 1;
-          dump_nf_hooks(fd, delta, "e", ing);
+          dump_nf_hooks(delta, "e", ing);
         }
       }
 
@@ -3008,7 +3018,7 @@ void dump_nets(int fd, sa64 delta)
   {
     one_sock_diag sd;
     sd.addr = (void *)i;
-    err = ioctl(fd, IOCTL_GET_SOCK_DIAG, (int *)&sd);
+    err = ioctl(g_fd, IOCTL_GET_SOCK_DIAG, (int *)&sd);
     if ( err )
     {
       printf("IOCTL_GET_SOCK_DIAG(%d) failed, error %d (%s)\n", i, errno, strerror(errno));
@@ -3031,40 +3041,40 @@ void dump_nets(int fd, sa64 delta)
     unsigned long nc[2];
     nc[0] = nca + delta;
     nc[1] = 0;
-    err = ioctl(fd, IOCTL_GET_NETDEV_CHAIN, (int *)nc);
+    err = ioctl(g_fd, IOCTL_GET_NETDEV_CHAIN, (int *)nc);
     if ( err )
       printf("IOCTL_GET_NETDEV_CHAIN failed, error %d (%s)\n", errno, strerror(errno));
     else {
       printf("\nnetdev_chain at %p: %ld\n", (void *)(nca + delta), nc[0]);
       if ( nc[0] )
-        dump_net_chains(fd, nca, nc[0], delta);
+        dump_net_chains(nca, nc[0], delta);
     }
   } else
     printf("cannot find netdev_chain");
   // proto list
   nca = get_addr("proto_list");
   auto plock = get_addr("proto_list_mutex");
-  dump_protos(fd, nca, plock, delta);
+  dump_protos(nca, plock, delta);
   // ulp ops
   nca = get_addr("tcp_ulp_list"); 
   plock = get_addr("tcp_ulp_list_lock");
-  dump_ulps(fd, nca, plock, delta);
+  dump_ulps(nca, plock, delta);
   // pernet ops
   nca = get_addr("pernet_list");
   plock = get_addr("pernet_ops_rwsem");
-  dump_pernet_ops(fd, nca, plock, delta);
+  dump_pernet_ops(nca, plock, delta);
   // link ops
   nca = get_addr("link_ops");
   if ( !nca )
     printf("cannot find link_ops");
   else
-    dump_link_ops(fd, nca, delta);
+    dump_link_ops(nca, delta);
   // rtnl_af_ops
   nca = get_addr("rtnl_af_ops");
   if ( !nca )
     printf("cannot find rtnl_af_ops");
   else
-    dump_rtnl_af_ops(fd, nca, delta);
+    dump_rtnl_af_ops(nca, delta);
   // protosw
   nca = get_addr("inetsw");
   plock = get_addr("inetsw_lock");
@@ -3073,34 +3083,34 @@ void dump_nets(int fd, sa64 delta)
   else if ( !plock )
     printf("cannot find inetsw_lock\n");
   else
-    dump_protosw(fd, nca, plock, delta, "inetsw");
+    dump_protosw(nca, plock, delta, "inetsw");
   nca = get_addr("inetsw6");
   plock = get_addr("inetsw6_lock");
   if ( nca && plock )
-    dump_protosw(fd, nca, plock, delta, "inetsw6");
+    dump_protosw(nca, plock, delta, "inetsw6");
   // network block chains
   nca = get_addr("netlink_chain");
   if ( nca )
-    dump_block_chain(fd, nca, delta, "netlink_chain");
+    dump_block_chain(nca, delta, "netlink_chain");
   nca = get_addr("inetaddr_chain");
   if ( nca )
-    dump_block_chain(fd, nca, delta, "inetaddr_chain");
+    dump_block_chain(nca, delta, "inetaddr_chain");
 //  inet6addr_chain is ATOMIC_NOTIFIER
 //  nca = get_addr("inet6addr_chain");
 //  if ( nca )
 //    dump_block_chain(fd, nca, delta, "inet6addr_chain");
   nca = get_addr("inetaddr_validator_chain");
   if ( nca )
-    dump_block_chain(fd, nca, delta, "inetaddr_validator_chain");
+    dump_block_chain(nca, delta, "inetaddr_validator_chain");
   nca = get_addr("inet6addr_validator_chain");
   if ( nca )
-    dump_block_chain(fd, nca, delta, "inet6addr_validator_chain");
+    dump_block_chain(nca, delta, "inet6addr_validator_chain");
   // dump netlinks
   nca = get_addr("nl_table");
   plock = get_addr("nl_table_lock");
-  dump_netlinks(fd, nca, plock, delta);
+  dump_netlinks(nca, plock, delta);
   nca = get_addr("genl_fam_idr");
-  dump_genl(fd, nca, delta);
+  dump_genl(nca, delta);
 }
 
 // ripped from include/uapi/linux/stat.h
@@ -3138,10 +3148,10 @@ void dump_marks(unsigned long size, one_fsnotify *of, sa64 delta, const char *ma
   }
 }
 
-void dump_super_blocks(int fd, sa64 delta)
+void dump_super_blocks(sa64 delta)
 {
   unsigned long cnt = 0;
-  int err = ioctl(fd, IOCTL_GET_SUPERBLOCKS, (int *)&cnt);
+  int err = ioctl(g_fd, IOCTL_GET_SUPERBLOCKS, (int *)&cnt);
   if ( err )
   {
     printf("IOCTL_GET_SUPERBLOCKS count failed, error %d (%s)\n", errno, strerror(errno));
@@ -3156,7 +3166,7 @@ void dump_super_blocks(int fd, sa64 delta)
     return;
   dumb_free<unsigned long> tmp(buf);
   buf[0] = cnt;
-  err = ioctl(fd, IOCTL_GET_SUPERBLOCKS, (int *)buf);
+  err = ioctl(g_fd, IOCTL_GET_SUPERBLOCKS, (int *)buf);
   if ( err )
   {
     printf("IOCTL_GET_SUPERBLOCKS failed, error %d (%s)\n", errno, strerror(errno));
@@ -3187,7 +3197,7 @@ void dump_super_blocks(int fd, sa64 delta)
       printf(" s_fsnotify_mask: %lX s_fsnotify_marks %p\n", sb[idx].s_fsnotify_mask, sb[idx].s_fsnotify_marks);
     // dump super-block marks
     unsigned long sb_marks_arg[2] = { (unsigned long)sb[idx].addr, 0 };
-    err = ioctl(fd, IOCTL_GET_SUPERBLOCK_MARKS, (int *)sb_marks_arg);
+    err = ioctl(g_fd, IOCTL_GET_SUPERBLOCK_MARKS, (int *)sb_marks_arg);
     if ( err )
     {
       printf("IOCTL_GET_SUPERBLOCK_MARKS count failed, error %d (%s)\n", errno, strerror(errno));
@@ -3200,7 +3210,7 @@ void dump_super_blocks(int fd, sa64 delta)
         // params for IOCTL_GET_SUPERBLOCK_MARKS
         mmbuf[0] = (unsigned long)sb[idx].addr;
         mmbuf[1] = sb_marks_arg[1];
-        err = ioctl(fd, IOCTL_GET_SUPERBLOCK_MARKS, (int *)mmbuf);
+        err = ioctl(g_fd, IOCTL_GET_SUPERBLOCK_MARKS, (int *)mmbuf);
         if ( err )
           printf("IOCTL_GET_SUPERBLOCK_MARKS failed, error %d (%s)\n", errno, strerror(errno));
         else
@@ -3218,7 +3228,7 @@ void dump_super_blocks(int fd, sa64 delta)
         // params for IOCTL_GET_SUPERBLOCK_MOUNTS
         mbuf[0] = (unsigned long)sb[idx].addr;
         mbuf[1] = sb[idx].mount_count;
-        err = ioctl(fd, IOCTL_GET_SUPERBLOCK_MOUNTS, (int *)mbuf);
+        err = ioctl(g_fd, IOCTL_GET_SUPERBLOCK_MOUNTS, (int *)mbuf);
         if ( err )
         {
           printf("IOCTL_GET_SUPERBLOCK_MOUNTS failed, error %d (%s)\n", errno, strerror(errno));
@@ -3247,7 +3257,7 @@ void dump_super_blocks(int fd, sa64 delta)
             mmbuf[0] = (unsigned long)sb[idx].addr;
             mmbuf[1] = (unsigned long)mnt[j].addr;
             mmbuf[2] = mnt[j].mark_count;
-            err = ioctl(fd, IOCTL_GET_MOUNT_MARKS, (int *)mmbuf);
+            err = ioctl(g_fd, IOCTL_GET_MOUNT_MARKS, (int *)mmbuf);
             if ( err )
             {
                printf("IOCTL_GET_MOUNT_MARKS failed, error %d (%s)\n", errno, strerror(errno));
@@ -3272,7 +3282,7 @@ void dump_super_blocks(int fd, sa64 delta)
     // params for IOCTL_GET_SUPERBLOCK_INODES
     ibuf[0] = (unsigned long)sb[idx].addr;
     ibuf[1] = sb[idx].inodes_cnt;
-    err = ioctl(fd, IOCTL_GET_SUPERBLOCK_INODES, (int *)ibuf);
+    err = ioctl(g_fd, IOCTL_GET_SUPERBLOCK_INODES, (int *)ibuf);
     if ( err )
     {
       printf("IOCTL_GET_SUPERBLOCK_INODES failed, error %d (%s)\n", errno, strerror(errno));
@@ -3298,7 +3308,7 @@ void dump_super_blocks(int fd, sa64 delta)
       fbuf[0] = (unsigned long)sb[idx].addr;
       fbuf[1] = (unsigned long)inod[j].addr;
       fbuf[2] = inod[j].mark_count;
-      err = ioctl(fd, IOCTL_GET_INODE_MARKS, (int *)fbuf);
+      err = ioctl(g_fd, IOCTL_GET_INODE_MARKS, (int *)fbuf);
       if ( err )
       {
         printf("IOCTL_GET_INODE_MARKS failed, error %d (%s)\n", errno, strerror(errno));
@@ -3311,10 +3321,10 @@ void dump_super_blocks(int fd, sa64 delta)
   }
 }
 
-int patch_kprobe(int fd, unsigned long a1, unsigned long a2, int idx, void *addr, int action)
+int patch_kprobe(unsigned long a1, unsigned long a2, int idx, void *addr, int action)
 {
   unsigned long args[5] = { a1, a2, (unsigned long)idx, (unsigned long)addr, (unsigned long)action };
-  int err = ioctl(fd, IOCTL_KPROBE_DISABLE, (int *)&args);
+  int err = ioctl(g_fd, IOCTL_KPROBE_DISABLE, (int *)&args);
   if ( err )
   {
     printf("IOCTL_KPROBE_DISABLE(%p) failed, error %d (%s)\n", addr, errno, strerror(errno));
@@ -3329,7 +3339,7 @@ int patch_kprobe(int fd, unsigned long a1, unsigned long a2, int idx, void *addr
   return 0;
 }
 
-void dump_kprobes(int fd, sa64 delta)
+void dump_kprobes(sa64 delta)
 {
   unsigned long a1 = get_addr("kprobe_table");
   if ( !a1 )
@@ -3351,7 +3361,7 @@ void dump_kprobes(int fd, sa64 delta)
   for ( int i = 0; i < 64; i++ )
   {
     unsigned long params[3] = { a1 + delta, a2 + delta, (unsigned long)i };
-    int err = ioctl(fd, IOCTL_CNT_KPROBE_BUCKET, (int *)&params);
+    int err = ioctl(g_fd, IOCTL_CNT_KPROBE_BUCKET, (int *)&params);
     if ( err )
     {
       printf("IOCTL_CNT_KPROBE_BUCKET(%d) failed, error %d (%s)\n", i, errno, strerror(errno));
@@ -3377,7 +3387,7 @@ void dump_kprobes(int fd, sa64 delta)
     buf[1] = a2 + delta;
     buf[2] = (unsigned long)i;
     buf[3] = params[0];
-    err = ioctl(fd, IOCTL_GET_KPROBE_BUCKET, (int *)buf);
+    err = ioctl(g_fd, IOCTL_GET_KPROBE_BUCKET, (int *)buf);
     if ( err )
     {
       printf("IOCTL_GET_KPROBE_BUCKET(%d) failed, error %d (%s)\n", i, errno, strerror(errno));
@@ -3399,13 +3409,13 @@ void dump_kprobes(int fd, sa64 delta)
         if ( is_d != g_kpd.end() )
         {
           printf("disable kprobe: ");
-          patch_kprobe(fd, a1 + delta, a2 + delta, i, kp[idx].kaddr, 0);
+          patch_kprobe(a1 + delta, a2 + delta, i, kp[idx].kaddr, 0);
         }  
         auto is_e = g_kpe.find((unsigned long)kp[idx].kaddr);
         if ( is_e != g_kpe.end() )
         {
           printf("enable kprobe: ");
-          patch_kprobe(fd, a1 + delta, a2 + delta, i, kp[idx].kaddr, 1);
+          patch_kprobe(a1 + delta, a2 + delta, i, kp[idx].kaddr, 1);
         }  
       }
       dump_kptr((unsigned long)kp[idx].addr, " addr", delta);
@@ -3432,7 +3442,7 @@ void dump_kprobes(int fd, sa64 delta)
           (unsigned long)kp[idx].kaddr,
           0
         };
-        err = ioctl(fd, IOCTL_GET_AGGR_KPROBE, (int *)cbuf);
+        err = ioctl(g_fd, IOCTL_GET_AGGR_KPROBE, (int *)cbuf);
         if ( err )
         {
           printf("IOCTL_GET_AGGR_KPROBE cnt for %p failed, error %d (%s)\n", kp[idx].kaddr, errno, strerror(errno));
@@ -3452,7 +3462,7 @@ void dump_kprobes(int fd, sa64 delta)
         ibuf[2] = (unsigned long)i;
         ibuf[3] = (unsigned long)kp[idx].kaddr;
         ibuf[4] = cbuf[0];
-        err = ioctl(fd, IOCTL_GET_AGGR_KPROBE, (int *)ibuf);
+        err = ioctl(g_fd, IOCTL_GET_AGGR_KPROBE, (int *)ibuf);
         if ( err )
         {
           printf("IOCTL_GET_AGGR_KPROBE for %p failed, error %d (%s)\n", kp[idx].kaddr, errno, strerror(errno));
@@ -3470,13 +3480,13 @@ void dump_kprobes(int fd, sa64 delta)
           if ( is_d != g_kpd.end() )
           {
             printf("disable kprobe: ");
-            patch_kprobe(fd, a1 + delta, a2 + delta, i, kp[idx2].kaddr, 0);
+            patch_kprobe(a1 + delta, a2 + delta, i, kp[idx2].kaddr, 0);
           }  
           auto is_e = g_kpe.find((unsigned long)kp[idx2].kaddr);
           if ( is_e != g_kpe.end() )
           {
             printf("enable kprobe: ");
-            patch_kprobe(fd, a1 + delta, a2 + delta, i, kp[idx2].kaddr, 1);
+            patch_kprobe(a1 + delta, a2 + delta, i, kp[idx2].kaddr, 1);
           }  
 
           if ( kp[idx2].pre_handler )
@@ -3500,10 +3510,10 @@ void dump_kprobes(int fd, sa64 delta)
     free(buf);
 }
 
-void install_urn(int fd, int action)
+void install_urn(int action)
 {
   unsigned long param = action;
-  int err = ioctl(fd, IOCTL_TEST_URN, (int *)&param);
+  int err = ioctl(g_fd, IOCTL_TEST_URN, (int *)&param);
   if ( err )
     printf("install_urn(%d) failed, error %d (%s)\n", action, errno, strerror(errno));
 }
@@ -3520,9 +3530,9 @@ static size_t calc_freq_ntfy_size(size_t n)
   return (n + 1) * sizeof(unsigned long);
 }
 
-void dump_freq_ntfy(int fd, const char *pfx, unsigned long *buf, sa64 delta)
+void dump_freq_ntfy(const char *pfx, unsigned long *buf, sa64 delta)
 {
-  int err = ioctl(fd, READ_CPUFREQ_NTFY, buf);
+  int err = ioctl(g_fd, READ_CPUFREQ_NTFY, buf);
   if ( err )
   {
     fprintf(stderr, "dump_freq_ntfy for %s failed, error %d (%s)\n", pfx, err, strerror(err));
@@ -3535,14 +3545,14 @@ void dump_freq_ntfy(int fd, const char *pfx, unsigned long *buf, sa64 delta)
   }
 }
 
-void dump_freq_ntfy(int fd, sa64 delta)
+void dump_freq_ntfy(sa64 delta)
 {
   int cpu_num = get_nprocs();
   unsigned long arg[3] = { 0, 0, 0 };
   for ( int i = 0; i < cpu_num; i++ )
   {
     arg[0] = i;
-    int err = ioctl(fd, READ_CPUFREQ_CNT, (int *)&arg);
+    int err = ioctl(g_fd, READ_CPUFREQ_CNT, (int *)&arg);
     if ( err )
     {
       printf("dump_freq_ntfy count for cpu_id %d failed, error %d (%s)\n", i, errno, strerror(errno));
@@ -3564,19 +3574,19 @@ void dump_freq_ntfy(int fd, sa64 delta)
       buf[0] = i;
       buf[1] = arg[1];
       buf[2] = 0;
-      dump_freq_ntfy(fd, "min", buf, delta);
+      dump_freq_ntfy("min", buf, delta);
     }
     if ( arg[2] )
     {
       buf[0] = i;
       buf[1] = arg[2];
       buf[2] = 1;
-      dump_freq_ntfy(fd, "max", buf, delta);
+      dump_freq_ntfy("max", buf, delta);
     }
   }
 }
 
-void dump_return_notifier_list(int fd, unsigned long this_off, unsigned long off, sa64 delta)
+void dump_return_notifier_list(unsigned long this_off, unsigned long off, sa64 delta)
 {
   int cpu_num = get_nprocs();
   size_t curr_n = 3;
@@ -3587,7 +3597,7 @@ void dump_return_notifier_list(int fd, unsigned long this_off, unsigned long off
   for ( int i = 0; i < cpu_num; i++ )
   {
     unsigned long buf[3] = { (unsigned long)i, this_off, off };
-    int err = ioctl(fd, IOCTL_CNT_RNL_PER_CPU, (int *)buf);
+    int err = ioctl(g_fd, IOCTL_CNT_RNL_PER_CPU, (int *)buf);
     if ( err )
     {
       printf("dump_return_notifier_list count for cpu_id %d failed, error %d (%s)\n", i, errno, strerror(errno));
@@ -3616,7 +3626,7 @@ void dump_return_notifier_list(int fd, unsigned long this_off, unsigned long off
     ntfy[1] = this_off;
     ntfy[2] = off;
     ntfy[3] = buf[1];
-    err = ioctl(fd, IOCTL_RNL_PER_CPU, (int *)ntfy);
+    err = ioctl(g_fd, IOCTL_RNL_PER_CPU, (int *)ntfy);
     if ( err )
     {
       printf("dump_return_notifier_list for cpu_id %d cnt %ld failed, error %d (%s)\n", i, buf[1], errno, strerror(errno));
@@ -3633,10 +3643,10 @@ void dump_return_notifier_list(int fd, unsigned long this_off, unsigned long off
     free(ntfy);
 }
 
-void dump_efivar_ops_field(int fd, char *ptr, const char *fname, sa64 delta)
+void dump_efivar_ops_field(char *ptr, const char *fname, sa64 delta)
 {
   char *arg = ptr;
-  int err = ioctl(fd, IOCTL_READ_PTR, (int *)&arg);
+  int err = ioctl(g_fd, IOCTL_READ_PTR, (int *)&arg);
    if ( err )
      printf("cannot read %s at %p, err %d\n", fname, ptr, err);
    else if ( arg )
@@ -3645,11 +3655,11 @@ void dump_efivar_ops_field(int fd, char *ptr, const char *fname, sa64 delta)
 
 // generic_efivars is struct efivars - 2nd ptr is efivar_operations which has 5 function pointers
 // see https://elixir.bootlin.com/linux/v5.14-rc7/source/include/linux/efi.h#L948
-void dump_efivars(int fd, a64 saddr, sa64 delta)
+void dump_efivars(a64 saddr, sa64 delta)
 {
    char *ptr = (char *)saddr + delta + 2 * sizeof(void *);
    char *arg = ptr;
-   int err = ioctl(fd, IOCTL_READ_PTR, (int *)&arg);
+   int err = ioctl(g_fd, IOCTL_READ_PTR, (int *)&arg);
    if ( err )
    {
       printf("dump_efivars: read at %p failed, error %d (%s)\n", ptr, errno, strerror(errno));
@@ -3668,26 +3678,26 @@ void dump_efivars(int fd, a64 saddr, sa64 delta)
    }
    // dump all five fields
    ptr = arg;
-   dump_efivar_ops_field(fd, ptr, "get_variable", delta);
+   dump_efivar_ops_field(ptr, "get_variable", delta);
 
    ptr += sizeof(void *);
-   dump_efivar_ops_field(fd, ptr, "get_variable_next", delta);
+   dump_efivar_ops_field(ptr, "get_variable_next", delta);
 
    ptr += sizeof(void *);
-   dump_efivar_ops_field(fd, ptr, "set_variable", delta);
+   dump_efivar_ops_field(ptr, "set_variable", delta);
 
    ptr += sizeof(void *);
-   dump_efivar_ops_field(fd, ptr, "set_variable_nonblocking", delta);
+   dump_efivar_ops_field(ptr, "set_variable_nonblocking", delta);
 
    ptr += sizeof(void *);
-   dump_efivar_ops_field(fd, ptr, "query_variable_store", delta);
+   dump_efivar_ops_field(ptr, "query_variable_store", delta);
 }
 
-void dump_usb_mon(int fd, a64 saddr, sa64 delta)
+void dump_usb_mon(a64 saddr, sa64 delta)
 {
    char *ptr = (char *)saddr + delta;
    char *arg = ptr;
-   int err = ioctl(fd, IOCTL_READ_PTR, (int *)&arg);
+   int err = ioctl(g_fd, IOCTL_READ_PTR, (int *)&arg);
    if ( err )
    {
       printf("dump_usb_mon: read at %p failed, error %d (%s)\n", ptr, errno, strerror(errno));
@@ -3711,13 +3721,13 @@ void dump_usb_mon(int fd, a64 saddr, sa64 delta)
    // see https://elixir.bootlin.com/linux/v5.14-rc7/source/include/linux/usb/hcd.h#L702
    // we need read 3 pointers at ptr
    ptr = arg;
-   dump_efivar_ops_field(fd, ptr, "urb_submit", delta);
+   dump_efivar_ops_field(ptr, "urb_submit", delta);
 
    ptr += sizeof(void *);
-   dump_efivar_ops_field(fd, ptr, "urb_submit_error", delta);
+   dump_efivar_ops_field(ptr, "urb_submit_error", delta);
  
    ptr += sizeof(void *);
-   dump_efivar_ops_field(fd, ptr, "urb_complete", delta);
+   dump_efivar_ops_field(ptr, "urb_complete", delta);
 }
 
 static size_t calc_tp_size(size_t n)
@@ -3725,7 +3735,7 @@ static size_t calc_tp_size(size_t n)
   return sizeof(unsigned long) + n * sizeof(one_tracepoint_func);
 }
 
-void check_tracepoints(int fd, sa64 delta, addr_sym *tsyms, size_t tcount)
+void check_tracepoints(sa64 delta, addr_sym *tsyms, size_t tcount)
 {
   // alloc enough memory for tracepoint info
   size_t i, j, curr_n = 3;
@@ -3737,7 +3747,7 @@ void check_tracepoints(int fd, sa64 delta, addr_sym *tsyms, size_t tcount)
   {
     a64 addr = (a64)((char *)tsyms[i].addr + delta);
     ntfy[0] = addr;
-    int err = ioctl(fd, IOCTL_TRACEPOINT_INFO, (int *)ntfy);
+    int err = ioctl(g_fd, IOCTL_TRACEPOINT_INFO, (int *)ntfy);
     if ( err )
     {
       printf("error %d while read tracepoint info for %s at %p\n", err, tsyms[i].name, (void *)addr);
@@ -3767,7 +3777,7 @@ void check_tracepoints(int fd, sa64 delta, addr_sym *tsyms, size_t tcount)
     // dump funcs
     ntfy[0] = addr;
     ntfy[1] = curr_cnt;
-    err = ioctl(fd, IOCTL_TRACEPOINT_FUNCS, (int *)ntfy);
+    err = ioctl(g_fd, IOCTL_TRACEPOINT_FUNCS, (int *)ntfy);
     if ( err )
     {
       printf("error %d while read tracepoint funcs for %s at %p\n", err, tsyms[i].name, (void *)addr);
@@ -3784,12 +3794,12 @@ void check_tracepoints(int fd, sa64 delta, addr_sym *tsyms, size_t tcount)
   free(ntfy);
 }
 
-void dunp_kalarms(int fd, sa64 delta)
+void dunp_kalarms(sa64 delta)
 {
   for ( int i = 0; i < 2; ++i )
   {
     unsigned long params[3] = { (unsigned long)i, 0, 0 };
-    int err = ioctl(fd, IOCTL_GET_ALARMS, (int *)&params);
+    int err = ioctl(g_fd, IOCTL_GET_ALARMS, (int *)&params);
     if ( err )
     {
       printf("error %d while read IOCTL_GET_ALARMS %d cnt\n", err, i);
@@ -3813,7 +3823,7 @@ void dunp_kalarms(int fd, sa64 delta)
     // fill params
     buf[0] = (unsigned long)i;
     buf[1] = params[0];
-    err = ioctl(fd, IOCTL_GET_ALARMS, (int *)buf);
+    err = ioctl(g_fd, IOCTL_GET_ALARMS, (int *)buf);
     if ( err )
     {
       printf("error %d while read IOCTL_GET_ALARMS %d\n", err, i);
@@ -3836,7 +3846,7 @@ size_t calc_tsize(unsigned long c)
   return sizeof(unsigned long) + c * sizeof(ktimer);
 }
 
-void dump_ktimers(int fd, a64 off, a64 poff, sa64 delta)
+void dump_ktimers(a64 off, a64 poff, sa64 delta)
 {
   if ( !poff )
   {
@@ -3858,7 +3868,7 @@ void dump_ktimers(int fd, a64 off, a64 poff, sa64 delta)
   for ( i = 0; i < cpu_num; i++ )
   {
     unsigned long addr = poff + i * sizeof(unsigned long);
-    int err = ioctl(fd, IOCTL_READ_PTR, (int *)&addr);
+    int err = ioctl(g_fd, IOCTL_READ_PTR, (int *)&addr);
     if ( err )
     {
       printf("error %d while read per_cpu %d\n", err, i);
@@ -3873,7 +3883,7 @@ void dump_ktimers(int fd, a64 off, a64 poff, sa64 delta)
     if ( !per[i] )
       continue;
     unsigned long par[2] = { per[i] + off, 0 };
-    int err = ioctl(fd, IOCTL_GET_KTIMERS, (int *)par);
+    int err = ioctl(g_fd, IOCTL_GET_KTIMERS, (int *)par);
     if ( err )
     {
       printf("error %d while read timers count for cpu %d\n", err, i);
@@ -3902,7 +3912,7 @@ void dump_ktimers(int fd, a64 off, a64 poff, sa64 delta)
       continue;
     buf[0] = per[i] + off;
     buf[1] = tmax;
-    int err = ioctl(fd, IOCTL_GET_KTIMERS, (int *)buf);
+    int err = ioctl(g_fd, IOCTL_GET_KTIMERS, (int *)buf);
     if ( err )
     {
       printf("error %d while read timers for cpu %d\n", err, i);
@@ -3967,7 +3977,8 @@ int main(int argc, char **argv)
        opt_b = 0, opt_B = 0,
        opt_u = 0;
    int c;
-   int fd = 0;
+   int need_driver = 0;
+   char *unused;
    std::map<unsigned long, unsigned char> patches;
    while (1)
    {
@@ -3976,7 +3987,6 @@ int main(int argc, char **argv)
        optind++;
        if ( optind >= argc )
          usage(argv[0]);
-       char *unused;
        unsigned long v = strtoul(argv[optind], &unused, 16);
        if ( !v )
          usage(argv[0]);
@@ -3985,7 +3995,7 @@ int main(int argc, char **argv)
          usage(argv[0]);
        unsigned long value = strtoul(argv[optind], &unused, 16);
        patches[v] = (unsigned char)(value & 0xff);
-       optind++;
+       optind++; need_driver = 1;
        continue;
      }
      if ( !strcmp(argv[optind],"-kpd") )
@@ -3993,12 +4003,11 @@ int main(int argc, char **argv)
        optind++;
        if ( optind >= argc )
          usage(argv[0]);
-       char *unused;
        unsigned long v = strtoul(argv[optind], &unused, 16);
        if ( !v )
          usage(argv[0]);
        g_kpd.insert(v);
-       optind++;
+       optind++; need_driver = 1;
        continue;
      }
      if ( !strcmp(argv[optind],"-kpe") )
@@ -4011,7 +4020,7 @@ int main(int argc, char **argv)
        if ( !v )
          usage(argv[0]);
        g_kpe.insert(v);
-       optind++;
+       optind++; need_driver = 1;
        continue;
      }
      c = getopt(argc, argv, "BbCcdFfghHKknrSstTuvj:");
@@ -4028,18 +4037,19 @@ int main(int argc, char **argv)
 #endif /* _MSC_VER */
         case 'B':
           opt_B = 1;
+          need_driver = 1;
          break;
         case 'b':
           opt_b = 1;
          break;
  	case 'F':
- 	  opt_F = 1;
+ 	  opt_F = 1; need_driver = 1;
          break;
  	case 'f':
- 	  opt_f = 1;
+ 	  opt_f = 1; need_driver = 1;
          break;
         case 'g':
- 	  opt_g = 1;
+ 	  opt_g = 1; need_driver = 1;
          break;
         case 'h':
  	  g_opt_h = 1;
@@ -4054,41 +4064,37 @@ int main(int argc, char **argv)
           opt_d = 1;
          break;
         case 'C':
-          opt_C = 1;
+          opt_C = 1; need_driver = 1;
          break;
         case 'c':
           opt_c = 1;
          break;
         case 'K':
-          opt_K = 1;
-          opt_c = 1;
+          opt_K = 1; need_driver = 1;
          break;
         case 'k':
-          opt_k = 1;
-          opt_c = 1;
+          opt_k = 1; need_driver = 1;
          break;
         case 'n':
-          opt_n = 1;
+          opt_n = 1; need_driver = 1;
          break;
         case 'r':
           opt_r = 1;
          break;
         case 's':
-          opt_s = 1;
-          opt_c = 1;
+          opt_s = 1; need_driver = 1;
          break;
         case 'S':
-          opt_S = 1;
+          opt_S = 1; need_driver = 1;
          break;
         case 'u':
-          opt_u = 1;
-          opt_c = 1;
+          opt_u = 1; need_driver = 1;
          break;
         case 't':
-          opt_t = 1;
+          opt_t = 1; need_driver = 1;
          break;
         case 'T':
-          opt_T = 1;
+          opt_T = 1; need_driver = 1;
          break;
         default:
          usage(argv[0]);
@@ -4117,12 +4123,17 @@ int main(int argc, char **argv)
      }
    }
    // try to find symbols
-   if ( !has_syms && optind != argc )
+   if ( !has_syms )
    {
+     if ( optind == argc )
+     {
+       printf("missed symbols\n");
+       usage(argv[0]);
+     }
      int err = read_ksyms(argv[optind]);
      if ( err )
      {
-       printf("cannot read %s, error %d\n", argv[optind], err);
+       printf("cannot read symbols from %s, error %d\n", argv[optind], err);
        return err;
      }
      has_syms = 1;
@@ -4132,12 +4143,12 @@ int main(int argc, char **argv)
    a64 bpf_target = 0;
 #ifndef _MSC_VER
    // open driver
-   if ( opt_c ) 
+   if ( opt_c || need_driver ) 
    {
-     fd = open("/dev/lkcd", 0);
-     if ( -1 == fd )
+     g_fd = open("/dev/lkcd", 0);
+     if ( -1 == g_fd )
      {
-       printf("cannot open device, error %d\n", errno);
+       printf("cannot open device, error %d (%s)\n", errno, strerror(errno));
        opt_c = 0;
        goto end;
      }
@@ -4145,15 +4156,15 @@ int main(int argc, char **argv)
      auto symbol_a = get_addr("group_balance_cpu");
      if ( !symbol_a )
      {
-       close(fd);
-       fd = 0;
+       close(g_fd);
+       g_fd = 0;
        opt_c = 0;
        goto end;
      } else {
-       if ( read_kernel_area(fd) )
+       if ( read_kernel_area(g_fd) )
        {
-         close(fd);
-         fd = 0;
+         close(g_fd);
+         g_fd = -1;
          opt_c = 0;
          goto end;
        }
@@ -4166,12 +4177,12 @@ int main(int argc, char **argv)
        printf("group_balance_cpu from symbols: %p\n", (void *)symbol_a);
        union ksym_params kparm;
        strcpy(kparm.name, "group_balance_cpu");
-       err = ioctl(fd, IOCTL_RKSYM, (int *)&kparm);
+       err = ioctl(g_fd, IOCTL_RKSYM, (int *)&kparm);
        if ( err )
        {
          printf("IOCTL_RKSYM test failed, error %d\n", err);
-         close(fd);
-         fd = 0;
+         close(g_fd);
+         g_fd = 0;
          opt_c = 0;
        } else {
          printf("group_balance_cpu: %p\n", (void *)kparm.addr);
@@ -4179,27 +4190,28 @@ int main(int argc, char **argv)
          printf("delta: %lX\n", delta);
        }
      }
-     if ( opt_c && !patches.empty() )
-        patch_kernel(fd, patches);
+     if ( -1 != g_fd && !patches.empty() )
+        patch_kernel(patches);
      // dump keys
-     if ( opt_c && opt_K )
-       dump_keys(fd, delta);
+     if ( -1 != g_fd && opt_K )
+       dump_keys(delta);
      // dump consoles
-     if ( opt_c && opt_C )
-       dump_consoles(fd, delta);
+     if ( -1 != g_fd && opt_C )
+       dump_consoles(delta);
      // dump kprobes
-     if ( opt_k && opt_c )
+     if ( -1 != g_fd && opt_k )
      {
-       dump_kprobes(fd, delta);
-       dump_uprobes(fd, delta);
+    printf("process probes\n");
+       dump_kprobes(delta);
+       dump_uprobes(delta);
      }
      // dump super-blocks
-     if ( opt_F && opt_c )
-       dump_super_blocks(fd, delta);
-     if ( opt_c && opt_n )
-       dump_nets(fd, delta);
+     if ( -1 != g_fd && opt_F )
+       dump_super_blocks(delta);
+     if ( -1 != g_fd && opt_n )
+       dump_nets(delta);
      // check sysfs f_ops
-     if ( opt_c && opt_s )
+     if ( -1 != g_fd && opt_s )
      {
        if ( optind == argc )
        {
@@ -4211,7 +4223,7 @@ int main(int argc, char **argv)
        {
          strncpy(kparm.name, argv[idx], sizeof(kparm.name) - 1);
          kparm.name[sizeof(kparm.name) - 1] = 0;
-         int err = ioctl(fd, IOCTL_KERNFS_NODE, (int *)&kparm);
+         int err = ioctl(g_fd, IOCTL_KERNFS_NODE, (int *)&kparm);
          if ( err )
          {
            printf("IOCTL_KERNFS_NODE(%s) failed, error %d\n", argv[idx], err);
@@ -4307,7 +4319,7 @@ end:
                  continue;
                char *ptr = (char *)addr + delta;
                char *arg = ptr;
-               int err = ioctl(fd, IOCTL_READ_PTR, (int *)&arg);
+               int err = ioctl(g_fd, IOCTL_READ_PTR, (int *)&arg);
                if ( err )
                  printf("read ftrace at %p failed, error %d (%s)\n", ptr, errno, strerror(errno));
                else if ( !is_nop((unsigned char *)&arg) )
@@ -4360,7 +4372,7 @@ end:
        printf("found in .rodata %ld\n", count);
        // dump or check collected addresses
        if ( g_opt_v || opt_c )
-         dump_and_check(fd, opt_c, delta, has_syms, filled);
+         dump_and_check(opt_c, delta, has_syms, filled);
        continue;
      }
      if ( sec->get_name() == ".data" )
@@ -4371,30 +4383,30 @@ end:
        size_t count = 0;
        a64 curr_addr;
        // dump cgroups
-       if ( opt_g && opt_c && has_syms )
+       if ( opt_g && -1 != g_fd && has_syms )
        {
 #ifndef _MSC_VER
-         dump_groups(fd, delta);
+         dump_groups(delta);
 #endif  /* !_MSC_VER */
        }
-       if ( opt_u && has_syms )
+       if ( opt_u && -1 != g_fd && has_syms )
        {
          a64 addr = get_addr("mon_ops");
          if ( !addr )
            printf("cannot find mon_ops\n");
 #ifndef _MSC_VER
          else
-           dump_usb_mon(fd, addr, delta);
+           dump_usb_mon(addr, delta);
 #endif /* !_MSC_VER */
          addr = get_addr("generic_efivars");
          if ( !addr )
            printf("cannot find generic_efivars\n");
 #ifndef _MSC_VER
          else
-           dump_efivars(fd, addr, delta);
+           dump_efivars(addr, delta);
 #endif /* !_MSC_VER */
        }
-       if ( opt_T && has_syms )
+       if ( opt_T && -1 != g_fd && has_syms )
        {
          a64 off = (a64)get_addr("timer_bases");
          if ( off )
@@ -4403,10 +4415,10 @@ end:
           if ( opt_c )
           {
             a64 poff = (a64)get_addr("__per_cpu_offset");
-            dump_ktimers(fd, off, poff, delta);
-          }  
+            dump_ktimers(off, poff, delta);
+          }
          }
-         dunp_kalarms(fd, delta);
+         dunp_kalarms(delta);
        }
        if ( opt_t && has_syms )
        {
@@ -4423,20 +4435,21 @@ end:
                printf(" %p: %s\n", (void *)(tsyms[i].addr), tsyms[i].name);
            }
 #else
-           if ( opt_c )
-             check_tracepoints(fd, delta, tsyms, tcount);
+           if ( -1 != g_fd )
+             check_tracepoints(delta, tsyms, tcount);
 #endif /* _MSC_VER */
            free(tsyms);
          }
-         dump_ftrace_options(fd, delta);
+         if ( -1 != g_fd )
+           dump_ftrace_options(delta);
          // dump bpf raw events
          auto start = get_addr("__start__bpf_raw_tp");
          auto end   = get_addr("__stop__bpf_raw_tp");
-         dump_bpf_raw_events(fd, start, end, delta);
+         dump_bpf_raw_events(start, end, delta);
          // dump ftrace_ops
          auto fops = get_addr("ftrace_ops_list");
          auto m = get_addr("ftrace_lock");
-         dump_ftrace_ops(fd, fops, m, delta);
+         dump_ftrace_ops(fops, m, delta);
          // dump ftrace events
          auto ev_start = get_addr("__start_ftrace_events");
          auto ev_stop  = get_addr("__stop_ftrace_events");
@@ -4474,29 +4487,29 @@ end:
          {
            auto idr = get_addr("pmu_idr");
            auto m = get_addr("pmus_lock");
-           dump_pmus(fd, idr, m, delta);
+           dump_pmus(idr, m, delta);
            // registered trace_event_calls
-           dump_registered_trace_event_calls(fd, delta);
+           dump_registered_trace_event_calls(delta);
            // event cmds
            auto ecl = get_addr("trigger_commands");
            auto ecm = get_addr("trigger_cmd_mutex");
-           dump_event_cmds(fd, ecl, ecm, delta);
+           dump_event_cmds(ecl, ecm, delta);
            // trace exports
            ecl = get_addr("ftrace_exports_list");
            ecm = get_addr("ftrace_export_lock");
-           dump_trace_exports(fd, ecl, ecm, delta);
+           dump_trace_exports(ecl, ecm, delta);
            // ftrace cmds
            ecl = get_addr("ftrace_commands");
            ecm = get_addr("ftrace_cmd_mutex");
-           dump_tracefunc_cmds(fd, ecl, ecm, delta);
+           dump_tracefunc_cmds(ecl, ecm, delta);
            // dynamic events ops
            ecl = get_addr("dyn_event_ops_list");
            ecm = get_addr("dyn_event_ops_mutex");
-           dump_dynevents_ops(fd, ecl, ecm, delta);
+           dump_dynevents_ops(ecl, ecm, delta);
            // dump dynamic events
            ecl = get_addr("dyn_event_list");
            ecm = get_addr("event_mutex");
-           dump_dynamic_events(fd, ecl, ecm, delta);
+           dump_dynamic_events(ecl, ecm, delta);
          }
 #endif /* _MSC_VER */
        }
@@ -4525,13 +4538,13 @@ end:
        printf("found %ld\n", count);
        // dump or check collected addresses
        if ( g_opt_v || opt_c )
-         dump_and_check(fd, opt_c, delta, has_syms, filled);
+         dump_and_check(opt_c, delta, has_syms, filled);
 #ifndef _MSC_VER
        if ( opt_c )
        {
-         dump_freq_ntfy(fd, delta);
-         dump_clk_ntfy(fd, get_addr("clk_notifier_list"), get_addr("prepare_lock"), delta);
-         dump_devfreq_ntfy(fd, get_addr("devfreq_list"), get_addr("devfreq_list_lock"), delta);
+         dump_freq_ntfy(delta);
+         dump_clk_ntfy(get_addr("clk_notifier_list"), get_addr("prepare_lock"), delta);
+         dump_devfreq_ntfy(get_addr("devfreq_list"), get_addr("devfreq_list_lock"), delta);
        }
 #endif
        if ( opt_d )
@@ -4570,9 +4583,9 @@ end:
 #ifndef _MSC_VER
                    if ( opt_c )
                    {
-                     install_urn(fd, 1);
-                     dump_return_notifier_list(fd, this_cpu_off, return_notifier_list, delta);
-                     install_urn(fd, 0);
+                     install_urn(1);
+                     dump_return_notifier_list(this_cpu_off, return_notifier_list, delta);
+                     install_urn(0);
                    }
 #endif
                  }
@@ -4587,7 +4600,7 @@ end:
           if ( opt_B || opt_t )
           {
             // read bpf_protos
-            check_bpf_protos(fd, delta);
+            check_bpf_protos(delta);
             // find bpf targets
             auto entry = get_addr("bpf_iter_reg_target");
             auto mlock = get_addr("mutex_lock");
@@ -4598,21 +4611,21 @@ end:
             else
               bpf_target = bd->process_bpf_target(entry, mlock);
             // dump bpf
-            if ( opt_B && opt_c && has_syms )
+            if ( opt_B && -1 != g_fd && has_syms )
             {
 #ifndef _MSC_VER
-               dump_jit_options(fd, delta);
+               dump_jit_options(delta);
                auto tgm = get_addr("targets_mutex");
-               dump_bpf_targets(fd, bpf_target, tgm, delta);
+               dump_bpf_targets(bpf_target, tgm, delta);
                // bpf maps
                std::map<void *, std::string> names;
                auto entry = get_addr("map_idr");
                tgm = get_addr("map_idr_lock");
-               dump_bpf_maps(fd, entry, tgm, delta, names);
+               dump_bpf_maps(entry, tgm, delta, names);
                // bpf ksyms
                entry = get_addr("bpf_kallsyms");
                tgm = get_addr("bpf_lock");
-               dump_bpf_ksyms(fd, entry, tgm, delta);
+               dump_bpf_ksyms(entry, tgm, delta);
                // bpf progs
                if ( ujit_opened() )
                {
@@ -4627,11 +4640,11 @@ end:
                }
                entry = get_addr("prog_idr");
                tgm = get_addr("prog_idr_lock");
-               dump_bpf_progs(fd, entry, tgm, delta, names);
+               dump_bpf_progs(entry, tgm, delta, names);
                // bpf links
                entry = get_addr("link_idr");
                tgm = get_addr("link_idr_lock");
-               dump_bpf_links(fd, entry, tgm, delta);
+               dump_bpf_links(entry, tgm, delta);
 #endif /* !_MSC_VER */
             }
           }
@@ -4651,7 +4664,7 @@ end:
           {
             auto sem = get_addr("crypto_alg_sem");
             auto cal = get_addr("crypto_alg_list");
-            dump_ckalgos(fd, cal, sem, delta);
+            dump_ckalgos(cal, sem, delta);
             s_security_hook_heads = get_addr("security_hook_heads");
             if ( !s_security_hook_heads )
             {
@@ -4684,8 +4697,8 @@ end:
                   }
                 }
 #ifndef _MSC_VER
-                if ( opt_c )
-                  dump_lsm(fd, delta);
+                if ( -1 != g_fd )
+                  dump_lsm(delta);
 #endif /* !_MSC_VER */
               }
             }
@@ -4761,7 +4774,7 @@ end:
             {
               char *ptr = (char *)c + delta;
               char *arg = ptr;
-              int err = ioctl(fd, IOCTL_READ_PTR, (int *)&arg);
+              int err = ioctl(g_fd, IOCTL_READ_PTR, (int *)&arg);
               if ( err )
                 printf("read at %p failed, error %d (%s)\n", ptr, errno, strerror(errno));
               else if ( arg != NULL )
@@ -4788,8 +4801,8 @@ end:
      }
    }
 #ifndef _MSC_VER
-   if ( fd )
-     close(fd);
+   if ( g_fd != -1 )
+     close(g_fd);
    ujit_close();
 #endif /* _MSC_VER */
 }
