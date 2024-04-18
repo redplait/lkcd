@@ -109,6 +109,8 @@ my_mprotect_pkey s_mprotect = 0;
 
 typedef int (*my_lookup)(unsigned long addr, char *symname);
 my_lookup s_lookup = 0;
+struct mutex *s_module_mutex = 0;
+struct list_head *s_modules = 0;
 
 #define KPROBE_HASH_BITS 6
 #define KPROBE_TABLE_SIZE (1 << KPROBE_HASH_BITS)
@@ -1007,6 +1009,17 @@ static struct net *peek_net(unsigned long addr)
   return NULL;
 }
 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6,4,0)
+static unsigned int module_total_size(struct module *mod)
+{
+	int size = 0;
+
+	for_each_mod_mem_type(type)
+		size += mod->mem[type].size;
+	return size;
+}
+#endif
+
 static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long ioctl_param)
 {
   unsigned long ptrbuf[16];
@@ -1054,15 +1067,63 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
           return -ENOMEM;
         err = s_lookup(ptrbuf[0], (char *)kbuf);
         if ( err ) { kfree(kbuf); return err; }
-        kbuf_size = strlen((char *)kbuf);
+        kbuf_size = 1 + strlen((char *)kbuf);
         if ( kbuf_size > BUFF_SIZE )
         {
-          ((char *)kbuf)[BUFF_SIZE] = 0;
+          ((char *)kbuf)[BUFF_SIZE - 1] = 0;
           kbuf_size = BUFF_SIZE;
         }
         goto copy_kbuf;
        }
       break; /* IOCTL_LOOKUP_SYM */
+
+    case IOCTL_READ_MODULES:
+       if ( !s_modules || !s_module_mutex ) return -ENOCSI;
+       if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 2 ) > 0 )
+         return -EFAULT;
+       if ( !ptrbuf[0] )
+       {
+        struct module *mod;
+        mutex_lock(s_module_mutex);
+        list_for_each_entry(mod, s_modules, list)
+        {
+          if ( mod->state == MODULE_STATE_LIVE ) count++;
+        }
+        mutex_unlock(s_module_mutex);
+        goto copy_count;
+       } else {
+        struct module *mod;
+        struct one_module *curr;
+        kbuf_size = sizeof(unsigned long) + ptrbuf[0] * sizeof(struct one_module);
+        kbuf = kmalloc(kbuf_size, GFP_KERNEL | __GFP_ZERO);
+        if ( !kbuf ) return -ENOMEM;
+        curr = (struct one_module *)(kbuf_size + 1);
+        mutex_lock(s_module_mutex);
+        list_for_each_entry(mod, s_modules, list)
+        {
+          if ( mod->state != MODULE_STATE_LIVE ) continue;
+          if ( count >= ptrbuf[0] ) break;
+          // ripped from module/procfs.c function m_show
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6,4,0)
+          curr->base = mod->mem[MOD_TEXT].base;
+          curr->size = module_total_size(mod);
+#else
+          curr->base = mod->core_layout.base;
+          curr->size = mod->init_layout.size + mod->core_layout.size;
+#ifdef CONFIG_ARCH_WANTS_MODULES_DATA_IN_VMALLOC
+	        curr->size += mod->data_layout.size;
+#endif
+#endif /* new modules format since 6.4 */
+          strlcpy(curr->name, mod->name, sizeof(curr->name));
+          // for next module
+          count++;
+          curr++;
+        }
+        mutex_unlock(s_module_mutex);
+        kbuf_size = sizeof(unsigned long) + count * sizeof(struct one_module);
+        goto copy_kbuf;
+       }
+      break; /* IOCTL_READ_MODULES */
 
     case IOCTL_GET_NETDEV_CHAIN:
        if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 2) > 0 )
@@ -5373,6 +5434,12 @@ init_module (void)
   SYM_LOAD("iterate_supers", und_iterate_supers, iterate_supers_ptr)
   SYM_LOAD("do_mprotect_pkey", my_mprotect_pkey, s_mprotect)
   SYM_LOAD("lookup_module_symbol_name", my_lookup, s_lookup)
+  s_modules = (struct list_head *)lkcd_lookup_name("modules");
+  if ( !s_modules )
+    printk("cannot find modules\n");
+  s_module_mutex = (struct mutex *)lkcd_lookup_name("module_mutex");
+  if ( !s_module_mutex )
+    printk("cannot find module_mutex\n");
   mount_lock = (seqlock_t *)lkcd_lookup_name("mount_lock");
   if ( !mount_lock )
     printk("cannot find mount_lock\n");

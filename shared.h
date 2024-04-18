@@ -1334,8 +1334,8 @@ struct one_task_info
 // test mprotect
 // in params:
 //  0 - address
-//  0 - size
-//  1 - prot
+//  1 - size
+//  2 - prot
 // out: address
 #define IOCTL_TEST_MPROTECT                _IOR(IOCTL_NUM, 0x5D, int*)
 
@@ -1344,5 +1344,20 @@ struct one_task_info
 // out param - string
 #define IOCTL_LOOKUP_SYM                   _IOR(IOCTL_NUM, 0x5E, int*)
 
+#define MAX_MODULE_LENGTH (64 - sizeof(unsigned long))
+struct one_module
+{
+  void *base;
+  unsigned long size;
+  char name[MAX_MODULE_LENGTH];
+};
+
+// wrapper to read /proc/modules from non-root
+// in params:
+//  0 - size
+//  1 - type, currently not used
+// out params:
+//  N + N * one_module
+#define IOCTL_READ_MODULES                 _IOR(IOCTL_NUM, 0x5F, int*)
 
 #endif /* LKCD_SHARED_H */
