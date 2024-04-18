@@ -1,7 +1,13 @@
 #include <stdio.h>
+#include <unistd.h>
 #include <list>
 #include <fstream>
 #include <cstring>
+#include <sys/ioctl.h>
+#include <net/if.h>
+#include <linux/netlink.h>
+#include <linux/genetlink.h>
+#include "../shared.h"
 #include "kmods.h"
 
 struct one_mod
@@ -15,6 +21,7 @@ class mods_storage
 {
   public:
     int read_mods();
+    int read_from_driver(int fd);
     const char *find(unsigned long addr);
   protected:
     std::list<one_mod> m_list;
@@ -32,6 +39,51 @@ const char *mods_storage::find(unsigned long addr)
      return c.name.c_str();
   }
   return NULL;
+}
+
+int mods_storage::read_from_driver(int fd)
+{
+  unsigned long args[2] = { 0, 0 };
+  int err = ioctl(fd, IOCTL_READ_MODULES, (int *)&args);
+  if ( err )
+  {
+    printf("IOCTL_READ_MODULES count failed, errno %d (%s)\n", errno, strerror(errno));
+    return errno;
+  }
+  if ( !args[0] ) return 0;
+  size_t size = sizeof(unsigned long) + sizeof(one_module) * args[0];
+  unsigned long *buf = (unsigned long *)malloc(size);
+  if ( !buf )
+  {
+    printf("cannot alloc %lX bytes for modules, errno %d (%s)\n", size, errno, strerror(errno));
+    return errno;
+  }
+  buf[0] = args[0];
+  buf[1] = 0;
+  err = ioctl(fd, IOCTL_READ_MODULES, (int *)buf);
+  if ( err )
+  {
+    printf("IOCTL_READ_MODULES failed, errno %d (%s)\n", errno, strerror(errno));
+    free(buf);
+    return errno;
+  }
+  one_module *mod = (one_module *)(buf + 1);
+#ifdef DEBUG
+  printf("%ld modules\n", buf[0]);
+#endif
+  for ( unsigned long cnt = 0; cnt < buf[0]; cnt++, mod++ )
+  {
+    one_mod tmp;
+    tmp.name = mod->name;
+    tmp.start = (unsigned long)mod->base;
+    tmp.len = mod->size;
+#ifdef DEBUG
+    printf("%s %lX %lX\n", tmp.name.c_str(), tmp.start, tmp.len);
+#endif
+    m_list.push_back(tmp);
+  }
+  free(buf);
+  return 0;
 }
 
 int mods_storage::read_mods()
@@ -69,7 +121,9 @@ const char *find_kmod(unsigned long addr)
   return s_mod_stg.find(addr);
 }
 
-int init_kmods()
+int init_kmods(int fd)
 {
-  return s_mod_stg.read_mods();
+  if ( !getuid() )
+    return s_mod_stg.read_mods();
+  return s_mod_stg.read_from_driver(fd);
 }
