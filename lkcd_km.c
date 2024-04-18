@@ -107,6 +107,9 @@ struct alarm_base *s_alarm = 0;
 typedef int (*my_mprotect_pkey)(unsigned long start, size_t len, unsigned long prot, int pkey);
 my_mprotect_pkey s_mprotect = 0;
 
+typedef int (*my_lookup)(unsigned long addr, char *symname);
+my_lookup s_lookup = 0;
+
 #define KPROBE_HASH_BITS 6
 #define KPROBE_TABLE_SIZE (1 << KPROBE_HASH_BITS)
 
@@ -133,6 +136,7 @@ DEFINE_STATIC_CALL(lkcd_lookup_name_sc, lkcd_lookup_name_scinit);
 
 // read kernel symbols from the /proc
 #define KALLSYMS_PATH "/proc/kallsyms"
+// Warning! When change this size you must patch size of ksym_params in lk.h too
 #define BUFF_SIZE 256
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(5,4,0) && LINUX_VERSION_CODE < KERNEL_VERSION(5,10,0)
@@ -156,9 +160,9 @@ unsigned long lkcd_lookup_name(const char *name)
 	 * which lead to a line with 142 characters.
 	 * Some use a buffer which can hold 256 characters, to be safe.
 	 */
-	char proc_ksyms_entry[256] = {0};
+	char proc_ksyms_entry[KSYM_NAME_LEN] = {0};
 
-	proc_ksyms = filp_open("/proc/kallsyms", O_RDONLY, 0);
+	proc_ksyms = filp_open(KALLSYMS_PATH, O_RDONLY, 0);
 	if (proc_ksyms == NULL)
 		goto cleanup;
 
@@ -1026,18 +1030,39 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
        int i;
        char ch;
        char *temp = (char *) ioctl_param;
-       get_user(ch, temp++);
-       name[0] = ch;
-       for (i = 1; ch && i < BUFF_SIZE - 1; i++, temp++) 
+       temp[0] = 0;
+       for (i = 0; i < BUFF_SIZE - 1; i++, temp++) 
        {
           get_user(ch, temp);
           name[i] = ch;
+          if ( !ch ) break;
        }
        ptrbuf[0] = lkcd_lookup_name(name);
        if (copy_to_user((void*)ioctl_param, (void*)ptrbuf, sizeof(ptrbuf[0])) > 0)
          return -EFAULT;
       }
       break; /* IOCTL_RKSYM */
+
+    case IOCTL_LOOKUP_SYM:
+       if ( !s_lookup ) return -ENOCSI;
+       if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) ) > 0 )
+         return -EFAULT;
+       else {
+        int err;
+        kbuf = (unsigned long *)kmalloc(KSYM_NAME_LEN, GFP_KERNEL);
+        if ( !kbuf )
+          return -ENOMEM;
+        err = s_lookup(ptrbuf[0], (char *)kbuf);
+        if ( err ) { kfree(kbuf); return err; }
+        kbuf_size = strlen((char *)kbuf);
+        if ( kbuf_size > BUFF_SIZE )
+        {
+          ((char *)kbuf)[BUFF_SIZE] = 0;
+          kbuf_size = BUFF_SIZE;
+        }
+        goto copy_kbuf;
+       }
+      break; /* IOCTL_LOOKUP_SYM */
 
     case IOCTL_GET_NETDEV_CHAIN:
        if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 2) > 0 )
@@ -1813,12 +1838,12 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
        char *temp = (char *)ioctl_param;
        if ( krnf_node_ptr == NULL )
          return -EFAULT;
-       get_user(ch, temp++);
-       name[0] = ch;
-       for (i = 1; ch && i < BUFF_SIZE - 1; i++, temp++) 
+       temp[0] = 0;
+       for (i = 0; i < BUFF_SIZE - 1; i++, temp++) 
        {
           get_user(ch, temp);
           name[i] = ch;
+          if ( !ch ) break;
        }
        // open file
        file = file_open(name, 0, 0, &err);
@@ -5347,6 +5372,7 @@ init_module (void)
   SYM_LOAD("kernfs_node_from_dentry", krnf_node_type, krnf_node_ptr)
   SYM_LOAD("iterate_supers", und_iterate_supers, iterate_supers_ptr)
   SYM_LOAD("do_mprotect_pkey", my_mprotect_pkey, s_mprotect)
+  SYM_LOAD("lookup_module_symbol_name", my_lookup, s_lookup)
   mount_lock = (seqlock_t *)lkcd_lookup_name("mount_lock");
   if ( !mount_lock )
     printk("cannot find mount_lock\n");

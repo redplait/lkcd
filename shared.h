@@ -1339,4 +1339,10 @@ struct one_task_info
 // out: address
 #define IOCTL_TEST_MPROTECT                _IOR(IOCTL_NUM, 0x5D, int*)
 
+// wrapper around lookup_module_symbol_name
+// in param - address
+// out param - string
+#define IOCTL_LOOKUP_SYM                   _IOR(IOCTL_NUM, 0x5E, int*)
+
+
 #endif /* LKCD_SHARED_H */
