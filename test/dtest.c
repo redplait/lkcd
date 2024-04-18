@@ -301,7 +301,7 @@ int main(int argc, char **argv)
     exit(errno);
   }
   // read list of modules
-  err = init_kmods();
+  err = init_kmods(fd);
   if ( err )
   {
     printf("init_kmods failed, error %d\n", err);
