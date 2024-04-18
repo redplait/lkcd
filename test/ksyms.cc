@@ -54,6 +54,7 @@ class ksym_holder
         delete[] m_addresses;
     }
     int read_ksyms(const char *name);
+    int read_kallsyms(const char *name);
 #ifdef HAS_ELFIO
     int read_syms(const ELFIO::elfio& reader, ELFIO::symbol_section_accessor &);
 #endif /* HAS_ELFIO */
@@ -77,6 +78,7 @@ class ksym_holder
     one_addr *m_addresses;
 
     void make_addresses();
+    void process_string(std::string &s);
 };
 
 size_t ksym_holder::fill_bpf_protos(std::list<one_bpf_proto> &out_res)
@@ -169,7 +171,7 @@ struct addr_sym *ksym_holder::get_in_range(a64 start, a64 end_a, size_t *count)
     return NULL;
   if ( found->addr < start )
     found++;
-  // calc count  
+  // calc count
   for ( one_addr *curr = found; curr < end; curr++ )
    if ( curr->addr >= end_a )
    {
@@ -247,6 +249,27 @@ void ksym_holder::make_addresses()
   std::sort(m_addresses, m_addresses + m_asize, [](const one_addr &l, const one_addr &r) -> bool { return l.addr < r.addr; });
 }
 
+void ksym_holder::process_string(std::string &line)
+{
+  const char *s = line.c_str();
+  char *next;
+  one_sym tmp;
+#ifdef _MSC_VER
+  tmp.addr = _strtoui64(s, &next, 16);
+#else
+  tmp.addr = strtoul(s, &next, 16);
+#endif /* _MSC_VER */
+  next++;
+  tmp.letter = *next;
+  next += 2;
+  tmp.name = next;
+  m_syms.push_back(tmp);
+  auto was = m_names.find(next);
+  if ( was != m_names.end() ) return;
+  auto &back = m_syms.back();
+  m_names[back.name.c_str()] = &back;
+}
+
 int ksym_holder::read_ksyms(const char *name)
 {
   std::ifstream f;
@@ -256,24 +279,40 @@ int ksym_holder::read_ksyms(const char *name)
   std::string line;
   while( std::getline(f, line) )
   {
-     one_sym tmp;
-     const char *s = line.c_str();
-     char *next;
-#ifdef _MSC_VER
-     tmp.addr = _strtoui64(s, &next, 16);
-#else
-     tmp.addr = strtoul(s, &next, 16);
-#endif /* _MSC_VER */
-     next++;
-     tmp.letter = *next;
-     next += 2;
-     tmp.name = next;
-     m_syms.push_back(tmp);
-     auto was = m_names.find(next);
-     if ( was != m_names.end() )
-       continue;
-     auto &back = m_syms.back();
-     m_names[back.name.c_str()] = &back;
+     process_string(line);
+  }
+  if ( m_syms.empty() )
+    return 0;
+  make_addresses();
+  return 0;
+}
+
+int ksym_holder::read_kallsyms(const char *name)
+{
+  std::ifstream f;
+  f.open(name);
+  if ( !f.is_open() )
+    return errno;
+  std::string line;
+  while( std::getline(f, line) )
+  {
+    // unlike Symbols kallsyms can have [module_name] at end of string
+    if ( line.back() == ']' )
+    {
+      line.pop_back();
+      while( !line.empty() )
+      {
+        if ( line.back() == '[' )
+        {
+          line.pop_back();
+          // strip spaces
+          while( ' ' == line.back() ) line.pop_back();
+          break;
+        }
+        line.pop_back();
+      }
+    }
+    process_string(line);
   }
   if ( m_syms.empty() )
     return 0;
@@ -364,6 +403,11 @@ int ksym_holder::read_syms(const elfio& reader, symbol_section_accessor &symbols
 static ksym_holder s_ksyms;
 
 // plain C interface
+int read_kallsyms(const char *name)
+{
+  return s_ksyms.read_kallsyms(name);
+}
+
 int read_ksyms(const char *name)
 {
   return s_ksyms.read_ksyms(name);

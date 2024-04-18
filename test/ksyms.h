@@ -22,6 +22,7 @@ extern "C" {
 
 int read_system_map();
 int read_ksyms(const char *name);
+int read_kallsyms(const char *name);
 #ifdef HAS_ELFIO
 int read_syms(const ELFIO::elfio& reader, ELFIO::symbol_section_accessor &);
 #endif /* HAS_ELFIO */
