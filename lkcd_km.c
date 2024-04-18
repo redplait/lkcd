@@ -1043,12 +1043,12 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
        int i;
        char ch;
        char *temp = (char *) ioctl_param;
-       temp[0] = 0;
-       for (i = 0; i < BUFF_SIZE - 1; i++, temp++) 
+       get_user(ch, temp++);
+       name[0] = ch;
+       for (i = 1; ch && i < BUFF_SIZE - 1; i++, temp++) 
        {
           get_user(ch, temp);
           name[i] = ch;
-          if ( !ch ) break;
        }
        ptrbuf[0] = lkcd_lookup_name(name);
        if (copy_to_user((void*)ioctl_param, (void*)ptrbuf, sizeof(ptrbuf[0])) > 0)
@@ -1095,9 +1095,9 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
         struct module *mod;
         struct one_module *curr;
         kbuf_size = sizeof(unsigned long) + ptrbuf[0] * sizeof(struct one_module);
-        kbuf = kmalloc(kbuf_size, GFP_KERNEL | __GFP_ZERO);
+        kbuf = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL | __GFP_ZERO);
         if ( !kbuf ) return -ENOMEM;
-        curr = (struct one_module *)(kbuf_size + 1);
+        curr = (struct one_module *)(kbuf + 1);
         mutex_lock(s_module_mutex);
         list_for_each_entry(mod, s_modules, list)
         {
@@ -1899,12 +1899,12 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
        char *temp = (char *)ioctl_param;
        if ( krnf_node_ptr == NULL )
          return -EFAULT;
-       temp[0] = 0;
-       for (i = 0; i < BUFF_SIZE - 1; i++, temp++) 
+       get_user(ch, temp++);
+       name[0] = ch;
+       for (i = 1; ch && i < BUFF_SIZE - 1; i++, temp++)  
        {
           get_user(ch, temp);
           name[i] = ch;
-          if ( !ch ) break;
        }
        // open file
        file = file_open(name, 0, 0, &err);
