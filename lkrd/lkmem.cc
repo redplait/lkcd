@@ -37,6 +37,7 @@ int g_dump_bpf_ops = 0;
 int g_event_foff = 0;
 std::set<unsigned long> g_kpe, g_kpd; // enable-disable kprobe, key is just address
 int g_fd = -1;
+int g_kallsyms = 0;
 
 using namespace ELFIO;
 
@@ -365,6 +366,8 @@ static const x64_thunk s_x86_thunks[] = {
   { "__x86_indirect_thunk_edx", UD_R_EDX },
   { "__x86_indirect_thunk_ecx", UD_R_ECX },
   { "__x86_indirect_thunk_esi", UD_R_ESI },
+  { "__x86_indirect_thunk_edi", UD_R_EDI },
+  { "__x86_indirect_thunk_ebp", UD_R_EBP },
 };
 
 section* find_section(const elfio& reader, a64 addr)
@@ -588,8 +591,15 @@ void dump_unnamed_kptr(unsigned long l, sa64 delta)
   } else {
     const char *mname = find_kmod(l);
     if ( mname )
-      printf(" %p - %s\n", (void *)l, mname);
-    else
+    {
+      const char *sname = NULL;
+      if ( g_kallsyms )
+        sname = name_by_addr(l);
+      if ( sname )
+        printf(" %p - %s!%s\n", (void *)l, mname, sname);
+      else
+        printf(" %p - %s\n", (void *)l, mname);
+    } else
       printf(" %p UNKNOWN\n", (void *)l);
   }
 }
@@ -607,8 +617,15 @@ void dump_kptr(unsigned long l, const char *name, sa64 delta)
   else {
     const char *mname = find_kmod(l);
     if (mname)
-      printf(" %s: %p - %s\n", name, (void *)l, mname);
-    else
+    {
+      const char *sname = NULL;
+      if ( g_kallsyms )
+        sname = name_by_addr(l);
+      if ( sname )
+        printf(" %s: %p - %s!%s\n", name, (void *)l, mname, sname);
+      else
+        printf(" %s: %p - %s\n", name, (void *)l, mname);
+    } else
       printf(" %s: %p - UNKNOWN\n", name, (void *)l);
   }
 }
@@ -626,8 +643,15 @@ void dump_kptr2(unsigned long l, const char *name, sa64 delta)
   else {
     const char *mname = find_kmod(l);
     if (mname)
-      printf(" %s: %p - %s\n", name, (void *)l, mname);
-    else
+    {
+      const char *sname = NULL;
+      if ( g_kallsyms )
+        sname = name_by_addr(l);
+      if ( sname )
+        printf(" %s: %p - %s!%s\n", name, (void *)l, mname, sname);
+      else
+        printf(" %s: %p - %s\n", name, (void *)l, mname);
+    } else
       printf(" %s: %p\n", name, (void *)l);
   }
 }
@@ -3672,8 +3696,15 @@ void dump_efivars(a64 saddr, sa64 delta)
    else {
      const char *mname = find_kmod((unsigned long)arg);
      if ( mname )
-       printf("efivar_operations at %p: %p - %s\n", ptr, arg, mname);
-     else
+     {
+       const char *sname = NULL;
+       if ( g_kallsyms )
+        sname = name_by_addr((a64)arg);
+       if ( sname )
+         printf("efivar_operations at %p: %p - %s!%s\n", ptr, arg, mname, sname);
+       else
+         printf("efivar_operations at %p: %p - %s\n", ptr, arg, mname);
+     } else
        printf("efivar_operations at %p: %p UNKNOWN\n", ptr, arg);
    }
    // dump all five fields
@@ -3710,8 +3741,15 @@ void dump_usb_mon(a64 saddr, sa64 delta)
      else {
        const char *mname = find_kmod((unsigned long)arg);
        if ( mname )
-         printf("mon_ops at %p: %p - %s\n", (char *)saddr + delta, arg, mname);
-       else
+       {
+         const char *sname = NULL;
+         if ( g_kallsyms )
+          sname = name_by_addr((a64)arg);
+         if ( sname )
+           printf("mon_ops at %p: %p - %s!%s\n", (char *)saddr + delta, arg, mname, sname);
+         else
+           printf("mon_ops at %p: %p - %s\n", (char *)saddr + delta, arg, mname);
+       } else
          printf("mon_ops at %p: %p UNKNOWN\n", (char *)saddr + delta, arg);
      }
    } else 
@@ -4127,17 +4165,30 @@ int main(int argc, char **argv)
    {
      if ( optind == argc )
      {
-       printf("missed symbols\n");
-       usage(argv[0]);
+       if ( !getuid() )
+       {
+        // try to read /proc/kallsyms
+        int err = read_kallsyms("/proc/kallsyms");
+        if ( err )
+        {
+         printf("cannot read symbols from /proc/kallsyms, error %d\n", err);
+         return err;
+        }
+        has_syms = g_kallsyms = 1;
+       } else {
+         printf("missed symbols\n");
+         usage(argv[0]);
+       }
+     } else {
+       int err = read_ksyms(argv[optind]);
+       if ( err )
+       {
+         printf("cannot read symbols from %s, error %d\n", argv[optind], err);
+         return err;
+       }
+       has_syms = 1;
+       optind++;
      }
-     int err = read_ksyms(argv[optind]);
-     if ( err )
-     {
-       printf("cannot read symbols from %s, error %d\n", argv[optind], err);
-       return err;
-     }
-     has_syms = 1;
-     optind++;
    }
    sa64 delta = 0;
    a64 bpf_target = 0;
@@ -4201,7 +4252,6 @@ int main(int argc, char **argv)
      // dump kprobes
      if ( -1 != g_fd && opt_k )
      {
-    printf("process probes\n");
        dump_kprobes(delta);
        dump_uprobes(delta);
      }
