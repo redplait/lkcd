@@ -1120,6 +1120,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
           curr++;
         }
         mutex_unlock(s_module_mutex);
+        kbuf[0] = count;
         kbuf_size = sizeof(unsigned long) + count * sizeof(struct one_module);
         goto copy_kbuf;
        }
