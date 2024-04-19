@@ -80,7 +80,7 @@ int main(int argc, char **argv)
     printf("cannot read_kernel_area, error %d\n", err);
     return err;
   }
-  err = init_kmods();
+  err = init_kmods(fd);
   if ( err )
   {
      close(fd);
