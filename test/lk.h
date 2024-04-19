@@ -1,4 +1,5 @@
 #pragma once
+#include "../shared.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -33,6 +34,7 @@ union kernfs_params
 {
   char name[256];
   struct kernfs_res res;
+  struct one_priv priv;
 };
 
 int is_inside_kernel(unsigned long a);

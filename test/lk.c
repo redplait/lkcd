@@ -8,7 +8,6 @@
 #include <errno.h>
 #include <net/if.h>
 #include "lk.h"
-#include "shared.h"
 
 // kernel base and end
 unsigned long g_kstart = 0;
