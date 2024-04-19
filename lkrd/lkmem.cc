@@ -4219,7 +4219,7 @@ int main(int argc, char **argv)
          opt_c = 0;
          goto end;
        }
-       int err = init_kmods();
+       int err = init_kmods(g_fd);
        if ( err )
        {
          printf("init_kmods failed, error %d\n", err);
@@ -4297,12 +4297,20 @@ int main(int argc, char **argv)
              printf("kobject: %p\n", (void *)kparm.res.kobject);
            if ( kparm.res.ktype )
              dump_kptr(kparm.res.ktype, "ktype", delta);
+           if ( kparm.res.release )
+             dump_kptr(kparm.res.release, "ktype.release", delta);
+           if ( kparm.res.child_ns_type )
+             dump_kptr(kparm.res.child_ns_type, "ktype.child_ns_type", delta);
+           if ( kparm.res.ns )
+             dump_kptr(kparm.res.ns, "ktype.namespace", delta);
+           if ( kparm.res.get_ownership )
+             dump_kptr(kparm.res.get_ownership, "ktype.get_ownership", delta);
            if ( kparm.res.sysfs_ops )
              dump_kptr(kparm.res.sysfs_ops, "sysfs_ops", delta);
            if ( kparm.res.show )
-             dump_kptr(kparm.res.sysfs_ops, "sysfs_ops.show", delta);
+             dump_kptr(kparm.res.show, "sysfs_ops.show", delta);
            if ( kparm.res.store )
-             dump_kptr(kparm.res.sysfs_ops, "sysfs_ops.store", delta);
+             dump_kptr(kparm.res.store, "sysfs_ops.store", delta);
          } else {
            printf(" inode: %p\n", (void *)kparm.res.flags);
            if ( kparm.res.s_op )

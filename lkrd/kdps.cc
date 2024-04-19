@@ -30,12 +30,16 @@ void dump_kmem(int fd, a64 addr, int cnt, sa64 delta)
      printf("%lX: ", addr);
      for ( int j = 0; j < sizeof(void *); j++ )
        printf("%2.2X ", v[j]);
+     printf(" ");
+     for ( int j = 0; j < sizeof(void *); j++ )
+      if ( isprint(v[j]) ) printf("%c", v[j]);
+      else putc('.', stdout);
      if ( !ptr )
      {
        printf("\n");
        continue;
      }
-     printf("%p", ptr);
+     printf(" %p", ptr);
      if ( is_inside_kernel((a64)ptr) )
      {
        size_t off = 0;
