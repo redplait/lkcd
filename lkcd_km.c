@@ -1895,6 +1895,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
        char name[BUFF_SIZE];
        struct file *file;
        struct kernfs_node *k;
+       struct kobject *kobj = NULL;
        int i, err;
        char ch;
        char *temp = (char *)ioctl_param;
@@ -1912,17 +1913,21 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
        if ( NULL == file )
        {
          printk(KERN_INFO "[lkcd] cannot open file %s, error %d\n", name, err);
-         return -err;
+         return err;
        }
        k = krnf_node_ptr(file->f_path.dentry);
        ptrbuf[0] = (unsigned long)k;
-       ptrbuf[1] = ptrbuf[2] = ptrbuf[3] = ptrbuf[4] = ptrbuf[5] = ptrbuf[6] = ptrbuf[7] = ptrbuf[8] = 0;
-       if ( k && (k->flags & KERNFS_FILE) )
+       ptrbuf[1] = ptrbuf[2] = ptrbuf[3] = ptrbuf[4] = ptrbuf[5] = ptrbuf[6] = ptrbuf[7] = 
+       ptrbuf[8] = ptrbuf[9] = ptrbuf[10] = ptrbuf[11] = ptrbuf[12] = 0;
+       if ( k )
        {
-         struct kobject *kobj = k->parent->priv;
-         ptrbuf[1] = (unsigned long)kobj;
          ptrbuf[7] = k->flags;
          ptrbuf[8] = (unsigned long)k->priv;
+         if (k->flags & KERNFS_FILE)
+           kobj = k->parent->priv;
+         else if ( k->flags & KERNFS_DIR )
+           kobj = k->priv;
+         ptrbuf[1] = (unsigned long)kobj;
          if ( kobj )
          {
            ptrbuf[2] = (unsigned long)kobj->ktype;
@@ -1934,6 +1939,10 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
                ptrbuf[4] = (unsigned long)kobj->ktype->sysfs_ops->show;
                ptrbuf[5] = (unsigned long)kobj->ktype->sysfs_ops->store;
              }
+             ptrbuf[9] = (unsigned long)kobj->ktype->release;
+             ptrbuf[10] = (unsigned long)kobj->ktype->child_ns_type;
+             ptrbuf[11] = (unsigned long)kobj->ktype->namespace;
+             ptrbuf[12] = (unsigned long)kobj->ktype->get_ownership;
            }
          }
        } else if ( !k ) 
@@ -1956,7 +1965,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
        }
 
        file_close(file);
-       if (copy_to_user((void*)ioctl_param, (void*)ptrbuf, sizeof(ptrbuf[0]) * 9) > 0)
+       if (copy_to_user((void*)ioctl_param, (void*)ptrbuf, sizeof(ptrbuf[0]) * 13) > 0)
          return -EFAULT;
       }
      break; /* IOCTL_KERNFS_NODE */

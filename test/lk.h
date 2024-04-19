@@ -22,6 +22,11 @@ struct kernfs_res
   unsigned long s_op;      // 6
   unsigned long flags;     // 7 inode
   unsigned long priv;      // 8 inode->i_fop
+  // fields from kobj_type
+  unsigned long release;   // 9
+  unsigned long child_ns_type;
+  unsigned long ns;        // 11
+  unsigned long get_ownership;
 };
 
 union kernfs_params
