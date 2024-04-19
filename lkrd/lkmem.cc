@@ -4000,6 +4000,125 @@ void dump_addr_name(a64 addr)
       printf("%p\n", (void *)addr);
 }
 
+void dump_kernfs(kernfs_res &res, sa64 delta)
+{
+  if ( res.addr )
+  {
+    // dump flags
+    printf(" flags: %lX", res.flags);
+    if ( res.flags & 1 )
+      printf(" DIR");
+    if ( res.flags & 2 )
+      printf(" FILE");
+    if ( res.flags & 4 )
+      printf(" LINK");
+    printf("\n");
+
+    printf(" priv: %p\n", (void *)res.priv);
+    if ( res.kobject )
+      printf("kobject: %p\n", (void *)res.kobject);
+    if ( res.ktype )
+      dump_kptr(res.ktype, "ktype", delta);
+    if ( res.release )
+      dump_kptr(res.release, "ktype.release", delta);
+    if ( res.child_ns_type )
+      dump_kptr(res.child_ns_type, "ktype.child_ns_type", delta);
+    if ( res.ns )
+      dump_kptr(res.ns, "ktype.namespace", delta);
+    if ( res.get_ownership )
+      dump_kptr(res.get_ownership, "ktype.get_ownership", delta);
+    if ( res.sysfs_ops )
+      dump_kptr(res.sysfs_ops, "sysfs_ops", delta);
+    if ( res.show )
+      dump_kptr(res.show, "sysfs_ops.show", delta);
+    if ( res.store )
+      dump_kptr(res.store, "sysfs_ops.store", delta);
+  } else {
+    printf(" inode: %p\n", (void *)res.flags);
+    if ( res.s_op )
+      dump_kptr(res.s_op, "s_op", delta);
+    if ( res.priv )
+      dump_kptr(res.priv, "inode->i_fop", delta);
+    if ( res.ktype )
+      dump_kptr(res.ktype, "debugfs_real_fops", delta);
+    if ( res.sysfs_ops )
+      dump_kptr(res.sysfs_ops, "private_data", delta);
+  }
+}
+
+void dump_bus(one_priv &p, sa64 delta)
+{
+  if ( p.uevent_ops )
+  {
+    dump_kptr((unsigned long)p.uevent_ops, "uevent_ops", delta);
+    if ( p.filter )
+      dump_kptr((unsigned long)p.filter, "  filter", delta);
+    if ( p.name )
+      dump_kptr((unsigned long)p.name, "  name", delta);
+    if ( p.uevent )
+      dump_kptr((unsigned long)p.uevent, "  uevent", delta);
+  }
+  if ( p.bus )
+  {
+    dump_kptr((unsigned long)p.bus, "bus", delta);
+    if ( p.match )
+      dump_kptr((unsigned long)p.match, "  match", delta);
+    if ( p.bus_uevent )
+      dump_kptr((unsigned long)p.bus_uevent, "  bus.uevent", delta);
+    if ( p.probe )
+      dump_kptr((unsigned long)p.probe, "  probe", delta);
+    if ( p.sync_state )
+      dump_kptr((unsigned long)p.sync_state, "  sync_state", delta);
+    if ( p.remove )
+      dump_kptr((unsigned long)p.remove, "  remove", delta);
+    if ( p.shutdown )
+      dump_kptr((unsigned long)p.shutdown, "  shutdown", delta);
+    if ( p.online )
+      dump_kptr((unsigned long)p.online, "  online", delta);
+    if ( p.offline )
+      dump_kptr((unsigned long)p.offline, "  offline", delta);
+    if ( p.suspend )
+      dump_kptr((unsigned long)p.suspend, "  suspend", delta);
+    if ( p.resume )
+      dump_kptr((unsigned long)p.resume, "  resume", delta);
+    if ( p.num_vf )
+      dump_kptr((unsigned long)p.num_vf, "  num_vf", delta);
+    if ( p.dma_configure )
+      dump_kptr((unsigned long)p.dma_configure, "  dma_configure", delta);
+    if ( p.dma_cleanup )
+      dump_kptr((unsigned long)p.dma_cleanup, "  dma_cleanup", delta);
+    if ( p.pm )
+      dump_kptr((unsigned long)p.pm, "  pm", delta);
+    if ( p.iommu_ops )
+      dump_kptr((unsigned long)p.iommu_ops, "  iommu_ops", delta);
+  }
+  if ( p._class )
+  {
+    dump_kptr((unsigned long)p._class, "class", delta);
+    if ( p.dev_uevent )
+      dump_kptr((unsigned long)p.dev_uevent, "  dev_uevent", delta);
+    if ( p.devnode )
+      dump_kptr((unsigned long)p.devnode, "  devnode", delta);
+    if ( p.class_release )
+      dump_kptr((unsigned long)p.class_release, "  class_release", delta);
+    if ( p.dev_release )
+      dump_kptr((unsigned long)p.dev_release, "  dev_release", delta);
+    if ( p.c_susped )
+      dump_kptr((unsigned long)p.c_susped, "  suspend", delta);
+    if ( p.c_resume )
+      dump_kptr((unsigned long)p.c_resume, "  resume", delta);
+    if ( p.c_shutdown )
+      dump_kptr((unsigned long)p.c_shutdown, "  shutdown", delta);
+    if ( p.c_ns_type )
+      dump_kptr((unsigned long)p.c_ns_type, "  ns_type", delta);
+    if ( p.c_namespace )
+      dump_kptr((unsigned long)p.c_namespace, "  namespace", delta);
+    if ( p.c_getownership )
+      dump_kptr((unsigned long)p.c_getownership, "  get_ownership", delta);
+  }
+  if ( p.ntfy_cnt ) printf(" ntfy_cnt: %ld\n", p.ntfy_cnt);
+}
+
 int main(int argc, char **argv)
 {
    // read options
@@ -4265,9 +4384,11 @@ int main(int argc, char **argv)
      {
        if ( optind == argc )
        {
-         printf("where is files?\n");
+         printf("where is file(s)?\n");
          exit(6);
        }
+       auto bus_type = get_addr("bus_ktype");
+       if ( bus_type ) bus_type += delta;
        union kernfs_params kparm;
        for ( int idx = optind; idx < argc; idx++ )
        {
@@ -4276,51 +4397,23 @@ int main(int argc, char **argv)
          int err = ioctl(g_fd, IOCTL_KERNFS_NODE, (int *)&kparm);
          if ( err )
          {
-           printf("IOCTL_KERNFS_NODE(%s) failed, error %d\n", argv[idx], err);
+           printf("IOCTL_KERNFS_NODE(%s) failed, error %d (%s)\n", argv[idx], errno, strerror(errno));
            continue;
          }
-         printf("res %s: %p\n", argv[idx], (void *)kparm.res.addr);
-         if ( kparm.res.addr )
+         printf("\nres %s: %p\n", argv[idx], (void *)kparm.res.addr);
+         dump_kernfs(kparm.res, delta);
+         // dir with ktype == bus_type ?
+         if ( bus_type && kparm.res.addr && (kparm.res.flags & 1) && bus_type == kparm.res.ktype )
          {
-           // dump flags
-           printf(" flags: %lX", kparm.res.flags);
-           if ( kparm.res.flags & 1 )
-             printf(" DIR");
-           if ( kparm.res.flags & 2 )
-             printf(" FILE");
-           if ( kparm.res.flags & 4 )
-             printf(" LINK");
-           printf("\n");
-
-           printf(" priv: %p\n", (void *)kparm.res.priv);
-           if ( kparm.res.kobject )
-             printf("kobject: %p\n", (void *)kparm.res.kobject);
-           if ( kparm.res.ktype )
-             dump_kptr(kparm.res.ktype, "ktype", delta);
-           if ( kparm.res.release )
-             dump_kptr(kparm.res.release, "ktype.release", delta);
-           if ( kparm.res.child_ns_type )
-             dump_kptr(kparm.res.child_ns_type, "ktype.child_ns_type", delta);
-           if ( kparm.res.ns )
-             dump_kptr(kparm.res.ns, "ktype.namespace", delta);
-           if ( kparm.res.get_ownership )
-             dump_kptr(kparm.res.get_ownership, "ktype.get_ownership", delta);
-           if ( kparm.res.sysfs_ops )
-             dump_kptr(kparm.res.sysfs_ops, "sysfs_ops", delta);
-           if ( kparm.res.show )
-             dump_kptr(kparm.res.show, "sysfs_ops.show", delta);
-           if ( kparm.res.store )
-             dump_kptr(kparm.res.store, "sysfs_ops.store", delta);
-         } else {
-           printf(" inode: %p\n", (void *)kparm.res.flags);
-           if ( kparm.res.s_op )
-             dump_kptr(kparm.res.s_op, "s_op", delta);
-           if ( kparm.res.priv )
-             dump_kptr(kparm.res.priv, "inode->i_fop", delta);
-           if ( kparm.res.ktype )
-             dump_kptr(kparm.res.ktype, "debugfs_real_fops", delta);
-           if ( kparm.res.sysfs_ops )
-             dump_kptr(kparm.res.sysfs_ops, "private_data", delta);
+           strncpy(kparm.name, argv[idx], sizeof(kparm.name) - 1);
+           kparm.name[sizeof(kparm.name) - 1] = 0;
+           err = ioctl(g_fd, IOCTL_READ_BUS, (int *)&kparm);
+           if ( err )
+           {
+             printf("IOCTL_READ_BUS(%s) failed, error %d (%s)\n", argv[idx], errno, strerror(errno));
+             continue;
+           }
+           dump_bus(kparm.priv, delta);
          }
        }
      }
