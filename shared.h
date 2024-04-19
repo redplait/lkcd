@@ -1360,4 +1360,47 @@ struct one_module
 //  N + N * one_module
 #define IOCTL_READ_MODULES                 _IOR(IOCTL_NUM, 0x5F, int*)
 
+struct one_priv
+{
+  void *uevent_ops; // below 3 fields from it
+  void *filter;
+  void *name;
+  void *uevent;
+  unsigned long ntfy_cnt; // count of notifiers in bus_notifier
+  void *bus;
+  // fields from bus_type
+  void *match;
+  void *bus_uevent;
+  void *probe;
+  void *sync_state;
+  void *remove;
+  void *shutdown;
+  void *online;
+  void *offline;
+  void *suspend;
+  void *resume;
+  void *num_vf;
+  void *dma_configure;
+  void *dma_cleanup;
+  void *pm;
+  void *iommu_ops;
+  void *_class;
+  // fields from class
+  void *dev_uevent;
+  void *devnode;
+  void *class_release;
+  void *dev_release;
+  void *c_susped;
+  void *c_resume;
+  void *c_shutdown;
+  void *c_ns_type;
+  void *c_namespace;
+  void *c_getownership;
+};
+
+// extract kbus_type for /sys/bus/XXX
+// in param - name of file
+// out param - one_priv
+#define IOCTL_READ_BUS                     _IOR(IOCTL_NUM, 0x60, int*)
+
 #endif /* LKCD_SHARED_H */

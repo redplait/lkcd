@@ -77,6 +77,7 @@
 #include "timers.h"
 #include "bpf.h"
 #include "event.h"
+#include "sub_priv.h"
 #include "shared.h"
 #include "arm64.bti/arm64bti.h"
 
@@ -1890,6 +1891,143 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
      }
      break; /* IOCTL_TRACEPOINT_FUNCS */
 
+    case IOCTL_READ_BUS:
+     {
+       union {
+         char name[BUFF_SIZE];
+         struct one_priv p;
+       } u;
+       struct file *file;
+       struct kernfs_node *k;
+       struct kobject *kobj;
+       struct subsys_private *sp;
+       int i, err;
+       char ch;
+       char *temp = (char *)ioctl_param;
+       if ( krnf_node_ptr == NULL )
+         return -EFAULT;
+       get_user(ch, temp++);
+       u.name[0] = ch;
+       for (i = 1; ch && i < BUFF_SIZE - 1; i++, temp++)  
+       {
+          get_user(ch, temp);
+          u.name[i] = ch;
+       }
+       // open file
+       file = file_open(u.name, 0, 0, &err);
+       if ( NULL == file )
+       {
+         printk(KERN_INFO "[lkcd] cannot open file %s, error %d\n", u.name, err);
+         return err;
+       }
+       k = krnf_node_ptr(file->f_path.dentry);
+       if ( !k )
+       {
+         file_close(file);
+         return -EBADF; 
+       }
+       if ( !(k->flags & KERNFS_DIR) )
+       {
+         file_close(file);
+         return -ENOTDIR;
+       }
+       kobj = k->priv;
+       if ( !kobj )
+       {
+         file_close(file);
+         return -ENOTTY;
+       }
+       // ok, it is
+       sp = to_subsys_private(kobj);
+       u.p.uevent_ops = (void *)sp->subsys.uevent_ops;
+       if ( u.p.uevent_ops )
+       {
+         u.p.filter = sp->subsys.uevent_ops->filter;
+         u.p.name   = sp->subsys.uevent_ops->name;
+         u.p.uevent = sp->subsys.uevent_ops->uevent;
+       } else u.p.filter = u.p.name = u.p.uevent = 0;
+       u.p.bus = (void *)sp->bus;
+       if ( u.p.bus )
+       {
+         u.p.match = sp->bus->match;
+         u.p.bus_uevent = sp->bus->uevent;
+         u.p.probe = sp->bus->probe;
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5,5,0)
+         u.p.sync_state = sp->bus->sync_state;
+#else
+         u.p.sync_state = 0;
+#endif
+         u.p.remove = sp->bus->remove;
+         u.p.shutdown = sp->bus->shutdown;
+         u.p.online = sp->bus->online;
+         u.p.offline = sp->bus->offline;
+         u.p.suspend = sp->bus->suspend;
+         u.p.resume = sp->bus->resume;
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4,11,0)
+         u.p.num_vf = sp->bus->num_vf;
+#else
+         u.p.num_vf = 0;
+#endif
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4,18,0)
+         u.p.dma_configure = sp->bus->dma_configure;
+#else
+         u.p.dma_configure = 0;
+#endif
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5,19,0)
+         u.p.dma_cleanup = sp->bus->dma_cleanup;
+#else
+         u.p.dma_cleanup = 0;
+#endif
+         u.p.pm = (void *)sp->bus->pm;
+         u.p.iommu_ops = (void *)sp->bus->iommu_ops;
+       }
+       u.p._class = (void *)sp->class;
+       if ( u.p._class )
+       {
+        u.p.dev_uevent = sp->class->dev_uevent;
+        u.p.devnode = sp->class->devnode;
+        u.p.class_release = sp->class->class_release;
+        u.p.dev_release = sp->class->dev_release;
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4,15,0)
+        u.p.c_susped = sp->class->suspend;
+        u.p.c_resume = sp->class->resume;
+#else
+        u.p.c_susped = u.p.c_resume = 0;
+#endif
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4,11,10)
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4,14,0)
+        u.p.c_shutdown = sp->class->shutdown_pre;
+#else
+        u.p.c_shutdown = sp->class->shutdown;
+#endif
+#else
+        u.p.c_shutdown = 0;
+#endif
+        u.p.c_ns_type = (void *)sp->class->ns_type;
+        u.p.c_namespace = sp->class->namespace;
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4,19,0)
+        u.p.c_getownership = sp->class->get_ownership;
+#else
+        u.p.c_getownership = 0;
+#endif
+       }
+       // calc notifiers
+       u.p.ntfy_cnt = 0;
+       if ( sp->bus_notifier.head )
+       {
+        struct notifier_block *b;
+        down_read(&sp->bus_notifier.rwsem);
+        for ( b = sp->bus_notifier.head; b != NULL; b = b->next )
+          u.p.ntfy_cnt++;
+        up_read(&sp->bus_notifier.rwsem);
+       }
+       // done
+       file_close(file);
+       if (copy_to_user((void*)ioctl_param, (void*)&u.p, sizeof(u.p)) > 0)
+         return -EFAULT;
+     }
+     break; /* IOCTL_READ_BUS */
+     
     case IOCTL_KERNFS_NODE:
      {
        char name[BUFF_SIZE];
