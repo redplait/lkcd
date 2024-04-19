@@ -579,6 +579,18 @@ void dump_and_check(int opt_c, sa64 delta, int has_syms, std::map<a64, a64> &fil
 }
 
 #ifndef _MSC_VER
+char *extract_name(unsigned long l, ksym_params &kp)
+{
+  kp.addr = l;
+  int err = ioctl(g_fd, IOCTL_LOOKUP_SYM, (int *)&kp);
+  if ( err ) return NULL;
+  return kp.name;
+}
+
+#define GET_NAME(l) const char *sname = NULL; ksym_params tmp_kp; \
+  if ( g_kallsyms ) sname = name_by_addr(l); \
+  else sname = extract_name(l, tmp_kp);
+
 void dump_unnamed_kptr(unsigned long l, sa64 delta)
 {
   if ( is_inside_kernel(l) )
@@ -592,9 +604,7 @@ void dump_unnamed_kptr(unsigned long l, sa64 delta)
     const char *mname = find_kmod(l);
     if ( mname )
     {
-      const char *sname = NULL;
-      if ( g_kallsyms )
-        sname = name_by_addr(l);
+      GET_NAME(l);
       if ( sname )
         printf(" %p - %s!%s\n", (void *)l, mname, sname);
       else
@@ -618,9 +628,7 @@ void dump_kptr(unsigned long l, const char *name, sa64 delta)
     const char *mname = find_kmod(l);
     if (mname)
     {
-      const char *sname = NULL;
-      if ( g_kallsyms )
-        sname = name_by_addr(l);
+      GET_NAME(l);
       if ( sname )
         printf(" %s: %p - %s!%s\n", name, (void *)l, mname, sname);
       else
@@ -644,9 +652,7 @@ void dump_kptr2(unsigned long l, const char *name, sa64 delta)
     const char *mname = find_kmod(l);
     if (mname)
     {
-      const char *sname = NULL;
-      if ( g_kallsyms )
-        sname = name_by_addr(l);
+      GET_NAME(l);
       if ( sname )
         printf(" %s: %p - %s!%s\n", name, (void *)l, mname, sname);
       else
@@ -3697,9 +3703,7 @@ void dump_efivars(a64 saddr, sa64 delta)
      const char *mname = find_kmod((unsigned long)arg);
      if ( mname )
      {
-       const char *sname = NULL;
-       if ( g_kallsyms )
-        sname = name_by_addr((a64)arg);
+       GET_NAME((unsigned long)arg);
        if ( sname )
          printf("efivar_operations at %p: %p - %s!%s\n", ptr, arg, mname, sname);
        else
@@ -3742,9 +3746,7 @@ void dump_usb_mon(a64 saddr, sa64 delta)
        const char *mname = find_kmod((unsigned long)arg);
        if ( mname )
        {
-         const char *sname = NULL;
-         if ( g_kallsyms )
-          sname = name_by_addr((a64)arg);
+         GET_NAME((unsigned long)arg)
          if ( sname )
            printf("mon_ops at %p: %p - %s!%s\n", (char *)saddr + delta, arg, mname, sname);
          else
