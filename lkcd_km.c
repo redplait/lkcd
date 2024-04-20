@@ -962,14 +962,21 @@ void fill_one_cgroup(struct one_cgroup *grp, struct cgroup_subsys_state *css)
   int i;
   // bcs self (type cgroup_subsys_state) is first field in cgroup
   struct cgroup *cg = (struct cgroup *)css;
+  const int bpf_cgsize = sizeof(cg->bpf.effective) / sizeof(cg->bpf.effective[0]);
   grp->addr = (void *)cg;
   grp->ss = (void *)css->ss;
+  grp->root = (void *)cg->root;
+  if ( css->parent )
+    grp->parent_ss = (void *)css->parent->ss;
+  else
+    grp->parent_ss = 0;
+  grp->agent_work = (void *)cg->release_agent_work.func;  
   grp->serial_nr = css->serial_nr;
   grp->flags = cg->flags;
   grp->level = cg->level;
   grp->kn = (void *)cg->kn;
   grp->id = cgroup_id(cg);
-  for ( i = 0; i < MAX_BPF_ATTACH_TYPE && i < CG_BPF_MAX; i++ )
+  for ( i = 0; i < bpf_cgsize && i < CG_BPF_MAX; i++ )
   {
     grp->prog_array[i] = (void *)cg->bpf.effective[i];
     if ( cg->bpf.effective[i] && bpf_prog_array_length_ptr )

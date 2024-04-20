@@ -788,6 +788,9 @@ struct one_cgroup
   // from cgroup_subsys_state
   void *addr;
   void *ss;
+  void *parent_ss;
+  void *root;
+  void *agent_work;
   unsigned long serial_nr;
   // from cgroup 
   void *kn;
@@ -1402,5 +1405,12 @@ struct one_priv
 // in param - name of file
 // out param - one_priv
 #define IOCTL_READ_BUS                     _IOR(IOCTL_NUM, 0x60, int*)
+
+// extract bus nofifiers
+// in param:
+//  0 - size
+//  1 - string - name of file
+// out params: N + N * void*
+#define IOCTL_BUS_NTFY                     _IOR(IOCTL_NUM, 0x61, int*)
 
 #endif /* LKCD_SHARED_H */
