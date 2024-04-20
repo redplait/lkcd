@@ -1021,6 +1021,20 @@ static unsigned int module_total_size(struct module *mod)
 }
 #endif
 
+// warning - size of string is hardcoded BUFF_SIZE 
+void read_user_string(char *name, unsigned long ioctl_param)
+{
+  int i;
+  char ch, *temp = (char *) ioctl_param;
+  get_user(ch, temp++);
+  name[0] = ch;
+  for (i = 1; ch && i < BUFF_SIZE - 1; i++, temp++) 
+  {
+    get_user(ch, temp);
+    name[i] = ch;
+  }
+}
+
 static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long ioctl_param)
 {
   unsigned long ptrbuf[16];
@@ -1041,16 +1055,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
     case IOCTL_RKSYM:
      {
        char name[BUFF_SIZE];
-       int i;
-       char ch;
-       char *temp = (char *) ioctl_param;
-       get_user(ch, temp++);
-       name[0] = ch;
-       for (i = 1; ch && i < BUFF_SIZE - 1; i++, temp++) 
-       {
-          get_user(ch, temp);
-          name[i] = ch;
-       }
+       read_user_string(name, ioctl_param);
        ptrbuf[0] = lkcd_lookup_name(name);
        if (copy_to_user((void*)ioctl_param, (void*)ptrbuf, sizeof(ptrbuf[0])) > 0)
          return -EFAULT;
@@ -1728,8 +1733,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
        struct rw_semaphore *sem;
        struct hlist_head *hash;
        struct trace_event *event;
-       if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 3) > 0 )
- 	 return -EFAULT;
+       if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 3) > 0 ) return -EFAULT;
        sem = (struct rw_semaphore *)ptrbuf[0];
        hash = (struct hlist_head *)ptrbuf[1];
        hash += ptrbuf[2];
@@ -1749,21 +1753,20 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
      {
        struct rw_semaphore *sem;
        struct hlist_head *hash;
-       if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 4) > 0 )
- 	 return -EFAULT;
+       if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 4) > 0 ) return -EFAULT;
        sem = (struct rw_semaphore *)ptrbuf[0];
        hash = (struct hlist_head *)ptrbuf[1];
        hash += ptrbuf[2];
        count = ptrbuf[3];
-       if ( !count )
-         return -EINVAL;
+       if ( !count ) return -EINVAL;
        else
        {
          struct trace_event *event;
-         unsigned long kbuf_size = count * sizeof(struct one_trace_event);
+         char *kbuf;
          unsigned long res = 0; // how many events in reality
          struct one_trace_event *curr;
-         char *kbuf = (char *)kmalloc(kbuf_size, GFP_KERNEL);
+         kbuf_size = count * sizeof(struct one_trace_event);
+         kbuf = (char *)kmalloc(kbuf_size, GFP_KERNEL);
          if ( !kbuf )
            return -ENOMEM;
          curr = (struct one_trace_event *)kbuf;
@@ -1814,8 +1817,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
      {
        struct tracepoint *tp;
        struct tracepoint_func *func;
-       if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long)) > 0 )
- 	 return -EFAULT;
+       if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long)) > 0 ) return -EFAULT;
        tp = (struct tracepoint *)ptrbuf[0];
        ptrbuf[0] = atomic_read(&tp->key.enabled);
        ptrbuf[1] = (unsigned long)tp->regfunc;
@@ -1837,8 +1839,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
        else
          rcu_read_unlock();
        // copy to usermode
-       if (copy_to_user((void*)ioctl_param, (void*)ptrbuf, sizeof(ptrbuf[0]) * 4) > 0)
- 	 return -EFAULT;
+       if (copy_to_user((void*)ioctl_param, (void*)ptrbuf, sizeof(ptrbuf[0]) * 4) > 0) return -EFAULT;
      }
      break; /* IOCTL_TRACEPOINT_INFO */
 
@@ -1849,17 +1850,14 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
        unsigned long res = 0;
        struct one_tracepoint_func *curr;
 
-       if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 2) > 0 )
- 	 return -EFAULT;
+       if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 2) > 0 ) return -EFAULT;
        tp = (struct tracepoint *)ptrbuf[0];
        count = ptrbuf[1];
-       if ( !tp || !count )
-         return -EINVAL;
+       if ( !tp || !count ) return -EINVAL;
 
        kbuf_size = sizeof(unsigned long) + count * sizeof(struct one_tracepoint_func);
        kbuf = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL);
-       if ( !kbuf )
-         return -ENOMEM;
+       if ( !kbuf ) return -ENOMEM;
        curr = (struct one_tracepoint_func *)(kbuf + 1);
 
        // lock
@@ -1901,18 +1899,10 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
        struct kernfs_node *k;
        struct kobject *kobj;
        struct subsys_private *sp;
-       int i, err;
-       char ch;
-       char *temp = (char *)ioctl_param;
+       int err;
        if ( krnf_node_ptr == NULL )
          return -EFAULT;
-       get_user(ch, temp++);
-       u.name[0] = ch;
-       for (i = 1; ch && i < BUFF_SIZE - 1; i++, temp++)  
-       {
-          get_user(ch, temp);
-          u.name[i] = ch;
-       }
+       read_user_string(u.name, ioctl_param);  
        // open file
        file = file_open(u.name, 0, 0, &err);
        if ( NULL == file )
@@ -2027,25 +2017,17 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
          return -EFAULT;
      }
      break; /* IOCTL_READ_BUS */
-     
+
     case IOCTL_KERNFS_NODE:
      {
        char name[BUFF_SIZE];
        struct file *file;
        struct kernfs_node *k;
        struct kobject *kobj = NULL;
-       int i, err;
-       char ch;
-       char *temp = (char *)ioctl_param;
+       int err;
        if ( krnf_node_ptr == NULL )
          return -EFAULT;
-       get_user(ch, temp++);
-       name[0] = ch;
-       for (i = 1; ch && i < BUFF_SIZE - 1; i++, temp++)  
-       {
-          get_user(ch, temp);
-          name[i] = ch;
-       }
+       read_user_string(name, ioctl_param);
        // open file
        file = file_open(name, 0, 0, &err);
        if ( NULL == file )
