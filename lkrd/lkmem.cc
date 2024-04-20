@@ -638,6 +638,8 @@ void dump_kptr(unsigned long l, const char *name, sa64 delta)
   }
 }
 
+// dump pointer belonging to some module or allocated in heap
+// in last case don`t print UNKNOWN like dump_kptr do
 void dump_kptr2(unsigned long l, const char *name, sa64 delta)
 {
   if (is_inside_kernel(l))
@@ -2091,6 +2093,10 @@ void dump_cgroup(const one_cgroup *cg, sa64 delta, unsigned long a1, unsigned lo
   printf(" cgroup at %p id %ld serial_nr %ld flags %lX level %d kn %p\n", cg->addr, cg->id, cg->serial_nr, cg->flags, cg->level, cg->kn);
   if ( cg->ss )
     dump_kptr((unsigned long)cg->ss, "ss", delta);
+  if ( cg->parent_ss )
+    dump_kptr((unsigned long)cg->parent_ss, "parent.ss", delta);
+  if ( cg->agent_work )
+    dump_kptr((unsigned long)cg->agent_work, "release_agent_work", delta);
   int i = 0;
   int has_bpf = 0;
   for ( i = 0; i < CG_BPF_MAX; i++ )
@@ -3866,7 +3872,7 @@ void dunp_kalarms(sa64 delta)
     err = ioctl(g_fd, IOCTL_GET_ALARMS, (int *)buf);
     if ( err )
     {
-      printf("error %d while read IOCTL_GET_ALARMS %d\n", err, i);
+      printf("error %d while read IOCTL_GET_ALARMS %d\n", errno, i);
       continue;
     }
     one_alarm *k = (one_alarm *)(buf + 1);
@@ -4048,7 +4054,7 @@ void dump_kernfs(kernfs_res &res, sa64 delta)
   }
 }
 
-void dump_bus(one_priv &p, sa64 delta)
+void dump_bus(one_priv &p, sa64 delta, const char *fname)
 {
   if ( p.uevent_ops )
   {
@@ -4062,7 +4068,7 @@ void dump_bus(one_priv &p, sa64 delta)
   }
   if ( p.bus )
   {
-    dump_kptr((unsigned long)p.bus, "bus", delta);
+    dump_kptr2((unsigned long)p.bus, "bus", delta);
     if ( p.match )
       dump_kptr((unsigned long)p.match, "  match", delta);
     if ( p.bus_uevent )
@@ -4096,7 +4102,7 @@ void dump_bus(one_priv &p, sa64 delta)
   }
   if ( p._class )
   {
-    dump_kptr((unsigned long)p._class, "class", delta);
+    dump_kptr2((unsigned long)p._class, "class", delta);
     if ( p.dev_uevent )
       dump_kptr((unsigned long)p.dev_uevent, "  dev_uevent", delta);
     if ( p.devnode )
@@ -4119,6 +4125,32 @@ void dump_bus(one_priv &p, sa64 delta)
       dump_kptr((unsigned long)p.c_getownership, "  get_ownership", delta);
   }
   if ( p.ntfy_cnt ) printf(" ntfy_cnt: %ld\n", p.ntfy_cnt);
+  else return;
+  // in params: ptr + fname + 1 zero byte
+  size_t buf_size = sizeof(unsigned long) + 1 + strlen(fname);
+  // out params: N + N unsigned longs
+  buf_size = std::max(buf_size, sizeof(unsigned long) * (1 + p.ntfy_cnt));
+  unsigned long *buf = (unsigned long *)malloc(buf_size);
+  if ( !buf )
+  {
+    printf("cannot alloc buffer for bus notifiers, len %lX\n", buf_size);
+    return;
+  }
+  dumb_free<unsigned long> tmp(buf);
+  // form in params
+  buf[0] = p.ntfy_cnt;
+  strcpy((char *)(buf + 1), fname);
+  int err = ioctl(g_fd, IOCTL_BUS_NTFY, (int *)buf);
+  if ( err )
+  {
+    printf("error %d while read IOCTL_BUS_NTFY for %s\n", errno, fname);
+    return;
+  }
+  for ( unsigned long i = 0; i < buf[0]; ++i )
+  {
+    printf("  [%d]", i);
+    dump_unnamed_kptr(buf[i+1], delta);
+  }
 }
 
 int main(int argc, char **argv)
@@ -4390,7 +4422,9 @@ int main(int argc, char **argv)
          exit(6);
        }
        auto bus_type = get_addr("bus_ktype");
+       auto cl_type = get_addr("class_ktype");
        if ( bus_type ) bus_type += delta;
+       if ( cl_type) cl_type += delta; 
        union kernfs_params kparm;
        for ( int idx = optind; idx < argc; idx++ )
        {
@@ -4405,7 +4439,8 @@ int main(int argc, char **argv)
          printf("\nres %s: %p\n", argv[idx], (void *)kparm.res.addr);
          dump_kernfs(kparm.res, delta);
          // dir with ktype == bus_type ?
-         if ( bus_type && kparm.res.addr && (kparm.res.flags & 1) && bus_type == kparm.res.ktype )
+         if ( kparm.res.addr && (kparm.res.flags & 1) )
+         if ( (bus_type && bus_type == kparm.res.ktype) || (cl_type && cl_type == kparm.res.ktype) )
          {
            strncpy(kparm.name, argv[idx], sizeof(kparm.name) - 1);
            kparm.name[sizeof(kparm.name) - 1] = 0;
@@ -4415,7 +4450,7 @@ int main(int argc, char **argv)
              printf("IOCTL_READ_BUS(%s) failed, error %d (%s)\n", argv[idx], errno, strerror(errno));
              continue;
            }
-           dump_bus(kparm.priv, delta);
+           dump_bus(kparm.priv, delta, argv[idx]);
          }
        }
      }
