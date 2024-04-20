@@ -1164,9 +1164,8 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
        } else {
          struct notifier_block *b;
          struct raw_notifier_head *head = (struct raw_notifier_head *)ptrbuf[0];
-         unsigned long *kbuf = (unsigned long *)kmalloc_array(ptrbuf[1] + 1, sizeof(unsigned long), GFP_KERNEL);
-         if ( !kbuf )
-           return -ENOMEM;
+         kbuf = (unsigned long *)kmalloc_array(ptrbuf[1] + 1, sizeof(unsigned long), GFP_KERNEL);
+         if ( !kbuf ) return -ENOMEM;
          rtnl_lock();
          for ( b = head->head; b != NULL; b = b->next )
          {
