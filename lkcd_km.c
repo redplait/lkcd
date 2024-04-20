@@ -113,6 +113,11 @@ my_lookup s_lookup = 0;
 struct mutex *s_module_mutex = 0;
 struct list_head *s_modules = 0;
 
+#ifdef CONFIG_ZPOOL
+struct list_head *z_drivers_head = 0;
+spinlock_t *z_drivers_lock = 0;
+#endif
+
 #define KPROBE_HASH_BITS 6
 #define KPROBE_TABLE_SIZE (1 << KPROBE_HASH_BITS)
 
@@ -1013,11 +1018,11 @@ static struct net *peek_net(unsigned long addr)
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(6,4,0)
 static unsigned int module_total_size(struct module *mod)
 {
-	int size = 0;
+ int size = 0;
 
-	for_each_mod_mem_type(type)
-		size += mod->mem[type].size;
-	return size;
+ for_each_mod_mem_type(type)
+   size += mod->mem[type].size;
+ return size;
 }
 #endif
 
@@ -1033,6 +1038,19 @@ void read_user_string(char *name, unsigned long ioctl_param)
     get_user(ch, temp);
     name[i] = ch;
   }
+}
+
+// extract subsys_private from file
+static int extract_sp(struct file *file, struct subsys_private **sp)
+{
+  struct kobject *kobj;
+  struct kernfs_node *k = krnf_node_ptr(file->f_path.dentry);
+  if ( !k ) return -EBADF;
+  if ( !(k->flags & KERNFS_DIR) ) return -ENOTDIR;
+  kobj = k->priv;
+  if ( !kobj ) return -ENOTTY;
+  *sp = to_subsys_private(kobj);
+  return 0;
 }
 
 static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long ioctl_param)
@@ -1085,8 +1103,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
 
     case IOCTL_READ_MODULES:
        if ( !s_modules || !s_module_mutex ) return -ENOCSI;
-       if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 2 ) > 0 )
-         return -EFAULT;
+       if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 2 ) > 0 ) return -EFAULT;
        if ( !ptrbuf[0] )
        {
         struct module *mod;
@@ -1117,7 +1134,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
           curr->base = mod->core_layout.base;
           curr->size = mod->init_layout.size + mod->core_layout.size;
 #ifdef CONFIG_ARCH_WANTS_MODULES_DATA_IN_VMALLOC
-	        curr->size += mod->data_layout.size;
+          curr->size += mod->data_layout.size;
 #endif
 #endif /* new modules format since 6.4 */
           strlcpy(curr->name, mod->name, sizeof(curr->name));
@@ -1160,12 +1177,8 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
          }
          rtnl_unlock();
          kbuf[0] = count;
-         if ( copy_to_user((void*)(ioctl_param), (void*)kbuf, sizeof(unsigned long) * (1 + count)) > 0 )
-         {
-           kfree(kbuf);
-           return -EFAULT;
-         }
-         kfree(kbuf);
+         kbuf_size = sizeof(unsigned long) * (1 + count);
+         goto copy_kbuf;
        }
       break; /* IOCTL_GET_NETDEV_CHAIN */
 
@@ -1241,7 +1254,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
        if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 2) > 0 )
          return -EFAULT;
         else {
-         struct blocking_notifier_head *nb = (struct blocking_notifier_head *)ptrbuf[9];
+         struct blocking_notifier_head *nb = (struct blocking_notifier_head *)ptrbuf[0];
          void *ntfy = (void *)ptrbuf[1];
          struct notifier_block *b, *target = NULL;
          // lock
@@ -1273,7 +1286,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
        if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 2) > 0 )
          return -EFAULT;
         else {
-         struct atomic_notifier_head *nb = (struct atomic_notifier_head *)ptrbuf[9];
+         struct atomic_notifier_head *nb = (struct atomic_notifier_head *)ptrbuf[0];
          void *ntfy = (void *)ptrbuf[1];
          struct notifier_block *b, *target = NULL;
          unsigned long flags;
@@ -1306,7 +1319,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
        if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 2) > 0 )
          return -EFAULT;
         else {
-         struct srcu_notifier_head *nb = (struct srcu_notifier_head *)ptrbuf[9];
+         struct srcu_notifier_head *nb = (struct srcu_notifier_head *)ptrbuf[0];
          void *ntfy = (void *)ptrbuf[1];
          struct notifier_block *b, *target = NULL;
          // lock
@@ -1553,7 +1566,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
                count++;
              srcu_read_unlock(&cn->transition_notifier_list.srcu, idx);
            }
-           mutex_unlock(m); 
+           mutex_unlock(m);
            goto copy_count;
          } else {
            struct clk_ntfy *curr;
@@ -1588,64 +1601,42 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
      break; /* READ_DEVFREQ_NTFY */
 
     case IOCTL_ENUMSNTFYCHAIN:
-     {
-       // copy args from user-mode
-       struct srcu_notifier_head *nb;
-       if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 2) > 0 )
-         return -EFAULT;
-       nb = (struct srcu_notifier_head *)ptrbuf[0];
+     // copy args from user-mode
+     if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 2) > 0 ) return -EFAULT;
+     if ( !ptrbuf[0] || !ptrbuf[1] ) return -EINVAL;
+     else {
+       struct notifier_block *b;
+       unsigned long res = 0; // how many ntfy in reality
+       struct srcu_notifier_head *nb = (struct srcu_notifier_head *)ptrbuf[0];
        count = ptrbuf[1];
-       // validation
-       if ( !count || !nb )
-         return -EINVAL;
-       else
+       kbuf = (unsigned long *)kmalloc_array(count + 1, sizeof(unsigned long), GFP_KERNEL);
+       if ( !kbuf ) return -ENOMEM;
+       // lock
+       mutex_lock(&nb->mutex);
+       // traverse
+       if ( nb->head != NULL )
        {
-         struct notifier_block *b;
-         unsigned long res = 0; // how many ntfy in reality
-         kbuf = (unsigned long *)kmalloc_array(count, sizeof(unsigned long), GFP_KERNEL);
-         if ( !kbuf )
-           return -ENOMEM;
-         // lock
-         mutex_lock(&nb->mutex);
-         // traverse
-         if ( nb->head != NULL )
+         for ( b = nb->head; (b != NULL) && (res < count); b = b->next )
          {
-            for ( b = nb->head; (b != NULL) && (res < count); b = b->next )
-            {
-              kbuf[res] = (unsigned long)b->notifier_call;
-              res++;
-            }
+           kbuf[res + 1] = (unsigned long)b->notifier_call;
+           res++;
          }
-         // unlock
-         mutex_unlock(&nb->mutex);
-         // copy count to user-mode
-         if ( copy_to_user((void*)ioctl_param, (void*)&res, sizeof(res)) > 0 )
-         {
-           kfree(kbuf);
-           return -EFAULT;
-         }
-         if ( res )
-         {
-           if ( copy_to_user((void*)(ioctl_param + sizeof(res)), (void*)kbuf, sizeof(unsigned long) * res) > 0 )
-           {
-             kfree(kbuf);
-             return -EFAULT;
-           }
-         }
-         // cleanup
-         kfree(kbuf);
        }
+       // unlock
+       mutex_unlock(&nb->mutex);
+       kbuf[0] = res;
+       kbuf_size = (1 + res) * sizeof(unsigned long);
+       goto copy_kbuf;
      }
      break; /* IOCTL_ENUMSNTFYCHAIN */
 
     case IOCTL_CNTSNTFYCHAIN:
-     {
-       // copy address of srcu_notifier_head from user-mode
-       struct srcu_notifier_head *nb;
+      // copy address of srcu_notifier_head from user-mode
+      if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long)) > 0 ) return -EFAULT;
+      if ( !ptrbuf[0] ) return -EINVAL;
+      else {
+       struct srcu_notifier_head *nb = (struct srcu_notifier_head *)ptrbuf[0];
        struct notifier_block *b;
-       if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long)) > 0 )
- 	 return -EFAULT;
-       nb = (struct srcu_notifier_head *)ptrbuf[0];
        // lock
        mutex_lock(&nb->mutex);
        // traverse
@@ -1686,15 +1677,14 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
       if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long)) > 0 ) return -EFAULT;
       else {
         struct pid *p;
-        if ((pid_t)(ptrbuf[0]) <= 0)
-		      return -EINVAL;
+        if ((pid_t)(ptrbuf[0]) <= 0) return -EINVAL;
         p = find_get_pid((pid_t)(ptrbuf[0]));
         if ( !p) return -ESRCH;
         else {
           struct one_task_info ti;
           struct task_struct *task = pid_task(p, PIDTYPE_PID);
           struct callback_head **pprev, *work;
-	        unsigned long flags;
+          unsigned long flags;
 
           put_pid(p);
           if ( !task ) return -ESRCH;
@@ -1715,11 +1705,11 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
           ti.works_count = 0;
           pprev = &task->task_works;
           raw_spin_lock_irqsave(&task->pi_lock, flags);
-	        while ((work = READ_ONCE(*pprev))) {
-			      pprev = &work->next;
+          while ((work = READ_ONCE(*pprev))) {
+            pprev = &work->next;
             ti.works_count++;
-	        }
-	        raw_spin_unlock_irqrestore(&task->pi_lock, flags);
+          }
+          raw_spin_unlock_irqrestore(&task->pi_lock, flags);
           put_task_struct(task);
           // copy to user
           if ( copy_to_user((void*)ioctl_param, (void*)&ti, sizeof(ti)) > 0 )
@@ -1750,12 +1740,11 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
      break; /* IOCTL_TRACEV_CNT */
 
     case IOCTL_TRACEVENTS:
-     {
-       struct rw_semaphore *sem;
-       struct hlist_head *hash;
-       if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 4) > 0 ) return -EFAULT;
-       sem = (struct rw_semaphore *)ptrbuf[0];
-       hash = (struct hlist_head *)ptrbuf[1];
+     if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 4) > 0 ) return -EFAULT;
+     if ( !ptrbuf[0] || !ptrbuf[1] ) return -EINVAL;
+     else {
+       struct rw_semaphore *sem = (struct rw_semaphore *)ptrbuf[0];
+       struct hlist_head *hash = (struct hlist_head *)ptrbuf[1];
        hash += ptrbuf[2];
        count = ptrbuf[3];
        if ( !count ) return -EINVAL;
@@ -1896,13 +1885,11 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
          struct one_priv p;
        } u;
        struct file *file;
-       struct kernfs_node *k;
-       struct kobject *kobj;
        struct subsys_private *sp;
        int err;
        if ( krnf_node_ptr == NULL )
          return -EFAULT;
-       read_user_string(u.name, ioctl_param);  
+       read_user_string(u.name, ioctl_param);
        // open file
        file = file_open(u.name, 0, 0, &err);
        if ( NULL == file )
@@ -1910,25 +1897,12 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
          printk(KERN_INFO "[lkcd] cannot open file %s, error %d\n", u.name, err);
          return err;
        }
-       k = krnf_node_ptr(file->f_path.dentry);
-       if ( !k )
+       err = extract_sp(file, &sp);
+       if ( err )
        {
          file_close(file);
-         return -EBADF; 
+         return err;
        }
-       if ( !(k->flags & KERNFS_DIR) )
-       {
-         file_close(file);
-         return -ENOTDIR;
-       }
-       kobj = k->priv;
-       if ( !kobj )
-       {
-         file_close(file);
-         return -ENOTTY;
-       }
-       // ok, it is
-       sp = to_subsys_private(kobj);
        u.p.uevent_ops = (void *)sp->subsys.uevent_ops;
        if ( u.p.uevent_ops )
        {
@@ -2838,8 +2812,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
      case IOCTL_RNL_PER_CPU:
       {
         struct urn_params params;
-        if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 4) > 0 )
-  	  return -EFAULT;
+        if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 4) > 0 ) return -EFAULT;
         params.out_data = NULL;
         // check size
         if ( !ptrbuf[3] )
@@ -2879,8 +2852,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
 
      case IOCTL_READ_CONSOLES:
        // read cnt
-       if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long)) > 0 )
-  	      return -EFAULT;
+       if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long)) > 0 ) return -EFAULT;
        if ( !ptrbuf[0] )
        {
          // just count amount of registered consoles
@@ -2939,10 +2911,8 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
         if ( !s_sock_diag_handlers || !s_sock_diag_table_mutex )
           return -ENOCSI;
         // read index
-        if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long)) > 0 )
-  	      return -EFAULT;
-  	if ( ptrbuf[0] >= AF_MAX)
-          return -EINVAL;
+        if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long)) > 0 ) return -EFAULT;
+        if ( ptrbuf[0] >= AF_MAX) return -EINVAL;
         else {
           struct one_sock_diag params;
           // lock
@@ -2965,9 +2935,9 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
        break; /* IOCTL_GET_SOCK_DIAG */
 
      case IOCTL_GET_ULP_OPS:
-        if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 3) > 0 )
-  	  return -EFAULT;
-  	else {
+        if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 3) > 0 ) return -EFAULT;
+        if ( !ptrbuf[0] || !ptrbuf[1] ) return -EINVAL;
+        else {
           struct list_head *list = (struct list_head *)ptrbuf[0];
           spinlock_t *lock = (spinlock_t *)ptrbuf[1];
           struct list_head *p;
@@ -3016,9 +2986,9 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
        break; /* IOCTL_GET_ULP_OPS */
 
      case IOCTL_GET_PROTOS:
-        if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 3) > 0 )
-  	  return -EFAULT;
-  	else {
+        if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 3) > 0 ) return -EFAULT;
+        if ( !ptrbuf[0] || !ptrbuf[1] ) return -EINVAL;
+        else {
           struct list_head *list = (struct list_head *)ptrbuf[0];
           struct mutex *m = (struct mutex *)ptrbuf[1];
           struct list_head *p;
@@ -3057,10 +3027,8 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
 
      case IOCTL_GET_PROTOSW:
         // read count
-        if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 4) > 0 )
-  	  return -EFAULT;
-  	if ( ptrbuf[2] >= SOCK_MAX )
-          return -EINVAL;
+        if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 4) > 0 ) return -EFAULT;
+        if ( ptrbuf[2] >= SOCK_MAX ) return -EINVAL;
         else {
           struct list_head *isw_list = (struct list_head *)ptrbuf[0];
           spinlock_t *lock = (spinlock_t *)ptrbuf[1];
@@ -3107,8 +3075,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
 
 #ifdef CONFIG_NETFILTER
      case IOCTL_NFIEHOOKS:
-        if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 4) > 0 )
-  	     return -EFAULT;
+        if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 4) > 0 ) return -EFAULT;
 #ifndef CONFIG_NETFILTER_EGRESS
         if ( ptrbuf[3] ) goto copy_count;
 #endif
@@ -3181,10 +3148,9 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
         if ( !s_net || !s_nf_log_mutex )
           return -ENOCSI;
         // read params
-        if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 2) > 0 )
-  	     return -EFAULT;
+        if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 2) > 0 ) return -EFAULT;
         if ( !ptrbuf[1] )
-  	    {
+        {
           struct net *net = peek_net(ptrbuf[0]);
           int i;
           if ( !net )
@@ -3296,10 +3262,9 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
         if ( !s_net || !s_nf_log_mutex )
           return -ENOCSI;
         // read params
-        if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 2) > 0 )
-  	     return -EFAULT;
+        if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 2) > 0 ) return -EFAULT;
         if ( !ptrbuf[1] )
-  	    {
+        {
           struct net *net = peek_net(ptrbuf[0]);
           int i;
           if ( !net )
@@ -3352,10 +3317,9 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
         if ( !s_net || !s_dev_base_lock )
           return -ENOCSI;
         // read count
-        if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 2) > 0 )
-  	     return -EFAULT;
-  	  if ( !ptrbuf[1] )
-  	  {
+        if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 2) > 0 ) return -EFAULT;
+        if ( !ptrbuf[1] )
+        {
           struct net_device *dev;
           struct net *net = peek_net(ptrbuf[0]);
           if ( !net )
@@ -3476,10 +3440,8 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
       break; /* IOCTL_GET_NET_DEVS */
 
      case IOCTL_GET_LINKS_OPS:
-        if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 2) > 0 )
-  	  return -EFAULT;
-  	if ( !ptrbuf[0] )
-          return -EINVAL;
+        if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 2) > 0 ) return -EFAULT;
+        if ( !ptrbuf[0] ) return -EINVAL;
         if ( !ptrbuf[1] )
         {
           // count number of links_ops
@@ -3514,10 +3476,8 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
       break; /* IOCTL_GET_LINKS_OPS */
 
      case IOCTL_GET_PERNET_OPS:
-        if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 3) > 0 )
-  	  return -EFAULT;
-  	if ( !ptrbuf[0] || !ptrbuf[1] )
-          return -EINVAL;
+        if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 3) > 0 ) return -EFAULT;
+        if ( !ptrbuf[0] || !ptrbuf[1] ) return -EINVAL;
         if ( !ptrbuf[2] )
         {
           // count num of pernet_operations
@@ -3564,8 +3524,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
         if ( !s_net )
           return -ENOCSI;
         // read net addr & count
-        if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 2) > 0 )
-  	     return -EFAULT;
+        if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 2) > 0 ) return -EFAULT;
 #if LINUX_VERSION_CODE > KERNEL_VERSION(4,15,0)
       return -EPROTO;
 #else
@@ -3619,16 +3578,15 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
         }
 #endif
       break; /* IOCTL_ENUM_NFT_AF */
-       
+
      case IOCTL_GET_NETS:
         // check pre-req
         if ( !s_net )
           return -ENOCSI;
         // read count
-        if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long)) > 0 )
-  	  return -EFAULT;
-  	if ( !ptrbuf[0] )
-  	{
+        if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long)) > 0 ) return -EFAULT;
+        if ( !ptrbuf[0] )
+        {
           struct net *net;
           down_read(s_net);
           for_each_net(net)
@@ -3720,10 +3678,9 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
       break; /* IOCTL_GET_NETS */
 
     case IOCTL_GET_RTNL_AF_OPS:
-        if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 2) > 0 )
-  	  return -EFAULT;
-  	if ( !ptrbuf[1] )
-  	{
+        if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 2) > 0 ) return -EFAULT;
+        if ( !ptrbuf[1] )
+        {
           struct list_head *head = (struct list_head *)ptrbuf[0];
           struct list_head *lh;
           rtnl_lock();
@@ -3756,10 +3713,8 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
       break; /* IOCTL_GET_RTNL_AF_OPS */
 
     case IOCTL_GET_NLTAB:
-        if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 3) > 0 )
-  	  return -EFAULT;
-  	if ( ptrbuf[2] >= MAX_LINKS )
-  	  return -EFBIG;
+        if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 3) > 0 ) return -EFAULT;
+        if ( ptrbuf[2] >= MAX_LINKS ) return -EFBIG;
         else {
           struct netlink_table *tab = *(struct netlink_table **)ptrbuf[0] + ptrbuf[2];
           rwlock_t *lock = (rwlock_t *)ptrbuf[1];
@@ -3780,8 +3735,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
           for (;;) {
             struct netlink_sock *ns = rhashtable_walk_next(&iter);
             if (IS_ERR(ns)) {
-	       if (PTR_ERR(ns) == -EAGAIN)
-	 	 continue;
+	       if (PTR_ERR(ns) == -EAGAIN) continue;
 	       err = PTR_ERR(ns);
 	       break;
             } else if (!ns)
@@ -3803,12 +3757,10 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
     case IOCTL_DEL_CGROUP_BPF:
         if ( !cgroup_bpf_detach_ptr )
          return -ENOCSI;
-        if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 6) > 0 )
-  	  return -EFAULT;
-  	// check index (4 param)
-  	if ( ptrbuf[4] >= MAX_BPF_ATTACH_TYPE )
-          return -EINVAL;
-  	else {
+        if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 6) > 0 ) return -EFAULT;
+        // check index (4 param)
+        if ( ptrbuf[4] >= MAX_BPF_ATTACH_TYPE ) return -EINVAL;
+        else {
           struct idr *genl = (struct idr *)ptrbuf[0];
           struct mutex *m = (struct mutex *)ptrbuf[1];
           void *root = (void *)ptrbuf[2];
@@ -3829,8 +3781,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
              // iterate on childres
              for (child = css_next_descendant_pre(NULL, &item->cgrp.self); child; child = css_next_descendant_pre(child, &item->cgrp.self) )
              {
-               if ( (void *)child != cgrp )
-	         continue;
+               if ( (void *)child != cgrp ) continue;
 	       found = (struct cgroup *)child;
 	       break;
              }
@@ -3846,9 +3797,8 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
       break; /* IOCTL_DEL_CGROUP_BPF */
 
     case IOCTL_GET_PMUS:
-        if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 3) > 0 )
-  	  return -EFAULT;
-  	else
+        if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 3) > 0 ) return -EFAULT;
+        else
         {
           struct idr *pmus = (struct idr *)ptrbuf[0];
           struct mutex *m = (struct mutex *)ptrbuf[1];
@@ -3984,12 +3934,10 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
     case IOCTL_GET_CGROUP_BPF:
         if ( !bpf_prog_array_length_ptr )
           return -ENOCSI;
-        if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 6) > 0 )
-  	  return -EFAULT;
-  	// check index (4 param)
-  	if ( ptrbuf[4] >= MAX_BPF_ATTACH_TYPE )
-          return -EINVAL;
-  	else {
+        if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 6) > 0 ) return -EFAULT;
+        // check index (4 param)
+        if ( ptrbuf[4] >= MAX_BPF_ATTACH_TYPE ) return -EINVAL;
+        else {
           struct idr *genl = (struct idr *)ptrbuf[0];
           struct mutex *m = (struct mutex *)ptrbuf[1];
           void *root = (void *)ptrbuf[2];
@@ -4049,13 +3997,12 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
           kbuf[0] = cnt;
           kbuf_size = sizeof(unsigned long) + cnt * sizeof(struct one_bpf_prog);
           goto copy_kbuf;
-   	}
+       }
       break; /* IOCTL_GET_CGROUP_BPF */
 
     case IOCTL_GET_CGROUPS:
-        if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 4) > 0 )
-  	  return -EFAULT;
-  	else {
+        if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 4) > 0 ) return -EFAULT;
+        else {
           struct idr *genl = (struct idr *)ptrbuf[0];
           struct mutex *m = (struct mutex *)ptrbuf[1];
           void *root = (void *)ptrbuf[2];
@@ -4081,8 +4028,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
              // iterate on childres
              for (child = css_next_descendant_pre(NULL, &item->cgrp.self); child && count < ptrbuf[3]; child = css_next_descendant_pre(child, &item->cgrp.self) )
              {
-               if ( child == &item->cgrp.self )
-	         continue;
+               if ( child == &item->cgrp.self ) continue;
                fill_one_cgroup(curr, child);
                count++; curr++;
              }
@@ -4104,9 +4050,8 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
       break; /* IOCTL_GET_CGROUPS */
 
     case IOCTL_GET_CGRP_ROOTS:
-        if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 3) > 0 )
-  	  return -EFAULT;
-  	else {
+        if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 3) > 0 ) return -EFAULT;
+        else {
           struct idr *genl = (struct idr *)ptrbuf[0];
           struct mutex *m = (struct mutex *)ptrbuf[1];
           unsigned int hierarchy_id;
@@ -4169,9 +4114,8 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
       break; /* IOCTL_GET_CGRP_ROOTS */
 
     case IOCTL_GET_GENL_FAMILIES:
-        if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 2) > 0 )
-  	  return -EFAULT;
-  	else {
+        if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 2) > 0 ) return -EFAULT;
+        else {
           struct idr *genl = (struct idr *)ptrbuf[0];
           const struct genl_family *family;
           unsigned int id;
@@ -4215,12 +4159,9 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
       break; /* IOCTL_GET_GENL_FAMILIES */
 
     case IOCTL_GET_NL_SK:
-        if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 4) > 0 )
-  	  return -EFAULT;
-  	if ( !ptrbuf[3] )
-          return -EINVAL;
-  	if ( ptrbuf[2] >= MAX_LINKS )
-  	  return -EFBIG;
+        if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 4) > 0 ) return -EFAULT;
+        if ( !ptrbuf[3] ) return -EINVAL;
+        if ( ptrbuf[2] >= MAX_LINKS ) return -EFBIG;
         else {
           struct netlink_table *tab = *(struct netlink_table **)ptrbuf[0] + ptrbuf[2];
           rwlock_t *lock = (rwlock_t *)ptrbuf[1];
@@ -4431,9 +4372,8 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
      break; /* IOCTL_GET_BPF_LINKS */
 
     case IOCTL_GET_TRACE_EXPORTS:
-        if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 3) > 0 )
-  	  return -EFAULT;
-  	else {
+        if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 3) > 0 ) return -EFAULT;
+        else {
           struct trace_export *te = *(struct trace_export **)ptrbuf[0];
           struct mutex *m = (struct mutex *)ptrbuf[1];
           if ( !ptrbuf[2] )
@@ -4475,9 +4415,8 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
      break; /* IOCTL_GET_TRACE_EXPORTS */
 
     case IOCTL_GET_BPF_RAW_EVENTS:
-        if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 3) > 0 )
-  	  return -EFAULT;
-  	else {
+        if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 3) > 0 ) return -EFAULT;
+        else {
           struct bpf_raw_event_map *start = (struct bpf_raw_event_map *)ptrbuf[0];
           struct bpf_raw_event_map *end = (struct bpf_raw_event_map *)ptrbuf[1];
           if ( !ptrbuf[2] )
@@ -4513,10 +4452,9 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
     case IOCTL_GET_FTRACE_OPS:
         if ( !s_ftrace_end )
           return -ENOCSI;
-        if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 3) > 0 )
-  	  return -EFAULT;
-  	else
-  	{
+        if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 3) > 0 ) return -EFAULT;
+        else
+        {
           struct ftrace_ops **head = (struct ftrace_ops **)ptrbuf[0];
           struct mutex *m = (struct mutex *)ptrbuf[1];
           struct ftrace_ops *p;
@@ -4561,9 +4499,8 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
 #endif /* CONFIG_FUNCTION_TRACER */
 
     case IOCTL_GET_FTRACE_CMDS:
-        if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 3) > 0 )
-  	  return -EFAULT;
-  	else {
+        if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 3) > 0 ) return -EFAULT;
+        else {
           struct list_head *head = (struct list_head *)ptrbuf[0];
           struct mutex *m = (struct mutex *)ptrbuf[1];
           struct ftrace_func_command *ti;
@@ -4601,9 +4538,8 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
      break; /* IOCTL_GET_FTRACE_CMDS */
 
     case IOCTL_GET_DYN_EVENTS:
-        if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 3) > 0 )
-  	  return -EFAULT;
-  	else {
+        if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 3) > 0 ) return -EFAULT;
+        else {
           struct dyn_event *pos;
           struct list_head *head = (struct list_head *)ptrbuf[0];
           struct mutex *m = (struct mutex *)ptrbuf[1];
@@ -4642,9 +4578,8 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
      break; /* IOCTL_GET_DYN_EVENTS */
 
     case IOCTL_GET_DYN_EVT_OPS:
-        if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 3) > 0 )
-  	  return -EFAULT;
-  	else {
+        if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 3) > 0 ) return -EFAULT;
+        else {
           struct list_head *head = (struct list_head *)ptrbuf[0];
           struct mutex *m = (struct mutex *)ptrbuf[1];
           struct dyn_event_operations *ti;
@@ -4687,9 +4622,8 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
     case IOCTL_GET_EVT_CALLS:
         if ( !s_trace_event_sem || !s_event_mutex || !s_ftrace_events || !s_bpf_event_mutex )
           return -ENOCSI;
-        if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 2) > 0 )
-  	  return -EFAULT;
-  	if ( !ptrbuf[0] )
+        if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 2) > 0 ) return -EFAULT;
+        if ( !ptrbuf[0] )
         {
           struct trace_event_call *call, *p;
           if ( !ptrbuf[1] )
@@ -4766,9 +4700,8 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
      break; /* IOCTL_GET_EVT_CALLS */
 
     case IOCTL_GET_EVENT_CMDS:
-        if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 3) > 0 )
-  	  return -EFAULT;
-  	else {
+        if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 3) > 0 ) return -EFAULT;
+        else {
           struct list_head *head = (struct list_head *)ptrbuf[0];
           struct mutex *m = (struct mutex *)ptrbuf[1];
           struct event_command *ti;
@@ -4813,9 +4746,8 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
      break; /* IOCTL_GET_EVENT_CMDS */
 
     case IOCTL_GET_BPF_REGS:
-        if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 3) > 0 )
-  	  return -EFAULT;
-  	else {
+        if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 3) > 0 ) return -EFAULT;
+        else {
           struct list_head *head = (struct list_head *)ptrbuf[0];
           struct mutex *m = (struct mutex *)ptrbuf[1];
           struct bpf_iter_target_info *ti;
@@ -4859,9 +4791,8 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
      break; /* IOCTL_GET_BPF_REGS */
 
     case IOCTL_GET_BPF_KSYMS:
-        if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 3) > 0 )
-  	  return -EFAULT;
-  	else {
+        if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 3) > 0 ) return -EFAULT;
+        else {
           struct list_head *head = (struct list_head *)ptrbuf[0];
           spinlock_t *lock = (spinlock_t *)ptrbuf[1];
           struct bpf_ksym *ti;
@@ -4901,9 +4832,8 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
      break; /* IOCTL_GET_BPF_KSYMS */
 
     case IOCTL_ENUM_CALGO:
-     if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 3) > 0 )
-  	   return -EFAULT;
-  	 else {
+     if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 3) > 0 ) return -EFAULT;
+     else {
        struct list_head *head = (struct list_head *)ptrbuf[0];
        struct rw_semaphore *cs = (struct rw_semaphore *)ptrbuf[1];
        struct crypto_alg *q;
@@ -4969,14 +4899,13 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
      break; /* IOCTL_ENUM_CALGO */
 
     case IOCTL_GET_LSM_HOOKS:
-     if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 2) > 0 )
-  	  return -EFAULT;
-  	 else {
+     if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 2) > 0 ) return -EFAULT;
+     else {
        struct security_hook_list *shl;
        struct hlist_head *head = (struct hlist_head *)ptrbuf[0];
-  	   // there is no sync - all numerous security_xxx just call call_xx_hook
-    	 if ( !ptrbuf[1] )
-  	   {
+         // there is no sync - all numerous security_xxx just call call_xx_hook
+         if ( !ptrbuf[1] )
+        {
           hlist_for_each_entry(shl, head, list)
             count++;
           goto copy_count;
@@ -5002,8 +4931,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
     case IOCTL_GET_ALARMS:
       if ( !s_alarm )
         return -ENOCSI;
-      if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 2) > 0 )
-  	    return -EFAULT;
+      if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 2) > 0 ) return -EFAULT;
       if ( ptrbuf[0] >= ALARM_NUMTYPE )
         return -EINVAL;
       else {
@@ -5056,9 +4984,8 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
      break; /* IOCTL_GET_ALARMS */
 
     case IOCTL_GET_KTIMERS:
-     if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 2) > 0 )
-  	  return -EFAULT;
-  	 else {
+     if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 2) > 0 ) return -EFAULT;
+     else {
       struct timer_base *tb = (struct timer_base *)ptrbuf[0];
       unsigned long flags = 0;
       int idx;
@@ -5157,8 +5084,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
 
 #ifdef CONFIG_KEYS
     case IOCTL_KEYTYPE_NAME:
-      if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long)) > 0 )
-  	    return -EFAULT;
+      if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long)) > 0 ) return -EFAULT;
       else {
         struct key_type *p;
         size_t len;
@@ -5184,8 +5110,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
     case IOCTL_READ_KEY:
       if ( !f_key_lookup)
         return -ENOCSI;
-      if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 2) > 0 )
-  	    return -EFAULT;
+      if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 2) > 0 ) return -EFAULT;
       else {
         struct key *k = f_key_lookup((key_serial_t)ptrbuf[0]);
         if ( IS_ERR(k) ) return PTR_ERR(k);
@@ -5221,8 +5146,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
     case IOCTL_GET_KEY_DESC:
       if ( !f_key_lookup)
         return -ENOCSI;
-      if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long)) > 0 )
-  	    return -EFAULT;
+      if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long)) > 0 ) return -EFAULT;
       else {
         int len, err;
         struct key *k = f_key_lookup((key_serial_t)ptrbuf[0]);
@@ -5242,8 +5166,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
     case IOCTL_ENUM_KEYS:
       if ( !s_key_serial_tree || !s_key_serial_lock )
         return -ENOCSI;
-      if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long)) > 0 )
-  	    return -EFAULT;
+      if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long)) > 0 ) return -EFAULT;
       else {
         struct rb_node *iter;
         if ( !ptrbuf[0] )
@@ -5296,8 +5219,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
     case IOCTL_KEY_TYPES:
       if ( !s_key_types_sem || !s_key_types_list )
         return -ENOCSI;
-      if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long)) > 0 )
-  	    return -EFAULT;
+      if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long)) > 0 ) return -EFAULT;
       else {
         struct key_type *p;
         if ( !ptrbuf[0] )
@@ -5356,8 +5278,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
     case IOCTL_PATCH_KTEXT1:
       if ( !s_patch_text )
           return -ENOCSI;
-      if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 2) > 0 )
-  	    return -EFAULT;
+      if ( copy_from_user( (void*)ptrbuf, (void*)ioctl_param, sizeof(long) * 2) > 0 ) return -EFAULT;
       else {
         s_patch_text((void*)ptrbuf[0], ptrbuf + 1, 1);
       }
@@ -5418,8 +5339,7 @@ static loff_t memory_lseek(struct file *file, loff_t offset, int orig)
 	return ret;
 }
 
-static inline unsigned long size_inside_page(unsigned long start,
-					     unsigned long size)
+static inline unsigned long size_inside_page(unsigned long start, unsigned long size)
 {
 	unsigned long sz;
 
@@ -5441,8 +5361,7 @@ static ssize_t invalid_write(struct file *file, const char __user *buf,
   return -EPERM;
 }
 
-static ssize_t read_kmem(struct file *file, char __user *buf,
-			 size_t count, loff_t *ppos)
+static ssize_t read_kmem(struct file *file, char __user *buf, size_t count, loff_t *ppos)
 {
 	unsigned long p = *ppos;
 	ssize_t low_count, read, sz;
@@ -5607,7 +5526,15 @@ init_module (void)
     printk("cannot find key_serial_tree");
   s_key_serial_lock = (spinlock_t *)lkcd_lookup_name("key_serial_lock");
   if ( !s_key_serial_lock )
-    printk("cannot find s_key_serial_lock");
+    printk("cannot find key_serial_lock");
+#endif
+#ifdef CONFIG_ZPOOL
+  z_drivers_head = (struct list_head *)lkcd_lookup_name("drivers_head");
+  if ( !z_drivers_head )
+    printk("cannot find drivers_head");
+  z_drivers_lock = (spinlock_t *)lkcd_lookup_name("drivers_lock");
+  if ( !z_drivers_lock )
+    printk("cannot find drivers_lock");
 #endif
   // trace events data
   s_ftrace_end = (struct ftrace_ops *)lkcd_lookup_name("ftrace_list_end");
