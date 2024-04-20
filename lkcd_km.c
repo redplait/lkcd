@@ -1823,12 +1823,67 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
      }
      break; /* IOCTL_TRACEPOINT_FUNCS */
 
+    case IOCTL_BUS_NTFY:
+      if ( krnf_node_ptr == NULL ) return -EFAULT;
+      COPY_ARG
+      else if ( !ptrbuf[0] ) break;
+      else {
+        char name[BUFF_SIZE]; // input file name
+        struct file *file;
+        struct subsys_private *sp;
+        struct notifier_block *b;
+        int err;
+        read_user_string(name, ioctl_param + sizeof(unsigned long));
+        // open file
+        file = file_open(name, 0, 0, &err);
+        if ( NULL == file )
+        {
+          printk(KERN_INFO "[lkcd] cannot open file %s, error %d\n", name, err);
+          return err;
+        }
+        err = extract_sp(file, &sp);
+        if ( err )
+        {
+          file_close(file);
+          return err;
+        }
+        if ( !sp->bus_notifier.head )
+        {
+          file_close(file);
+          ptrbuf[0] = 0;
+          if ( copy_to_user((void*)ioctl_param, (void*)ptrbuf, sizeof(ptrbuf[0])) > 0 ) return -EFAULT;
+          break;
+        }
+        // they really have some notifiers
+        kbuf_size = (1 + ptrbuf[0]) * sizeof(unsigned long);
+        kbuf = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL);
+        if ( !kbuf )
+        {
+          file_close(file);
+          return -ENOMEM;
+        }
+        down_read(&sp->bus_notifier.rwsem);
+        for ( b = sp->bus_notifier.head; b != NULL; b = b->next )
+        {
+          if ( count >= ptrbuf[0] ) break;
+          kbuf[count + 1] = (unsigned long)b->notifier_call;
+          count++;
+        }
+        up_read(&sp->bus_notifier.rwsem);
+        // done
+        file_close(file);
+        kbuf_size = (1 + count) * sizeof(unsigned long);
+        kbuf[0] = count;
+        goto copy_kbuf;
+      }
+     break; /* IOCTL_BUS_NTFY */
+
     case IOCTL_READ_BUS:
       if ( krnf_node_ptr == NULL ) return -EFAULT;
       else {
        union {
-         char name[BUFF_SIZE];
-         struct one_priv p;
+         char name[BUFF_SIZE]; // input file name
+         struct one_priv p;    // output data - just to save stack space it shares memory with name
        } u;
        struct file *file;
        struct subsys_private *sp;
