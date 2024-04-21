@@ -792,11 +792,12 @@ struct one_cgroup
   void *root;
   void *agent_work;
   unsigned long serial_nr;
-  // from cgroup 
+  // from cgroup
   void *kn;
   unsigned long id; // from cgroup_id
   unsigned long flags;
   int level;
+  int ss_cnt; // count of populated cgroup.sybys
   // from cgroup_bpf
   void *prog_array[CG_BPF_MAX];
   unsigned long prog_array_cnt[CG_BPF_MAX];

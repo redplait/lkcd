@@ -976,6 +976,8 @@ void fill_one_cgroup(struct one_cgroup *grp, struct cgroup_subsys_state *css)
   grp->level = cg->level;
   grp->kn = (void *)cg->kn;
   grp->id = cgroup_id(cg);
+  for ( i = 0; i < CGROUP_SUBSYS_COUNT; i++ )
+    if ( rcu_dereference_raw(cg->subsys[i]) ) grp->ss_cnt++;
   for ( i = 0; i < bpf_cgsize && i < CG_BPF_MAX; i++ )
   {
     grp->prog_array[i] = (void *)cg->bpf.effective[i];
