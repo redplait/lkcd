@@ -591,7 +591,7 @@ char *extract_name(unsigned long l, ksym_params &kp)
   if ( g_kallsyms ) sname = name_by_addr(l); \
   else sname = extract_name(l, tmp_kp);
 
-void dump_unnamed_kptr(unsigned long l, sa64 delta)
+void dump_unnamed_kptr(unsigned long l, sa64 delta, bool skip_unknown = false)
 {
   if ( is_inside_kernel(l) )
   {
@@ -609,8 +609,12 @@ void dump_unnamed_kptr(unsigned long l, sa64 delta)
         printf(" %p - %s!%s\n", (void *)l, mname, sname);
       else
         printf(" %p - %s\n", (void *)l, mname);
-    } else
-      printf(" %p UNKNOWN\n", (void *)l);
+    } else {
+     if ( !skip_unknown )
+       printf(" %p UNKNOWN\n", (void *)l);
+     else
+       printf(" %p\n", (void *)l);
+    }
   }
 }
 
@@ -2088,9 +2092,38 @@ size_t calc_cgroup_bpf_size(unsigned long n)
   return res < args_size ? args_size : res;
 }
 
-void dump_cgroup(const one_cgroup *cg, sa64 delta, unsigned long a1, unsigned long a2, unsigned long root)
+void dump_cgroup(const one_cgroup *cg, sa64 delta, unsigned long a1, unsigned long a2, unsigned long root, bool dump_root = false)
 {
-  printf(" cgroup at %p id %ld serial_nr %ld flags %lX level %d kn %p\n", cg->addr, cg->id, cg->serial_nr, cg->flags, cg->level, cg->kn);
+  printf(" cgroup at %p id %ld serial_nr %ld flags %lX level %d kn %p\n", 
+    cg->addr, cg->id, cg->serial_nr, cg->flags, cg->level, cg->kn);
+  if ( dump_root && cg->root ) dump_kptr2((unsigned long)cg->root, "root", delta);
+  if ( cg->ss_cnt ) {
+    printf("  subsys count: %d\n", cg->ss_cnt);
+    size_t args_size = sizeof(unsigned long) * std::max(1 + 2 * cg->ss_cnt, 5);
+    unsigned long *ss_buf = (unsigned long *)malloc(args_size);
+    if ( ss_buf )
+    {
+      dumb_free<unsigned long> tmp(ss_buf);
+      // fill args for IOCTL_GET_CGROUP_SS
+      ss_buf[0] = a1;
+      ss_buf[1] = a2;
+      ss_buf[2] = root;
+      ss_buf[3] = (unsigned long)cg->addr;
+      ss_buf[4] = cg->ss_cnt;
+      int err = ioctl(g_fd, IOCTL_GET_CGROUP_SS, (int *)ss_buf);
+      if ( err )
+        printf("IOCTL_GET_CGROUP_SS for cgroup %p failed, error %d (%s)\n", cg->addr, errno, strerror(errno));
+      else {
+        // dump ss
+        for ( unsigned long ssi = 0; ssi < ss_buf[0]; ssi += 2 )
+        {
+          printf("   subsys[%ld]", ssi);
+          dump_unnamed_kptr(ss_buf[ssi + 1], delta, true);
+          if ( ss_buf[ssi + 2] ) dump_kptr(ss_buf[ssi + 2], "  ss", delta);
+        }
+      }
+    }
+  }
   if ( cg->ss )
     dump_kptr((unsigned long)cg->ss, "ss", delta);
   if ( cg->parent_ss )
@@ -2130,7 +2163,7 @@ void dump_cgroup(const one_cgroup *cg, sa64 delta, unsigned long a1, unsigned lo
     int err = ioctl(g_fd, IOCTL_GET_CGROUP_BPF, (int *)buf);
     if ( err )
     {
-      printf("IOCTL_GET_CGRP_ROOTS for cgroup %p and index %d failed, error %d (%s)\n", cg->addr, i, errno, strerror(errno));
+      printf("OCTL_GET_CGROUP_BPF for cgroup %p and index %d failed, error %d (%s)\n", cg->addr, i, errno, strerror(errno));
       continue;
     }
     one_bpf_prog *bpf = (one_bpf_prog *)(buf + 1);
@@ -2182,8 +2215,9 @@ void dump_groups(sa64 delta)
   one_group_root *gr = (one_group_root *)(buf + 1);
   for ( auto cnt = 0; cnt < buf[0]; cnt++, gr++ )
   {
-    printf("[%d] %s at %p flags %X hierarchy_id %d nr_cgrps %ld real_cnt %ld\n", cnt, gr->name, gr->addr, gr->flags, gr->hierarchy_id, gr->nr_cgrps, gr->real_cnt);
-    dump_cgroup(&gr->grp, delta, a1 + delta, a2 + delta, (unsigned long)gr->addr);
+    printf("[%d] %s at %p flags %X hierarchy_id %d nr_cgrps %ld real_cnt %ld mask %X\n",
+      cnt, gr->name, gr->addr, gr->flags, gr->hierarchy_id, gr->nr_cgrps, gr->real_cnt, gr->subsys_mask);
+    dump_cgroup(&gr->grp, delta, a1 + delta, a2 + delta, (unsigned long)gr->addr, true);
     if ( !gr->real_cnt )
       continue;
     size = calc_data_size<one_cgroup>(gr->real_cnt);
