@@ -3982,6 +3982,70 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
        }
       break; /* IOCTL_GET_CGROUP_BPF */
 
+    case IOCTL_GET_CGROUP_SS:
+        COPY_ARGS(5)
+        if ( !ptrbuf[4] ) break;
+        else {
+          struct idr *genl = (struct idr *)ptrbuf[0];
+          struct mutex *m = (struct mutex *)ptrbuf[1];
+          void *root = (void *)ptrbuf[2];
+          void *cgrp = (void *)ptrbuf[3];
+          unsigned long cnt = 2 * ptrbuf[4];
+          unsigned int hierarchy_id;
+          struct cgroup_root *item;
+          int found = 0;
+          kbuf_size = sizeof(unsigned long) * (1 + cnt);
+          kbuf = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL  | __GFP_ZERO);
+          if ( !kbuf )
+            return -ENOMEM;
+          // lock
+          mutex_lock(m);
+          // iterate on roots
+          idr_for_each_entry(genl, item, hierarchy_id)
+          {
+             struct cgroup_subsys_state *child;
+             if ( (void *)item != root )
+               continue;
+             found |= 1;
+             rcu_read_lock();
+             // iterate on childres
+             for (child = css_next_descendant_pre(NULL, &item->cgrp.self); child; child = css_next_descendant_pre(child, &item->cgrp.self) )
+             {
+               int i;
+               struct cgroup *cg = (struct cgroup *)child;
+               if ( (void *)child != cgrp )
+	               continue;
+	             found |= 3;
+               // fill kbuf
+               for ( i = 0; i < CGROUP_SUBSYS_COUNT; i++ )
+               {
+                 struct cgroup_subsys_state *what_ss = rcu_dereference_raw(cg->subsys[i]);
+                 if ( !what_ss ) continue;
+                 if ( count >= cnt ) break;
+                 kbuf[1 + count] = (unsigned long)what_ss;
+                 kbuf[2 + count] = (unsigned long)what_ss->ss;
+                 count += 2;
+               }
+               break;
+             }
+             rcu_read_unlock();
+             break;
+          }
+          // unlock
+          mutex_unlock(m);
+          // check that we found root and cgroup
+          if ( 3 != found )
+          {
+             kfree(kbuf);
+             return -ENOENT;
+          }
+          // copy to usermode
+          kbuf[0] = count;
+          kbuf_size = sizeof(unsigned long) * (1 + count);
+          goto copy_kbuf;
+        }
+      break; /* IOCTL_GET_CGROUP_SS */
+
     case IOCTL_GET_CGROUPS:
         COPY_ARGS(4)
         else {

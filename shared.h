@@ -1414,4 +1414,16 @@ struct one_priv
 // out params: N + N * void*
 #define IOCTL_BUS_NTFY                     _IOR(IOCTL_NUM, 0x61, int*)
 
+// read subsys for some cgroup
+// in params:
+//  0 - idr address (cgroup_hierarchy_idr)
+//  1 - cgroup_mutex
+//  2 - address of cgroups root - gathered with IOCTL_GET_CGRP_ROOTS
+//  3 - address of cgroup to read subsys
+//  4 - cnt
+// out params
+//  unsigned long + N * (pair subsys + ss)
+#define IOCTL_GET_CGROUP_SS                 _IOR(IOCTL_NUM, 0x62, int*)
+
+
 #endif /* LKCD_SHARED_H */
