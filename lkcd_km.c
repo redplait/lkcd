@@ -4913,7 +4913,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
         // unlock
         spin_unlock(z_drivers_lock);
         // copy to user
-        ptrbuf[0] = count;
+        kbuf[0] = count;
         kbuf_size = sizeof(unsigned long) + count * sizeof(struct one_zpool);
         goto copy_kbuf;
       }
