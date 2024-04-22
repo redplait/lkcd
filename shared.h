@@ -975,6 +975,10 @@ struct one_bpf_raw_event
 //  unsigned long + N * one_bpf_raw_event
 #define IOCTL_GET_BPF_RAW_EVENTS       _IOR(IOCTL_NUM, 0x41, int*)
 
+// the same as IOCTL_GET_BPF_RAW_EVENTS but for modules
+// param[1] is number of bpf_raw_event_map, not stop address
+#define IOCTL_GET_BPF_RAW_EVENTS2      _IOR(IOCTL_NUM, 0x64, int*)
+
 // read dyn events
 // in params:
 //  0 - address of dyn_event_list
@@ -1198,7 +1202,7 @@ struct one_nft_af
 //  1 - count
 // out params
 //  N + N * one_nft_af
-#define IOCTL_ENUM_NFT_AF                _IOR(IOCTL_NUM, 0x52, int*)
+#define IOCTL_ENUM_NFT_AF               _IOR(IOCTL_NUM, 0x52, int*)
 
 // get nf_hook_entries for net_dev ingress/egress
 // in params:
@@ -1208,7 +1212,7 @@ struct one_nft_af
 // 3 - 0 for ingress, otherwise for egress
 // out params
 //  N + N * hooks
-#define IOCTL_NFIEHOOKS                  _IOR(IOCTL_NUM, 0x53, int*)
+#define IOCTL_NFIEHOOKS                 _IOR(IOCTL_NUM, 0x53, int*)
 
 struct one_nf_logger
 {
@@ -1223,7 +1227,7 @@ struct one_nf_logger
 // 1 - count
 // out params:
 //  N + N * one_nf_logger
-#define IOCTL_NFLOGGERS                  _IOR(IOCTL_NUM, 0x54, int*)
+#define IOCTL_NFLOGGERS                 _IOR(IOCTL_NUM, 0x54, int*)
 
 // read NF hooks for some net->nf
 // in params:
@@ -1231,7 +1235,7 @@ struct one_nf_logger
 // 1 - count
 // out params:
 //  N + N * one_nf_logger
-#define IOCTL_NFHOOKS                    _IOR(IOCTL_NUM, 0x55, int*)
+#define IOCTL_NFHOOKS                   _IOR(IOCTL_NUM, 0x55, int*)
 
 /*
  * keys ioclts if CONFIG_NETFILTER presents
@@ -1266,14 +1270,14 @@ struct one_key_type
 // 0 - count
 // out params:
 //  N + N * one_key_type
-#define IOCTL_KEY_TYPES                  _IOR(IOCTL_NUM, 0x56, int*)
+#define IOCTL_KEY_TYPES                 _IOR(IOCTL_NUM, 0x56, int*)
 
 // read name of key_type
 // in params:
 // 0 - address of key_type from IOCTL_KEY_TYPES
 // out params:
 //  string
-#define IOCTL_KEYTYPE_NAME               _IOR(IOCTL_NUM, 0x57, int*)
+#define IOCTL_KEYTYPE_NAME             _IOR(IOCTL_NUM, 0x57, int*)
 
 struct one_key
 {
@@ -1293,14 +1297,14 @@ struct one_key
 //  0 - count
 // out:
 //  N + N * one_key
-#define IOCTL_ENUM_KEYS                  _IOR(IOCTL_NUM, 0x58, int*)
+#define IOCTL_ENUM_KEYS                _IOR(IOCTL_NUM, 0x58, int*)
 
 // read key description
 // in params:
 //  0 - serial
 // out:
 //  string
-#define IOCTL_GET_KEY_DESC               _IOR(IOCTL_NUM, 0x59, int*)
+#define IOCTL_GET_KEY_DESC             _IOR(IOCTL_NUM, 0x59, int*)
 
 // read key
 // in params:
@@ -1308,7 +1312,7 @@ struct one_key
 //  1 - size (from key->datalen)
 // out:
 //  data with size
-#define IOCTL_READ_KEY                   _IOR(IOCTL_NUM, 0x5A, int*)
+#define IOCTL_READ_KEY                 _IOR(IOCTL_NUM, 0x5A, int*)
 
 struct one_task_info
 {

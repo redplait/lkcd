@@ -4512,10 +4512,12 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
      break; /* IOCTL_GET_TRACE_EXPORTS */
 
     case IOCTL_GET_BPF_RAW_EVENTS:
+    case IOCTL_GET_BPF_RAW_EVENTS2:
         COPY_ARGS(3)
         else {
           struct bpf_raw_event_map *start = (struct bpf_raw_event_map *)ptrbuf[0];
           struct bpf_raw_event_map *end = (struct bpf_raw_event_map *)ptrbuf[1];
+          if ( ioctl_num == IOCTL_GET_BPF_RAW_EVENTS2 ) end = start + sizeof(struct one_bpf_raw_event) * ptrbuf[1];
           if ( !ptrbuf[2] )
           {
             count = end - start;
