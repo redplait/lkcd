@@ -1131,36 +1131,83 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
         goto copy_count;
        } else {
         struct module *mod;
-        struct one_module *curr;
-        kbuf_size = sizeof(unsigned long) + ptrbuf[0] * sizeof(struct one_module);
-        kbuf = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL | __GFP_ZERO);
-        if ( !kbuf ) return -ENOMEM;
-        curr = (struct one_module *)(kbuf + 1);
-        mutex_lock(s_module_mutex);
-        list_for_each_entry(mod, s_modules, list)
+        if ( !ptrbuf[1] )
         {
-          if ( mod->state != MODULE_STATE_LIVE ) continue;
-          if ( count >= ptrbuf[0] ) break;
-          // ripped from module/procfs.c function m_show
+          struct one_module *curr;
+          kbuf_size = sizeof(unsigned long) + ptrbuf[0] * sizeof(struct one_module);
+          kbuf = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL | __GFP_ZERO);
+          if ( !kbuf ) return -ENOMEM;
+          curr = (struct one_module *)(kbuf + 1);
+          mutex_lock(s_module_mutex);
+          list_for_each_entry(mod, s_modules, list)
+          {
+            if ( mod->state != MODULE_STATE_LIVE ) continue;
+            if ( count >= ptrbuf[0] ) break;
+            // ripped from module/procfs.c function m_show
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(6,4,0)
-          curr->base = mod->mem[MOD_TEXT].base;
-          curr->size = module_total_size(mod);
+            curr->base = mod->mem[MOD_TEXT].base;
+            curr->size = module_total_size(mod);
 #else
-          curr->base = mod->core_layout.base;
-          curr->size = mod->init_layout.size + mod->core_layout.size;
+            curr->base = mod->core_layout.base;
+            curr->size = mod->init_layout.size + mod->core_layout.size;
 #ifdef CONFIG_ARCH_WANTS_MODULES_DATA_IN_VMALLOC
-          curr->size += mod->data_layout.size;
+            curr->size += mod->data_layout.size;
 #endif
 #endif /* new modules format since 6.4 */
-          strlcpy(curr->name, mod->name, sizeof(curr->name));
-          // for next module
-          count++;
-          curr++;
+            strlcpy(curr->name, mod->name, sizeof(curr->name));
+            // for next module
+            count++;
+            curr++;
+          }
+          mutex_unlock(s_module_mutex);
+          kbuf[0] = count;
+          kbuf_size = sizeof(unsigned long) + count * sizeof(struct one_module);
+          goto copy_kbuf;
+        } else {
+          struct one_module1 *curr;
+          kbuf_size = sizeof(unsigned long) + ptrbuf[0] * sizeof(struct one_module1);
+          kbuf = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL | __GFP_ZERO);
+          if ( !kbuf ) return -ENOMEM;
+          curr = (struct one_module1 *)(kbuf + 1);
+          mutex_lock(s_module_mutex);
+          list_for_each_entry(mod, s_modules, list)
+          {
+            if ( mod->state != MODULE_STATE_LIVE ) continue;
+            if ( count >= ptrbuf[0] ) break;
+            curr->addr = mod;
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6,4,0)
+            curr->base = mod->mem[MOD_TEXT].base;
+#else
+            curr->base = mod->core_layout.base;
+#endif
+            curr->init = mod->init;
+#ifdef CONFIG_MODULE_UNLOAD
+            curr->exit = mod->exit;
+#endif
+#ifdef CONFIG_SMP
+            curr->percpu_size = mod->percpu_size;
+#endif
+#ifdef CONFIG_TRACEPOINTS
+            curr->num_tracepoints = mod->num_tracepoints;
+            curr->tracepoints_ptrs = (unsigned long)mod->tracepoints_ptrs;
+#endif
+#ifdef CONFIG_BPF_EVENTS
+            curr->num_bpf_raw_events = mod->num_bpf_raw_events;
+            curr->bpf_raw_events = (unsigned long)mod->bpf_raw_events;
+#endif
+#ifdef CONFIG_EVENT_TRACING
+            curr->num_trace_events = mod->num_trace_events;
+            curr->trace_events = (unsigned long)mod->trace_events;
+#endif
+            // for next module
+            count++;
+            curr++;
+          }
+          mutex_unlock(s_module_mutex);
+          kbuf[0] = count;
+          kbuf_size = sizeof(unsigned long) + count * sizeof(struct one_module1);
+          goto copy_kbuf;
         }
-        mutex_unlock(s_module_mutex);
-        kbuf[0] = count;
-        kbuf_size = sizeof(unsigned long) + count * sizeof(struct one_module);
-        goto copy_kbuf;
        }
       break; /* IOCTL_READ_MODULES */
 

@@ -1356,12 +1356,27 @@ struct one_module
   char name[MAX_MODULE_LENGTH];
 };
 
+struct one_module1
+{
+  void *addr;
+  void *base;
+  void *init;
+  void *exit;
+  unsigned int percpu_size;
+  unsigned int num_tracepoints;
+  unsigned int num_bpf_raw_events;
+  unsigned int num_trace_events;
+  unsigned long tracepoints_ptrs;
+  unsigned long bpf_raw_events;
+  unsigned long trace_events;
+};
+
 // wrapper to read /proc/modules from non-root
 // in params:
 //  0 - size
-//  1 - type, currently not used
+//  1 - type, 0 - one_module, 1 - one_module1
 // out params:
-//  N + N * one_module
+//  N + N * one_module or one_module1
 #define IOCTL_READ_MODULES                 _IOR(IOCTL_NUM, 0x5F, int*)
 
 struct one_priv
