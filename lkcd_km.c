@@ -115,6 +115,8 @@ typedef int (*my_lookup)(unsigned long addr, char *symname);
 my_lookup s_lookup = 0;
 struct mutex *s_module_mutex = 0;
 struct list_head *s_modules = 0;
+typedef int (*my_vmalloc_or_module_addr)(const void *);
+my_vmalloc_or_module_addr s_vmalloc_or_module_addr = 0;
 
 #ifdef CONFIG_ZPOOL
 struct list_head *z_drivers_head = 0;
@@ -1079,6 +1081,8 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
   {
     case IOCTL_READ_PTR:
        COPY_ARG
+       if ( !virt_addr_valid(ptrbuf[0]) &&
+         (s_vmalloc_or_module_addr && !s_vmalloc_or_module_addr((const void *)ptrbuf[0])) ) return -EFAULT;
        if ( copy_to_user((void*)ioctl_param, (void*)ptrbuf[0], sizeof(void *)) > 0 )
          return -EFAULT;
      break; /* IOCTL_READ_PTR */
@@ -3350,7 +3354,9 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
               curr->netdev_ops  = (void *)dev->netdev_ops;
               curr->ethtool_ops = (void *)dev->ethtool_ops;
               curr->header_ops  = (void *)dev->header_ops;
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4,12,0)
               curr->xdp_prog    = (void *)dev->xdp_prog;
+#endif
               curr->rx_handler  = (void *)dev->rx_handler;
               curr->rtnl_link_ops = (void *)dev->rtnl_link_ops;
 #ifdef CONFIG_WIRELESS_EXT
@@ -3389,6 +3395,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
 #ifdef CONFIG_MACSEC
               curr->macsec_ops = (void *)dev->macsec_ops;
 #endif
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5,9,0)
               // copy xdp_state
               rtnl_lock();
               for ( xdp = 0; xdp < 3; xdp++ )
@@ -3397,12 +3404,15 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
                 curr->bpf_link[xdp] = (void *)dev->xdp_state[xdp].link;
               }
               rtnl_unlock();
+#endif
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5,6,0)
               if ( dev->net_notifier_list.next != NULL )
               {
                 struct netdev_net_notifier *nn;
                 list_for_each_entry(nn, &dev->net_notifier_list, list)
                  curr->netdev_chain_cnt++;
               }
+#endif
               // for next iteration
               curr++;
               kbuf[0]++;
@@ -5455,6 +5465,7 @@ static ssize_t invalid_write(struct file *file, const char __user *buf,
   return -EPERM;
 }
 
+// ripped from drivers/char/mem.c
 static ssize_t read_kmem(struct file *file, char __user *buf, size_t count, loff_t *ppos)
 {
 	unsigned long p = *ppos;
@@ -5492,7 +5503,7 @@ static ssize_t read_kmem(struct file *file, char __user *buf, size_t count, loff
 			 * by the kernel or data corruption may occur
 			 */
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(5,13,0)
-                        kbuf = (char *)p;
+      kbuf = (char *)p;
 #else
 			kbuf = xlate_dev_kmem_ptr((void *)p);
 #endif
@@ -5517,8 +5528,8 @@ static ssize_t read_kmem(struct file *file, char __user *buf, size_t count, loff
 		if (copy_to_user(buf, (const void *)p, count)) {
 			err = -EFAULT;
 		} else {
-                	p += count;
-                	read += count;
+      p += count;
+      read += count;
 		}
 	}
 	*ppos = p;
@@ -5527,9 +5538,9 @@ static ssize_t read_kmem(struct file *file, char __user *buf, size_t count, loff
 
 static const struct file_operations kmem_fops = {
 	.llseek		= memory_lseek,
-	.read		= read_kmem,
-	.write          = invalid_write,
-	.open		= open_lkcd,
+	.read		  = read_kmem,
+	.write    = invalid_write,
+	.open		  = open_lkcd,
 	.release        = close_lkcd,
 	.unlocked_ioctl	= lkcd_ioctl,
 };
@@ -5573,6 +5584,7 @@ init_module (void)
   s_dbg_full = (const struct file_operations *)lkcd_lookup_name("debugfs_full_proxy_file_operations");
   if ( !s_dbg_full )
     printk("cannot find debugfs_full_proxy_file_operations\n");
+  SYM_LOAD("is_vmalloc_or_module_addr", my_vmalloc_or_module_addr, s_vmalloc_or_module_addr);
   SYM_LOAD("kernfs_node_from_dentry", krnf_node_type, krnf_node_ptr)
   SYM_LOAD("iterate_supers", und_iterate_supers, iterate_supers_ptr)
   SYM_LOAD("do_mprotect_pkey", my_mprotect_pkey, s_mprotect)
