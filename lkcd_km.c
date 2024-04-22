@@ -1210,13 +1210,13 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
             head = &cf->constraints.min_freq_notifiers;
           else
             head = &cf->constraints.max_freq_notifiers;
-          down_write(&head->rwsem);
+          down_read(&head->rwsem);
           kbuf[0] = 0;
           for ( b = head->head; count < ptrbuf[1] && b != NULL; b = b->next, ++count )
           {
             kbuf[count + 1] = (unsigned long)b->notifier_call;
           }
-          up_write(&head->rwsem);
+          up_read(&head->rwsem);
           cpufreq_cpu_put(cf);
           kbuf[0] = count;
           kbuf_size = sizeof(unsigned long) * (count + 1);
@@ -1234,20 +1234,20 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
            return -ENODATA;
          out_buf[0] = (unsigned long)cf;
          // count ntfy
-         down_write(&cf->constraints.min_freq_notifiers.rwsem);
+         down_read(&cf->constraints.min_freq_notifiers.rwsem);
          if ( cf->constraints.min_freq_notifiers.head != NULL )
          {
            for ( b = cf->constraints.min_freq_notifiers.head; b != NULL; b = b->next )
              out_buf[1]++;
          }
-         up_write(&cf->constraints.min_freq_notifiers.rwsem);
-         down_write(&cf->constraints.max_freq_notifiers.rwsem);
+         up_read(&cf->constraints.min_freq_notifiers.rwsem);
+         down_read(&cf->constraints.max_freq_notifiers.rwsem);
          if ( cf->constraints.max_freq_notifiers.head != NULL )
          {
            for ( b = cf->constraints.max_freq_notifiers.head; b != NULL; b = b->next )
              out_buf[2]++;
          }
-         up_write(&cf->constraints.max_freq_notifiers.rwsem);
+         up_read(&cf->constraints.max_freq_notifiers.rwsem);
          cpufreq_cpu_put(cf);
          if ( copy_to_user((void*)(ioctl_param), (void*)out_buf, sizeof(out_buf)) > 0 )
            return -EFAULT;
@@ -1354,7 +1354,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
        struct blocking_notifier_head *nb = (struct blocking_notifier_head *)ptrbuf[0];
        struct notifier_block *b;
        // lock
-       down_write(&nb->rwsem);
+       down_read(&nb->rwsem);
        // traverse
        if ( nb->head != NULL )
        {
@@ -1362,7 +1362,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
             count++;
        }
        // unlock
-       up_write(&nb->rwsem);
+       up_read(&nb->rwsem);
        goto copy_count;
      }
      break; /* IOCTL_CNTNTFYCHAIN */
@@ -1386,7 +1386,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
          if ( !kbuf )
            return -ENOMEM;
          // lock
-         down_write(&nb->rwsem);
+         down_read(&nb->rwsem);
          // traverse
          if ( nb->head != NULL )
          {
@@ -1397,7 +1397,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
             }
          }
          // unlock
-         up_write(&nb->rwsem);
+         up_read(&nb->rwsem);
          kbuf[0] = res;
          kbuf_size = (1 + res) * sizeof(unsigned long);
          goto copy_kbuf;
@@ -2326,7 +2326,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
             struct und_uprobe *up = rb_entry(iter, struct und_uprobe, rb_node);
             if ( (unsigned long)up != ptrbuf[2] )
               continue;
-            down_write(&up->consumer_rwsem);
+            down_read(&up->consumer_rwsem);
             for (con = up->consumers; con; con = con->next )
             {
               if ( (unsigned long)con != ptrbuf[3] )
@@ -2336,7 +2336,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
             }
             if ( tup != NULL )
               copy_trace_bpfs(&tup->tp.event->call, ptrbuf[4], kbuf);
-            up_write(&up->consumer_rwsem);
+            up_read(&up->consumer_rwsem);
             break;
           }
           // unlock
@@ -2367,7 +2367,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
             struct und_uprobe *up = rb_entry(iter, struct und_uprobe, rb_node);
             if ( (unsigned long)up != ptrbuf[2] )
               continue;
-            down_write(&up->consumer_rwsem);
+            down_read(&up->consumer_rwsem);
             for (con = up->consumers; con; con = con->next )
             {
               if ( (unsigned long)con != ptrbuf[3] )
@@ -2377,7 +2377,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
             }
             if ( tup != NULL )
               copy_trace_event_call(&tup->tp.event->call, &buf);
-            up_write(&up->consumer_rwsem);
+            up_read(&up->consumer_rwsem);
             break;
           }
           // unlock
@@ -2417,7 +2417,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
            if ( (unsigned long)up != ptrbuf[2] )
              continue;
            found++;
-           down_write(&up->consumer_rwsem);
+           down_read(&up->consumer_rwsem);
            for (con = up->consumers; con && count < ptrbuf[3]; con = con->next, count++)
            {
              curr[count].addr        = (void *)con;
@@ -2425,7 +2425,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
              curr[count].ret_handler = con->ret_handler;
              curr[count].filter      = con->filter;
            }
-           up_write(&up->consumer_rwsem);
+           up_read(&up->consumer_rwsem);
            // bcs we processing only one uprobe and it is found - no sense to continue tree traversal
            break;
          }
@@ -2481,10 +2481,10 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
            }
            // calc count of consumers
            curr[count].cons_cnt = 0;
-           down_write(&up->consumer_rwsem);
+           down_read(&up->consumer_rwsem);
            for (con = &up->consumers; *con; con = &(*con)->next)
              curr[count].cons_cnt++;
-           up_write(&up->consumer_rwsem);
+           up_read(&up->consumer_rwsem);
          }
          // unlock
          spin_unlock(lock);
@@ -4871,6 +4871,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
        }
      break; /* IOCTL_GET_BPF_KSYMS */
 
+#ifdef CONFIG_ZPOOL
     case IOCTL_GET_ZPOOL_DRV:
       if ( !z_drivers_head || !z_drivers_lock ) return -ENOCSI;
       COPY_ARG
@@ -4918,6 +4919,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
         goto copy_kbuf;
       }
      break; /* IOCTL_GET_ZPOOL_DRV */
+#endif /* CONFIG_ZPOOL */
 
     case IOCTL_ENUM_CALGO:
      COPY_ARGS(3)
@@ -5313,9 +5315,9 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
         struct key_type *p;
         if ( !ptrbuf[0] )
         {
-          down_write(s_key_types_sem);
+          down_read(s_key_types_sem);
           list_for_each_entry(p, s_key_types_list, link) count++;
-          up_write(s_key_types_sem);
+          up_read(s_key_types_sem);
           goto copy_count;
         } else {
           struct one_key_type *curr;
