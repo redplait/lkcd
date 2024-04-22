@@ -1425,5 +1425,23 @@ struct one_priv
 //  unsigned long + N * (pair subsys + ss)
 #define IOCTL_GET_CGROUP_SS                 _IOR(IOCTL_NUM, 0x62, int*)
 
+struct one_zpool
+{
+  void *addr;
+  void *module;
+  unsigned long create,
+    destroy,
+    malloc,
+    free,
+    shrink, // removed since 6.5
+    map,
+    unmap,
+    total_size;
+};
+
+// read zpool_drivers
+// in param - size
+// out params: unsigned long + N * one_zpool
+#define IOCTL_GET_ZPOOL_DRV                 _IOR(IOCTL_NUM, 0x63, int*)
 
 #endif /* LKCD_SHARED_H */

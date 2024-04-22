@@ -74,6 +74,9 @@
 #include <linux/key-type.h>
 #include <linux/key.h>
 #endif
+#ifdef CONFIG_ZPOOL
+#include <linux/zpool.h>
+#endif
 #include "timers.h"
 #include "bpf.h"
 #include "event.h"
@@ -1085,8 +1088,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
        char name[BUFF_SIZE];
        read_user_string(name, ioctl_param);
        ptrbuf[0] = lkcd_lookup_name(name);
-       if (copy_to_user((void*)ioctl_param, (void*)ptrbuf, sizeof(ptrbuf[0])) > 0)
-         return -EFAULT;
+       goto copy_ptrbuf;
       }
       break; /* IOCTL_RKSYM */
 
@@ -1278,8 +1280,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
          } else
            ptrbuf[0] = 0;
          // copy result to user-mode
-         if ( copy_to_user((void*)(ioctl_param), (void*)ptrbuf, sizeof(ptrbuf[0])) > 0 )
-           return -EFAULT;
+         goto copy_ptrbuf;
         }
       break; /* IOCTL_REM_BNTFY */
 
@@ -1310,8 +1311,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
          } else
            ptrbuf[0] = 0;
          // copy result to user-mode
-         if ( copy_to_user((void*)(ioctl_param), (void*)ptrbuf, sizeof(ptrbuf[0])) > 0 )
-           return -EFAULT;
+         goto copy_ptrbuf;
         }
       break; /* IOCTL_REM_ANTFY */
 
@@ -1342,8 +1342,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
          } else
            ptrbuf[0] = 0;
          // copy result to user-mode
-         if ( copy_to_user((void*)(ioctl_param), (void*)ptrbuf, sizeof(ptrbuf[0])) > 0 )
-           return -EFAULT;
+         goto copy_ptrbuf;
         }
       break; /* IOCTL_REM_SNTFY */
 
@@ -1376,7 +1375,8 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
        struct blocking_notifier_head *nb = (struct blocking_notifier_head *)ptrbuf[0];
        count = ptrbuf[1];
        // validation
-       if ( !count || !nb )
+       if ( !ptrbuf[1] ) goto copy_count;
+       if ( !nb )
          return -EINVAL;
        else
        {
@@ -1414,7 +1414,8 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
        unsigned long flags;
        count = ptrbuf[1];
        // validation
-       if ( !count || !nb )
+       if ( !ptrbuf[1] ) goto copy_count;
+       if ( !nb )
          return -EINVAL;
        else
        {
@@ -1789,7 +1790,8 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
        struct one_tracepoint_func *curr;
 
        count = ptrbuf[1];
-       if ( !tp || !count ) return -EINVAL;
+       if ( !ptrbuf[1] ) goto copy_count;
+       if ( !tp ) return -EINVAL;
 
        kbuf_size = sizeof(unsigned long) + count * sizeof(struct one_tracepoint_func);
        kbuf = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL);
@@ -1853,8 +1855,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
         {
           file_close(file);
           ptrbuf[0] = 0;
-          if ( copy_to_user((void*)ioctl_param, (void*)ptrbuf, sizeof(ptrbuf[0])) > 0 ) return -EFAULT;
-          break;
+          goto copy_ptrbuf;
         }
         // they really have some notifiers
         kbuf_size = (1 + ptrbuf[0]) * sizeof(unsigned long);
@@ -2263,8 +2264,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
        {
          ptrbuf[0] = 0;
          iterate_supers_ptr(count_super_blocks, (void*)ptrbuf);
-         if (copy_to_user((void*)ioctl_param, (void*)ptrbuf, sizeof(ptrbuf[0])) > 0)
-           return -EFAULT;
+         goto copy_ptrbuf;
        } else {
          struct super_args sargs;
          size_t ksize = sizeof(unsigned long) + ptrbuf[0] * sizeof(struct one_super_block);
@@ -3798,8 +3798,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
               ptrbuf[0]++;
             // unlock
             mutex_unlock(m);
-            if (copy_to_user((void*)ioctl_param, (void*)ptrbuf, sizeof(ptrbuf[0])) > 0)
-              return -EFAULT;
+            goto copy_ptrbuf;
           } else {
             struct one_pmu *curr;
             kbuf_size = sizeof(unsigned long) + ptrbuf[2] * sizeof(struct one_pmu);
@@ -3874,8 +3873,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
           // unlock
           spin_unlock_bh(lock);
           idr_preload_end();
-          if (copy_to_user((void*)ioctl_param, (void*)ptrbuf, sizeof(ptrbuf[0])) > 0)
-            return -EFAULT;
+          goto copy_ptrbuf;
         } else {
           struct one_bpf_map *curr;
           kbuf_size = sizeof(unsigned long) + ptrbuf[2] * sizeof(struct one_bpf_map);
@@ -3984,7 +3982,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
 
     case IOCTL_GET_CGROUP_SS:
         COPY_ARGS(5)
-        if ( !ptrbuf[4] ) break;
+        if ( !ptrbuf[4] ) goto copy_count;
         else {
           struct idr *genl = (struct idr *)ptrbuf[0];
           struct mutex *m = (struct mutex *)ptrbuf[1];
@@ -4873,6 +4871,54 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
        }
      break; /* IOCTL_GET_BPF_KSYMS */
 
+    case IOCTL_GET_ZPOOL_DRV:
+      if ( !z_drivers_head || !z_drivers_lock ) return -ENOCSI;
+      COPY_ARG
+      if ( !ptrbuf[0] )
+      {
+        // count of registered zpool drivers
+        struct zpool_driver *driver;
+        spin_lock(z_drivers_lock);
+        list_for_each_entry(driver, z_drivers_head, list) count++;
+        spin_unlock(z_drivers_lock);
+        goto copy_count;
+      } else {
+        struct zpool_driver *driver;
+        struct one_zpool *curr;
+        kbuf_size = sizeof(unsigned long) + ptrbuf[0] * sizeof(struct one_zpool);
+        kbuf = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL | __GFP_ZERO);
+        if ( !kbuf ) return -ENOMEM;
+        curr = (struct one_zpool *)(kbuf + 1);
+        // lock
+        spin_lock(z_drivers_lock);
+        // iterate
+        list_for_each_entry(driver, z_drivers_head, list)
+        {
+          if ( count >= ptrbuf[0] ) break;
+          curr->addr = driver;
+          curr->module = driver->owner;
+          curr->create = (unsigned long)driver->create;
+          curr->destroy = (unsigned long)driver->destroy;
+          curr->malloc = (unsigned long)driver->malloc;
+          curr->free = (unsigned long)driver->free;
+#if LINUX_VERSION_CODE < KERNEL_VERSION(6,5,0)
+          curr->shrink = (unsigned long)driver->shrink;
+#endif
+          curr->map = (unsigned long)driver->map;
+          curr->unmap = (unsigned long)driver->unmap;
+          curr->total_size = (unsigned long)driver->total_size;
+          // for next
+          count++; curr++;
+        }
+        // unlock
+        spin_unlock(z_drivers_lock);
+        // copy to user
+        ptrbuf[0] = count;
+        kbuf_size = sizeof(unsigned long) + count * sizeof(struct one_zpool);
+        goto copy_kbuf;
+      }
+     break; /* IOCTL_GET_ZPOOL_DRV */
+
     case IOCTL_ENUM_CALGO:
      COPY_ARGS(3)
      else {
@@ -5329,6 +5375,10 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
     default:
      return -EBADRQC;
   }
+  return 0;
+copy_ptrbuf:
+  if (copy_to_user((void*)ioctl_param, (void*)ptrbuf, sizeof(ptrbuf[0])) > 0)
+    return -EFAULT;
   return 0;
 copy_count:
   if (copy_to_user((void*)ioctl_param, (void*)&count, sizeof(count)) > 0)
