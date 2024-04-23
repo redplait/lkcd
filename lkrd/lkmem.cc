@@ -67,6 +67,7 @@ void usage(const char *prog)
   printf("-kp addr byte - patch kernel\n");
   printf("-kpd addr - disable kprobe\n");
   printf("-kpe addr - enable kprobe\n");
+  printf("-m - dump zpool drivers\n");
   printf("-n - dump nets\n");
   printf("-r - check .rodata section\n");
   printf("-S - check security_hooks\n");
@@ -943,6 +944,64 @@ void dump_consoles(sa64 delta)
     if ( curr->match )
       dump_kptr((unsigned long)curr->match, "  match", delta);
   }
+}
+
+template <typename T, typename F>
+void dump_data_noarg(sa64 delta, int code, const char *ioctl_name, const char *bname, F func)
+{
+  unsigned long arg = 0;
+  int err = ioctl(g_fd, code, (int *)&arg);
+  if ( err )
+  {
+    printf("%s count failed, error %d (%s)\n", ioctl_name, errno, strerror(errno));
+    return;
+  }
+  printf("%s count: %ld\n", bname, arg);
+  if ( !arg )
+    return;
+  size_t size = calc_data_size<T>(arg);
+  unsigned long *buf = (unsigned long *)malloc(size);
+  if ( !buf )
+  {
+    printf("cannot alloc buffer for %s, len %lX\n", bname, size);
+    return;
+  }
+  dumb_free<unsigned long> tmp(buf);
+  buf[0] = arg;
+  err = ioctl(g_fd, code, (int *)buf);
+  if ( err )
+  {
+    printf("%s failed, error %d (%s)\n", ioctl_name, errno, strerror(errno));
+    return;
+  }
+  size = buf[0];
+#ifdef DEBUG
+printf("%s size %ld\n", bname, size);
+#endif
+  T *curr = (T *)(buf + 1);
+  for ( size_t idx = 0; idx < size; idx++, curr++ )
+  {
+    func(idx, curr);
+  }
+}
+
+void dump_pools(sa64 delta)
+{
+  dump_data_noarg<one_zpool>(delta, IOCTL_GET_ZPOOL_DRV, "IOCTL_GET_ZPOOL_DRV", "zpool_drivers",
+   [=](size_t idx, const one_zpool *zp) {
+    printf("[%ld] at ", idx);
+    dump_unnamed_kptr((unsigned long)zp->addr, delta, true);
+    if ( zp->module ) printf(" owner: %p\n", zp->module);
+    if ( zp->create ) dump_kptr(zp->create, "create", delta);
+    if ( zp->destroy ) dump_kptr(zp->destroy, "destroy", delta);
+    if ( zp->malloc ) dump_kptr(zp->malloc, "malloc", delta);
+    if ( zp->free ) dump_kptr(zp->free, "free", delta);
+    if ( zp->shrink ) dump_kptr(zp->shrink, "shrink", delta);
+    if ( zp->map ) dump_kptr(zp->map, "map", delta);
+    if ( zp->unmap ) dump_kptr(zp->unmap, "unmap", delta);
+    if ( zp->total_size ) dump_kptr(zp->total_size, "total_size", delta);
+   } 
+  );
 }
 
 template <typename T, typename F>
@@ -1899,7 +1958,7 @@ void dump_jit_options(sa64 delta)
     dump_jit_option<long>(addr, delta, "bpf_jit_limit_max: %ld\n");
 }
 
-void dump_bpf_raw_events(a64 start, a64 end, sa64 delta)
+void _dump_bpf_raw_events(a64 start, a64 end, sa64 delta, int code, const char *code_name)
 {
   if ( !start )
   {
@@ -1911,7 +1970,7 @@ void dump_bpf_raw_events(a64 start, a64 end, sa64 delta)
     printf("cannot find __stop__bpf_raw_tp\n");
     return;
   }
-  dump_data2arg<one_bpf_raw_event>(start, end, delta, IOCTL_GET_BPF_RAW_EVENTS, "bpf_raw_tps", "IOCTL_GET_BPF_RAW_EVENTS", "bpf_raw_tps",
+  dump_data2arg<one_bpf_raw_event>(start, end, delta, code, "bpf_raw_tps", code_name, "bpf_raw_tps",
    [=](size_t idx, const one_bpf_raw_event *curr) {
      printf(" [%ld] num_args %d ", idx, curr->num_args);
      dump_kptr2((unsigned long)curr->addr, "addr", delta);
@@ -1921,6 +1980,16 @@ void dump_bpf_raw_events(a64 start, a64 end, sa64 delta)
        dump_kptr((unsigned long)curr->func, "  func", delta);
    }
   );
+}
+
+void dump_bpf_raw_events(a64 start, a64 end, sa64 delta)
+{
+  _dump_bpf_raw_events(start, end, delta, IOCTL_GET_BPF_RAW_EVENTS, "IOCTL_GET_BPF_RAW_EVENTS");
+}
+
+void dump_bpf_raw_events2(a64 start, a64 end)
+{
+  _dump_bpf_raw_events(start, end, 0, IOCTL_GET_BPF_RAW_EVENTS2, "IOCTL_GET_BPF_RAW_EVENTS2");
 }
 
 void dump_bpf_maps(a64 list, a64 lock, sa64 delta, std::map<void *, std::string> &map_names)
@@ -3815,6 +3884,65 @@ static size_t calc_tp_size(size_t n)
   return sizeof(unsigned long) + n * sizeof(one_tracepoint_func);
 }
 
+void dump_tp_funcs(sa64 delta, unsigned long *ntfy)
+{
+  one_tracepoint_func *curr = (one_tracepoint_func *)(ntfy + 1);
+  for ( size_t j = 0; j < ntfy[0]; j++ , curr++ )
+  {
+    printf("  [%ld] data %p", j, (void *)curr->data);
+    dump_unnamed_kptr(curr->addr, delta);
+  }
+}
+
+void dump_mod_tracepoints(sa64 delta, unsigned long begin, unsigned int num)
+{
+   size_t size = calc_data_size<one_mod_tracepoint>(num);
+   unsigned long *buf = (unsigned long *)malloc(size);
+   if ( !buf )
+   {
+     printf("cannot alloc %lX bytes for nodule tracepoints\n", size);
+     return;
+   }
+   dumb_free<unsigned long> itmp(buf);
+   buf[0] = begin;
+   buf[1] = num;
+   int err = ioctl(g_fd, IOCTL_MOD_TRACEPOINTS, (int *)buf);
+   if ( err )
+   {
+      printf("IOCTL_MOD_TRACEPOINTS count error %d (%s)\n", err, strerror(errno));
+      return;
+   }
+   one_mod_tracepoint *curr = (one_mod_tracepoint *)(buf + 1);
+   // calc number of tracepoint functions
+   size_t fnum = 0;
+   for ( unsigned long l = 0; l < buf[0]; l++ )
+     fnum = std::max(fnum, curr[l].f_count);
+   // alloc mem for tracepoint functions
+   if ( fnum ) fnum = calc_tp_size(fnum);
+   unsigned long *tmp = nullptr;
+   if ( fnum ) tmp = (unsigned long *)malloc(fnum);
+   // iterate
+   for ( unsigned long l = 0; l < buf[0]; l++ )
+   {
+      printf(" [%ld] at %p: enabled %d cnt %d\n", l, curr[l].addr, (int)curr[l].enabled, (int)curr[l].f_count);
+      if ( curr[l].iterator ) dump_kptr(curr[l].iterator, " iterator", delta);
+      if ( curr[l].regfunc ) dump_kptr(curr[l].regfunc, " regfunc", delta);
+      if ( curr[l].unregfunc ) dump_kptr(curr[l].regfunc, " unregfunc", delta);
+      if ( !curr[l].f_count ) continue;
+      // dump funcs
+      tmp[0] = (unsigned long)curr[l].addr;
+      tmp[1] = curr[l].f_count;
+      err = ioctl(g_fd, IOCTL_TRACEPOINT_FUNCS, (int *)tmp);
+      if ( err )
+      {
+        printf("error %d while read tracepoint funcs at %p\n", errno, curr[l].addr);
+        continue;
+      }
+      dump_tp_funcs(delta, tmp);
+   }
+   if ( tmp ) free(tmp);
+}
+
 void check_tracepoints(sa64 delta, addr_sym *tsyms, size_t tcount)
 {
   // alloc enough memory for tracepoint info
@@ -3830,7 +3958,7 @@ void check_tracepoints(sa64 delta, addr_sym *tsyms, size_t tcount)
     int err = ioctl(g_fd, IOCTL_TRACEPOINT_INFO, (int *)ntfy);
     if ( err )
     {
-      printf("error %d while read tracepoint info for %s at %p\n", err, tsyms[i].name, (void *)addr);
+      printf("error %d while read tracepoint info for %s at %p\n", errno, tsyms[i].name, (void *)addr);
       continue;
     }
     printf(" %s at %p: enabled %d cnt %d\n", tsyms[i].name, (void *)addr, (int)ntfy[0], (int)ntfy[3]);
@@ -3846,7 +3974,7 @@ void check_tracepoints(sa64 delta, addr_sym *tsyms, size_t tcount)
     if ( curr_cnt > curr_n )
     {
       unsigned long *tmp;
-      size = calc_tp_size(addr);
+      size = calc_tp_size(curr_cnt);
       tmp = (unsigned long *)malloc(size);
       if ( tmp == NULL )
         break;
@@ -3860,16 +3988,10 @@ void check_tracepoints(sa64 delta, addr_sym *tsyms, size_t tcount)
     err = ioctl(g_fd, IOCTL_TRACEPOINT_FUNCS, (int *)ntfy);
     if ( err )
     {
-      printf("error %d while read tracepoint funcs for %s at %p\n", err, tsyms[i].name, (void *)addr);
+      printf("error %d while read tracepoint funcs for %s at %p\n", errno, tsyms[i].name, (void *)addr);
       continue;
     }
-    size = ntfy[0];
-    one_tracepoint_func *curr = (one_tracepoint_func *)(ntfy + 1);
-    for ( j = 0; j < size; j++ , curr++ )
-    {
-      printf("  [%ld] data %p", j, (void *)curr->data);
-      dump_unnamed_kptr(curr->addr, delta);
-    }
+    dump_tp_funcs(delta, ntfy);
   }
   free(ntfy);
 }
@@ -4187,6 +4309,61 @@ void dump_bus(one_priv &p, sa64 delta, const char *fname)
   }
 }
 
+void dump_mods(sa64 delta, int opt_t)
+{
+  unsigned long args[2] = { 0, 0 };
+  int err = ioctl(g_fd, IOCTL_READ_MODULES, (int *)&args);
+  if ( err )
+  {
+    printf("IOCTL_READ_MODULES count failed, errno %d (%s)\n", errno, strerror(errno));
+    return;
+  }
+  if ( !args[0] ) return;
+  size_t size = calc_data_size<one_module1>(args[0]);
+  unsigned long *buf = (unsigned long *)malloc(size);
+  if ( !buf )
+  {
+    printf("cannot alloc %lX bytes for modules, errno %d (%s)\n", size, errno, strerror(errno));
+    return;
+  }
+  dumb_free<unsigned long> tmp(buf);
+  buf[0] = args[0];
+  buf[1] = 1;
+  err = ioctl(g_fd, IOCTL_READ_MODULES, (int *)buf);
+  if ( err )
+  {
+    printf("IOCTL_READ_MODULES failed, errno %d (%s)\n", errno, strerror(errno));
+    return;
+  }
+  one_module1 *curr = (one_module1 *)(buf + 1);
+  for ( unsigned long i = 0; i < buf[0]; ++i, curr++ )
+  {
+    printf("Mod[%ld] %p base %p", i, curr->addr, curr->base);
+    auto name = find_kmod((unsigned long)curr->base);
+    if ( name ) printf(" %s\n", name);
+    else printf("\n");
+    if ( curr->init ) dump_kptr2((unsigned long)curr->init, "init", 0);
+    if ( curr->exit ) dump_kptr((unsigned long)curr->exit, "exit", 0);
+    if ( curr->percpu_size ) printf(" percpu_size: %lX\n", curr->percpu_size);
+    if ( curr->num_tracepoints ) {
+      dump_kptr(curr->tracepoints_ptrs, "tracepoints", 0);
+      printf(" num_tracepoints: %ld\n", curr->num_tracepoints);
+      if ( opt_t )
+        dump_mod_tracepoints(delta, curr->tracepoints_ptrs, curr->num_tracepoints);
+    }
+    if ( curr->num_bpf_raw_events ) {
+      dump_kptr(curr->bpf_raw_events, "bpf_raw_events", 0);
+      printf(" num_bpf_raw_events: %ld\n", curr->num_bpf_raw_events);
+      if ( opt_t )
+        dump_bpf_raw_events2(curr->bpf_raw_events, curr->num_bpf_raw_events);
+    }
+    if ( curr->num_trace_events ) {
+      dump_kptr(curr->trace_events, "trace_events", 0);
+      printf(" num_trace_events: %ld\n", curr->num_trace_events);
+    }
+  }
+}
+
 int main(int argc, char **argv)
 {
    // read options
@@ -4195,6 +4372,7 @@ int main(int argc, char **argv)
        opt_d = 0,
        opt_c = 0, opt_C = 0,
        opt_k = 0, opt_K = 0,
+       opt_m = 0,
        opt_n = 0,
        opt_r = 0,
        opt_s = 0, opt_S = 0,
@@ -4248,7 +4426,7 @@ int main(int argc, char **argv)
        optind++; need_driver = 1;
        continue;
      }
-     c = getopt(argc, argv, "BbCcdFfghHKknrSstTuvj:");
+     c = getopt(argc, argv, "BbCcdFfghHKkmnrSstTuvj:");
      if (c == -1)
       break;
 
@@ -4299,6 +4477,9 @@ int main(int argc, char **argv)
          break;
         case 'k':
           opt_k = 1; need_driver = 1;
+         break;
+        case 'm':
+          opt_m = 1; need_driver = 1;
          break;
         case 'n':
           opt_n = 1; need_driver = 1;
@@ -4436,6 +4617,12 @@ int main(int argc, char **argv)
      // dump consoles
      if ( -1 != g_fd && opt_C )
        dump_consoles(delta);
+     // -m
+     if ( -1 != g_fd && opt_m )
+     {
+       dump_mods(delta, opt_t);
+       dump_pools(delta);
+     }
      // dump kprobes
      if ( -1 != g_fd && opt_k )
      {
