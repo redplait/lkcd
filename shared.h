@@ -52,6 +52,24 @@ struct one_trace_event
 //  3 - funcs count
 #define IOCTL_TRACEPOINT_INFO          _IOR(IOCTL_NUM, 0xb, int*)
 
+struct one_mod_tracepoint
+{
+  void *addr;
+  unsigned long regfunc;
+  unsigned long unregfunc;
+  unsigned long f_count;
+  unsigned long iterator;
+  int enabled;
+};
+
+// read tracepoint for some module
+// in params:
+//  0 - tracepoint_ptr_t *
+//  1 - size
+// out params:
+//  N + N * one_mod_tracepoint
+#define IOCTL_MOD_TRACEPOINTS          _IOR(IOCTL_NUM, 0x65, int*)
+
 struct one_tracepoint_func
 {
   unsigned long addr;
