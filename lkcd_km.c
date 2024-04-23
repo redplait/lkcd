@@ -380,6 +380,7 @@ struct mutex *s_event_mutex = 0;
 struct list_head *s_ftrace_events = 0;
 struct mutex *s_bpf_event_mutex = 0;
 struct mutex *s_tracepoints_mutex = 0;
+struct mutex *s_tracepoint_module_list_mutex = 0;
 typedef int (*und_bpf_prog_array_length)(struct bpf_prog_array *progs);
 und_bpf_prog_array_length bpf_prog_array_length_ptr = 0;
 
@@ -1801,6 +1802,57 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
        }
      }
      break; /* IOCTL_TRACEVENTS */
+
+    case IOCTL_MOD_TRACEPOINTS:
+      COPY_ARGS(2)
+      if ( !ptrbuf[1] ) goto copy_count;
+      if ( s_vmalloc_or_module_addr && !s_vmalloc_or_module_addr((const void *)ptrbuf[0]) ) return -EFAULT;
+      else {
+        struct one_mod_tracepoint *curr;
+        tracepoint_ptr_t *begin = (tracepoint_ptr_t *)ptrbuf[0],
+          *end = begin + ptrbuf[1],
+          *iter;
+        kbuf_size = sizeof(unsigned long) + ptrbuf[1] * sizeof(struct one_mod_tracepoint);
+        kbuf = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL | __GFP_ZERO);
+        if ( !kbuf ) return -ENOMEM;
+        curr = (struct one_mod_tracepoint *)(kbuf + 1);
+        // lock
+        if ( s_tracepoint_module_list_mutex ) mutex_lock(s_tracepoint_module_list_mutex);
+        for ( iter = begin; count < ptrbuf[1] && iter < end; count++, curr++, iter++ )
+        {
+           struct tracepoint_func *func;
+           struct tracepoint *tp = tracepoint_ptr_deref(iter);
+           curr->addr = tp;
+           curr->enabled = atomic_read(&tp->key.enabled);
+           curr->regfunc = (unsigned long)tp->regfunc;
+           curr->unregfunc = (unsigned long)tp->unregfunc;
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5,10,0)
+           curr->iterator = (unsigned long)tp->iterator;
+#endif
+           // lock
+           if ( s_tracepoints_mutex )
+             mutex_lock(s_tracepoints_mutex);
+           else
+             rcu_read_lock();
+           func = tp->funcs;
+           if ( func )
+           do {
+             curr->f_count++;
+           } while((++func)->func);  
+           // unlock
+           if ( s_tracepoints_mutex )
+             mutex_unlock(s_tracepoints_mutex);
+           else
+             rcu_read_unlock();
+         }
+         // unlock
+         if ( s_tracepoint_module_list_mutex ) mutex_unlock(s_tracepoint_module_list_mutex);
+         // copy to usermode
+         kbuf_size = sizeof(unsigned long) + count * sizeof(struct one_mod_tracepoint);
+         kbuf[0] = count;
+         goto copy_kbuf;
+      }
+     break; /* IOCTL_MOD_TRACEPOINTS */
 
     case IOCTL_TRACEPOINT_INFO:
      COPY_ARG
@@ -5710,6 +5762,9 @@ init_module (void)
   s_tracepoints_mutex = (struct mutex *)lkcd_lookup_name("tracepoints_mutex");
   if ( !s_tracepoints_mutex )
     printk("cannot find tracepoints_mutex\n");
+  s_tracepoint_module_list_mutex = (struct mutex *)lkcd_lookup_name("tracepoint_module_list_mutex");
+  if ( !s_tracepoint_module_list_mutex )
+    printk("cannot find tracepoint_module_list_mutex\n");
   SYM_LOAD("bpf_prog_array_length", und_bpf_prog_array_length, bpf_prog_array_length_ptr)
   css_next_child_ptr = (kcss_next_child)lkcd_lookup_name("css_next_child");
   if ( !css_next_child_ptr )
