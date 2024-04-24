@@ -5,6 +5,12 @@
 #include <linux/ptrace.h>
 #include <linux/version.h>
 #include <linux/slab.h>
+#ifdef CONFIG_SLAB
+#include <linux/slab_def.h>
+#endif
+#ifdef CONFIG_SLUB
+#include <linux/slub_def.h>
+#endif
 #include <asm/io.h>
 #include <linux/vmalloc.h>
 #include <linux/mman.h>
@@ -122,6 +128,8 @@ my_vmalloc_or_module_addr s_vmalloc_or_module_addr = 0;
 struct list_head *z_drivers_head = 0;
 spinlock_t *z_drivers_lock = 0;
 #endif
+struct list_head *s_slab_caches = 0;
+struct mutex *s_slab_mutex = 0;
 
 #define KPROBE_HASH_BITS 6
 #define KPROBE_TABLE_SIZE (1 << KPROBE_HASH_BITS)
@@ -4996,6 +5004,47 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
      break; /* IOCTL_GET_ZPOOL_DRV */
 #endif /* CONFIG_ZPOOL */
 
+// for some unknown reason in this case kmem_cache defined in non-includeable mm/slab.h file
+#ifndef CONFIG_SLOB
+    case IOCTL_GET_SLABS:
+      if ( !s_slab_caches || !s_slab_mutex ) return -ENOCSI;
+      COPY_ARG
+      if ( !ptrbuf[0] )
+      {
+        struct kmem_cache *cachep;
+        mutex_lock(s_slab_mutex);
+        list_for_each_entry(cachep, s_slab_caches, list) count++;
+        mutex_unlock(s_slab_mutex);
+        goto copy_count;
+      } else {
+        struct kmem_cache *cachep;
+        struct one_slab *curr;
+        kbuf_size = sizeof(unsigned long) + ptrbuf[0] * sizeof(struct one_slab);
+        kbuf = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL | __GFP_ZERO);
+        if ( !kbuf ) return -ENOMEM;
+        curr = (struct one_slab *)(kbuf + 1);
+        // lock
+        mutex_lock(s_slab_mutex);
+        list_for_each_entry(cachep, s_slab_caches, list)
+        {
+          if ( count >= ptrbuf[0] ) break;
+          curr->addr = (void *)cachep;
+          curr->size = cachep->size;
+          curr->ctor = (unsigned long)cachep->ctor;
+#ifdef CONFIG_SLUB
+          curr->object_size = cachep->object_size;
+#endif
+          // for next iter
+          count++; curr++;
+        }
+        // unlock
+        mutex_unlock(s_slab_mutex);
+        kbuf_size = sizeof(unsigned long) + count * sizeof(struct one_slab);
+        goto copy_kbuf_count;
+      }
+     break; /* IOCTL_GET_SLABS */
+#endif /* CONFIG_SLOB */
+
     case IOCTL_ENUM_CALGO:
      COPY_ARGS(3)
      else {
@@ -5614,11 +5663,15 @@ static struct miscdevice lkcd_dev = {
     .mode = 0444
 };
 
+const char *report_fmt = "cannot find %s\n";
+
 #ifdef HAS_ARM64_THUNKS
 #define SYM_LOAD(name, type, val)  val = (type)bti_wrap(name);
 #else
-#define SYM_LOAD(name, type, val)  val = (type)lkcd_lookup_name(name); if ( !val ) printk("cannot find %s", name); 
+#define SYM_LOAD(name, type, val)  val = (type)lkcd_lookup_name(name); if ( !val ) printk(report_fmt, name); 
 #endif
+
+#define REPORT(s, sname)  if ( !s ) printk(report_fmt, sname);
 
 int __init
 init_module (void)
@@ -5637,106 +5690,82 @@ init_module (void)
   }
 #endif /* HAS_ARM64_THUNKS */
   k_pre_handler_kretprobe = (void *)lkcd_lookup_name("pre_handler_kretprobe");
-  if ( !k_pre_handler_kretprobe )
-    printk("cannot find pre_handler_kretprobe\n");  
+  REPORT(k_pre_handler_kretprobe, "pre_handler_kretprobe")
   s_dbg_open = (const struct file_operations *)lkcd_lookup_name("debugfs_open_proxy_file_operations");
-  if ( !s_dbg_open )
-    printk("cannot find debugfs_open_proxy_file_operations\n");
+  REPORT(s_dbg_open, "debugfs_open_proxy_file_operations")
   s_dbg_full = (const struct file_operations *)lkcd_lookup_name("debugfs_full_proxy_file_operations");
-  if ( !s_dbg_full )
-    printk("cannot find debugfs_full_proxy_file_operations\n");
+  REPORT(s_dbg_full, "debugfs_full_proxy_file_operations")
   SYM_LOAD("is_vmalloc_or_module_addr", my_vmalloc_or_module_addr, s_vmalloc_or_module_addr);
   SYM_LOAD("kernfs_node_from_dentry", krnf_node_type, krnf_node_ptr)
   SYM_LOAD("iterate_supers", und_iterate_supers, iterate_supers_ptr)
   SYM_LOAD("do_mprotect_pkey", my_mprotect_pkey, s_mprotect)
   SYM_LOAD("lookup_module_symbol_name", my_lookup, s_lookup)
   s_modules = (struct list_head *)lkcd_lookup_name("modules");
-  if ( !s_modules )
-    printk("cannot find modules\n");
+  REPORT(s_modules, "modules")
   s_module_mutex = (struct mutex *)lkcd_lookup_name("module_mutex");
-  if ( !s_module_mutex )
-    printk("cannot find module_mutex\n");
+  REPORT(s_module_mutex, "module_mutex");
   mount_lock = (seqlock_t *)lkcd_lookup_name("mount_lock");
-  if ( !mount_lock )
-    printk("cannot find mount_lock\n");
+  REPORT(mount_lock, "mount_lock");
   s_net = (struct rw_semaphore *)lkcd_lookup_name("net_rwsem");
-  if ( !s_net )
-    printk("cannot find net_rwsem\n");
+  REPORT(s_net, "net_rwsem")
   s_dev_base_lock = (rwlock_t *)lkcd_lookup_name("dev_base_lock");
-  if ( !s_dev_base_lock )
-    printk("cannot find dev_base_lock\n");
+  REPORT(s_dev_base_lock, "dev_base_lock")
   s_sock_diag_handlers = (struct sock_diag_handler **)lkcd_lookup_name("sock_diag_handlers");
-  if ( !s_sock_diag_handlers )
-    printk("cannot find sock_diag_handlers\n");
+  REPORT(s_sock_diag_handlers, "sock_diag_handlers")
   s_sock_diag_table_mutex = (struct mutex *)lkcd_lookup_name("sock_diag_table_mutex");
-  if ( !s_sock_diag_table_mutex )
-    printk("cannot find sock_diag_table_mutex\n");
+  REPORT(s_sock_diag_table_mutex, "sock_diag_table_mutex")
 #ifdef CONFIG_NETFILTER
   s_nf_hook_mutex = (struct mutex *)lkcd_lookup_name("nf_hook_mutex");
-  if ( !s_nf_hook_mutex )
-    printk("cannot find nf_hook_mutex\n");
+  REPORT(s_nf_hook_mutex, "nf_hook_mutex")
   s_nf_log_mutex = (struct mutex *)lkcd_lookup_name("nf_log_mutex");
-  if ( !s_nf_log_mutex )
-    printk("cannot find nf_log_mutex\n");
+  REPORT(s_nf_log_mutex, "nf_log_mutex")
 #endif
   // keys
 #ifdef CONFIG_KEYS
   SYM_LOAD("key_lookup", my_key_lookup, f_key_lookup)
   s_key_types_sem = (struct rw_semaphore *)lkcd_lookup_name("key_types_sem");
-  if ( !s_key_types_sem )
-    printk("cannot find key_types_sem");
+  REPORT(s_key_types_sem, "key_types_sem")
   s_key_types_list = (struct list_head *)lkcd_lookup_name("key_types_list");
-  if ( !s_key_types_list )
-    printk("cannot find key_types_list");
+  REPORT(s_key_types_list, "key_types_list")
   s_key_serial_tree = (struct rb_root *)lkcd_lookup_name("key_serial_tree");
-  if ( !s_key_serial_tree )
-    printk("cannot find key_serial_tree");
+  REPORT(s_key_serial_tree, "key_serial_tree")
   s_key_serial_lock = (spinlock_t *)lkcd_lookup_name("key_serial_lock");
-  if ( !s_key_serial_lock )
-    printk("cannot find key_serial_lock");
+  REPORT(s_key_serial_lock, "key_serial_lock")
 #endif
 #ifdef CONFIG_ZPOOL
   z_drivers_head = (struct list_head *)lkcd_lookup_name("drivers_head");
-  if ( !z_drivers_head )
-    printk("cannot find drivers_head");
+  REPORT(z_drivers_head, "drivers_head")
   z_drivers_lock = (spinlock_t *)lkcd_lookup_name("drivers_lock");
-  if ( !z_drivers_lock )
-    printk("cannot find drivers_lock");
+  REPORT(z_drivers_lock, "drivers_lock")
 #endif
+  s_slab_caches = (struct list_head *)lkcd_lookup_name("slab_caches");
+  REPORT(s_slab_caches, "slab_caches")
+  s_slab_mutex = (struct mutex *)lkcd_lookup_name("slab_mutex");
+  REPORT(s_slab_mutex, "slab_mutex")
   // trace events data
   s_ftrace_end = (struct ftrace_ops *)lkcd_lookup_name("ftrace_list_end");
-  if ( !s_ftrace_end )
-    printk("cannot find ftrace_list_end\n");
+  REPORT(s_ftrace_end, "ftrace_list_end")
   s_trace_event_sem = (struct rw_semaphore *)lkcd_lookup_name("trace_event_sem");
-  if ( !s_trace_event_sem )
-    printk("cannot find trace_event_sem\n");
+  REPORT(s_trace_event_sem, "trace_event_sem")
   s_event_mutex = (struct mutex *)lkcd_lookup_name("event_mutex");
-  if ( !s_event_mutex )
-    printk("cannot find event_mutex\n");
+  REPORT(s_event_mutex, "event_mutex")
   s_ftrace_events = (struct list_head *)lkcd_lookup_name("ftrace_events");
-  if ( !s_ftrace_events )
-    printk("cannot find ftrace_events\n");
+  REPORT(s_ftrace_events, "ftrace_events")
   s_bpf_event_mutex = (struct mutex *)lkcd_lookup_name("bpf_event_mutex");
-  if ( !s_bpf_event_mutex )
-    printk("cannot find bpf_event_mutex\n");
+  REPORT(s_bpf_event_mutex, "bpf_event_mutex")
   s_tracepoints_mutex = (struct mutex *)lkcd_lookup_name("tracepoints_mutex");
-  if ( !s_tracepoints_mutex )
-    printk("cannot find tracepoints_mutex\n");
+  REPORT(s_tracepoints_mutex, "tracepoints_mutex")
   s_tracepoint_module_list_mutex = (struct mutex *)lkcd_lookup_name("tracepoint_module_list_mutex");
-  if ( !s_tracepoint_module_list_mutex )
-    printk("cannot find tracepoint_module_list_mutex\n");
+  REPORT(s_tracepoint_module_list_mutex, "tracepoint_module_list_mutex")
   SYM_LOAD("bpf_prog_array_length", und_bpf_prog_array_length, bpf_prog_array_length_ptr)
   css_next_child_ptr = (kcss_next_child)lkcd_lookup_name("css_next_child");
-  if ( !css_next_child_ptr )
-    printk("cannot find css_next_child\n");
+  REPORT(css_next_child_ptr, "css_next_child")
   SYM_LOAD("cgroup_bpf_detach", kcgroup_bpf_detach, cgroup_bpf_detach_ptr)
   SYM_LOAD("text_poke_kgdb", t_patch_text, s_patch_text)
   delayed_timer = (void *)lkcd_lookup_name("delayed_work_timer_fn");
-  if ( !delayed_timer )
-    printk("cannot find delayed_work_timer_fn");
+  REPORT(delayed_timer, "delayed_work_timer_fn")
   s_alarm = (struct alarm_base *)lkcd_lookup_name("alarm_bases");
-  if ( !s_alarm )
-    printk("cannot find alarm_bases");
+  REPORT(s_alarm, "alarm_bases")
 #ifdef CONFIG_FSNOTIFY
   fsnotify_mark_srcu_ptr = (struct srcu_struct *)lkcd_lookup_name("fsnotify_mark_srcu");
   SYM_LOAD("fsnotify_first_mark", und_fsnotify_first_mark, fsnotify_first_mark_ptr)
@@ -5756,8 +5785,7 @@ init_module (void)
 #ifdef CONFIG_UPROBES
   find_uprobe_ptr = (find_uprobe)lkcd_lookup_name("find_uprobe");
   get_uprobe_ptr = (get_uprobe)lkcd_lookup_name("get_uprobe");
-  if ( !get_uprobe_ptr )
-    get_uprobe_ptr = my_get_uprobe;
+  REPORT(get_uprobe_ptr, "get_uprobe")
   put_uprobe_ptr = (put_uprobe)lkcd_lookup_name("put_uprobe");
 #endif
 #ifdef HAS_ARM64_THUNKS

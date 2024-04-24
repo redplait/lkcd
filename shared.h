@@ -1483,4 +1483,17 @@ struct one_zpool
 // out params: unsigned long + N * one_zpool
 #define IOCTL_GET_ZPOOL_DRV                 _IOR(IOCTL_NUM, 0x63, int*)
 
+struct one_slab
+{
+  void *addr;
+  unsigned int size;
+  unsigned int object_size;
+  unsigned long ctor;
+};
+
+// read slabs
+// in param - size
+// out params: unsigned long + N * one_slab
+#define IOCTL_GET_SLABS                     _IOR(IOCTL_NUM, 0x66, int*)
+
 #endif /* LKCD_SHARED_H */
