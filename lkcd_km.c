@@ -24,8 +24,12 @@
 #include <asm/uaccess.h>
 #endif
 #include <linux/rbtree.h>
+#ifdef CONFIG_UPROBES
 #include <linux/uprobes.h>
+#endif
+#ifdef CONFIG_KPROBES
 #include <linux/kprobes.h>
+#endif
 #ifdef CONFIG_FSNOTIFY
 #include <linux/fsnotify_backend.h>
 #include <linux/mount.h>
@@ -798,6 +802,8 @@ static struct uprobe_consumer s_uc = {
 #ifdef CONFIG_USER_RETURN_NOTIFIER
 static int urn_installed = 0;
 #endif
+
+#ifdef CONFIG_KPROBES
 static int test_kprobe_installed = 0;
 
 static int handler_pre(struct kprobe *p, struct pt_regs *regs)
@@ -861,6 +867,7 @@ void patch_kprobe(struct kprobe *p, unsigned long reason)
   else
     p->flags |= KPROBE_FLAG_DISABLED;
 }
+#endif /* CONFIG_KPROBES */
 
 #ifdef CONFIG_USER_RETURN_NOTIFIER
 void test_dummy_urn(struct user_return_notifier *urn)
@@ -871,7 +878,7 @@ static struct user_return_notifier s_urn = {
  .on_user_return = test_dummy_urn, 
  .link = NULL
 };
-#endif
+#endif /* CONFIG_USER_RETURN_NOTIFIER */
 
 struct urn_params
 {
@@ -1707,12 +1714,17 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
         if ( !p) return -ESRCH;
         else {
           struct one_task_info ti;
-          struct task_struct *task = pid_task(p, PIDTYPE_PID);
+          struct task_struct *task;
           struct callback_head **pprev, *work;
           unsigned long flags;
 
-          put_pid(p);
-          if ( !task ) return -ESRCH;
+          rcu_read_lock();
+          task = pid_task(p, PIDTYPE_PID);
+          if ( !task ) {
+            rcu_read_unlock();
+            put_pid(p);
+            return -ESRCH;
+          }
           ti.addr = task;
           ti.sched_class = (void *)task->sched_class;
 #ifdef CONFIG_THREAD_INFO_IN_TASK
@@ -1735,7 +1747,8 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
             ti.works_count++;
           }
           raw_spin_unlock_irqrestore(&task->pi_lock, flags);
-          put_task_struct(task);
+          rcu_read_unlock();
+          put_pid(p);
           // copy to user
           if ( copy_to_user((void*)ioctl_param, (void*)&ti, sizeof(ti)) > 0 )
             return -EFAULT;
@@ -2622,6 +2635,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
       break; /* IOCTL_TEST_UPROBE */
 #endif /* CONFIG_UPROBES */
 
+#ifdef CONFIG_KPROBES
      case IOCTL_TEST_KPROBE:
        COPY_ARG
        if ( ptrbuf[0] && !test_kprobe_installed )
@@ -2863,6 +2877,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
            kfree(kbuf);
        }
       break; /* IOCTL_GET_KPROBE_BUCKET */
+#endif /* CONFIG_KPROBES */
 
 #ifdef CONFIG_USER_RETURN_NOTIFIER
      case IOCTL_TEST_URN:
@@ -4667,6 +4682,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
         }
      break; /* IOCTL_GET_FTRACE_CMDS */
 
+#ifdef CONFIG_DYNAMIC_EVENTS
     case IOCTL_GET_DYN_EVENTS:
         COPY_ARGS(3)
         else {
@@ -4747,6 +4763,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
           }
         }
      break; /* IOCTL_GET_DYN_EVT_OPS */
+#endif /* CONFIG_DYNAMIC_EVENTS */
 
     case IOCTL_GET_EVT_CALLS:
         if ( !s_trace_event_sem || !s_event_mutex || !s_ftrace_events || !s_bpf_event_mutex )
@@ -5781,7 +5798,9 @@ init_module (void)
       fsnotify_next_mark_ptr = my_fsnotify_next_mark;
   }
 #endif /* CONFIG_FSNOTIFY */
+#ifdef CONFIG_KPROBES
   kprobe_aggr = (unsigned long)lkcd_lookup_name("aggr_pre_handler");
+#endif
 #ifdef CONFIG_UPROBES
   find_uprobe_ptr = (find_uprobe)lkcd_lookup_name("find_uprobe");
   get_uprobe_ptr = (get_uprobe)lkcd_lookup_name("get_uprobe");
