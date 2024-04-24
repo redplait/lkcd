@@ -1388,9 +1388,11 @@ struct one_module1
   unsigned int num_tracepoints;
   unsigned int num_bpf_raw_events;
   unsigned int num_trace_events;
+  unsigned int num_srcu_structs;
   unsigned long tracepoints_ptrs;
   unsigned long bpf_raw_events;
   unsigned long trace_events;
+  unsigned long srcu_struct_ptrs;
 };
 
 // wrapper to read /proc/modules from non-root
