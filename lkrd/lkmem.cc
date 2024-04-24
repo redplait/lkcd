@@ -956,7 +956,7 @@ void dump_data_noarg(sa64 delta, int code, const char *ioctl_name, const char *b
     printf("%s count failed, error %d (%s)\n", ioctl_name, errno, strerror(errno));
     return;
   }
-  printf("%s count: %ld\n", bname, arg);
+  printf("\n%s count: %ld\n", bname, arg);
   if ( !arg )
     return;
   size_t size = calc_data_size<T>(arg);
@@ -1000,7 +1000,20 @@ void dump_pools(sa64 delta)
     if ( zp->map ) dump_kptr(zp->map, "map", delta);
     if ( zp->unmap ) dump_kptr(zp->unmap, "unmap", delta);
     if ( zp->total_size ) dump_kptr(zp->total_size, "total_size", delta);
-   } 
+   }
+  );
+}
+
+void dump_slabs(sa64 delta)
+{
+  dump_data_noarg<one_slab>(delta, IOCTL_GET_SLABS, "IOCTL_GET_SLABS", "knen_caches",
+   [=](size_t idx, const one_slab *sl) {
+     printf("[%ld] at ", idx);
+     dump_unnamed_kptr((unsigned long)sl->addr, delta, true);
+     if ( sl->size ) printf(" size %d\n", sl->size);
+     if ( sl->object_size ) printf(" object_size %d\n", sl->size);
+     if ( sl->ctor ) dump_kptr(sl->ctor, "ctor", delta);
+   }
   );
 }
 
@@ -4345,6 +4358,7 @@ void dump_mods(sa64 delta, int opt_t)
     if ( curr->init ) dump_kptr2((unsigned long)curr->init, "init", 0);
     if ( curr->exit ) dump_kptr((unsigned long)curr->exit, "exit", 0);
     if ( curr->percpu_size ) printf(" percpu_size: %lX\n", curr->percpu_size);
+    if ( curr->num_srcu_structs ) printf(" num_srcu_structs: %ld\n", curr->num_srcu_structs);
     if ( curr->num_tracepoints ) {
       dump_kptr(curr->tracepoints_ptrs, "tracepoints", 0);
       printf(" num_tracepoints: %ld\n", curr->num_tracepoints);
@@ -4621,6 +4635,7 @@ int main(int argc, char **argv)
      if ( -1 != g_fd && opt_m )
      {
        dump_mods(delta, opt_t);
+       dump_slabs(delta);
        dump_pools(delta);
      }
      // dump kprobes
