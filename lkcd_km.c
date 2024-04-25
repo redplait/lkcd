@@ -1710,11 +1710,49 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
       }
      break; /* IOCTL_TEST_MPROTECT */
 
+    case IOCTL_TASK_WORKS:
+      COPY_ARGS(2)
+      if ((pid_t)(ptrbuf[0]) <= 0) return -EINVAL;
+      if ( !ptrbuf[1] ) goto copy_count;
+      else {
+        unsigned long flags;
+        struct task_struct *task;
+        struct callback_head **pprev, *work;
+        struct pid *p = find_get_pid((pid_t)(ptrbuf[0]));
+        if ( !p) return -ESRCH;
+        kbuf_size = sizeof(unsigned long) * (1 + ptrbuf[1]);
+        kbuf = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL);
+        if ( !kbuf ) return -ENOMEM;
+        rcu_read_lock();
+        task = pid_task(p, PIDTYPE_PID);
+        if ( !task ) {
+          rcu_read_unlock();
+          kfree(kbuf);
+          put_pid(p);
+          return -ESRCH;
+        }
+        pprev = &task->task_works;
+        raw_spin_lock_irqsave(&task->pi_lock, flags);
+        while ((work = READ_ONCE(*pprev))) {
+          if ( count >= ptrbuf[1] ) break;
+          pprev = &work->next;
+          kbuf[count + 1] = (unsigned long)work->func;
+          count++;
+        }
+        raw_spin_unlock_irqrestore(&task->pi_lock, flags);
+        rcu_read_unlock();
+        put_pid(p);
+        // copy to user
+        kbuf_size = sizeof(unsigned long) * (1 + count);
+        goto copy_kbuf_count;
+      }
+     break; /* IOCTL_TASK_WORKS */
+
     case IOCTL_TASK_INFO:
       COPY_ARG
+      if ((pid_t)(ptrbuf[0]) <= 0) return -EINVAL;
       else {
         struct pid *p;
-        if ((pid_t)(ptrbuf[0]) <= 0) return -EINVAL;
         p = find_get_pid((pid_t)(ptrbuf[0]));
         if ( !p) return -ESRCH;
         else {
@@ -1745,6 +1783,11 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
 #endif
           ti.flags = task->flags;
           ti.ptrace = task->ptrace;
+#ifdef CONFIG_X86_MCE
+          ti.mce_kill_me = (void *)task->mce_kill_me.func;
+#else
+          ti.mce_kill_me = 0;
+#endif
 #ifdef CONFIG_SECCOMP
           ti.seccomp_filter = task->seccomp.filter;
 #else

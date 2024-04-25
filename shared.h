@@ -1338,6 +1338,7 @@ struct one_task_info
   void *sched_class;
   void *restart_fn;
   void *io_uring;
+  void *mce_kill_me;
   unsigned long thread_flags; // from thread_info.flags
   unsigned int flags;
   unsigned int ptrace;
@@ -1351,6 +1352,13 @@ struct one_task_info
 // out params
 //  one_task_info
 #define IOCTL_TASK_INFO                    _IOR(IOCTL_NUM, 0x5B, int*)
+
+// get task works
+// in params:
+//  0 - pid
+//  1 - size
+// out params: N + N * void*
+#define IOCTL_TASK_WORKS                   _IOR(IOCTL_NUM, 0x67, int*)
 
 // test mmap
 // in params:
