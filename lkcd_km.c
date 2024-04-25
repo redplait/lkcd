@@ -128,6 +128,11 @@ struct list_head *s_modules = 0;
 typedef int (*my_vmalloc_or_module_addr)(const void *);
 my_vmalloc_or_module_addr s_vmalloc_or_module_addr = 0;
 
+typedef struct callback_head *(*my_task_work_cancel)(struct task_struct *task, task_work_func_t func);
+typedef int (*my_task_work_add)(struct task_struct *task, struct callback_head *work, enum task_work_notify_mode notify);
+my_task_work_cancel s_my_task_work_cancel = 0;
+my_task_work_add s_task_work_add = 0;
+
 #ifdef CONFIG_ZPOOL
 struct list_head *z_drivers_head = 0;
 spinlock_t *z_drivers_lock = 0;
@@ -1727,10 +1732,16 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
           }
           ti.addr = task;
           ti.sched_class = (void *)task->sched_class;
+          ti.restart_fn = (void *)task->restart_block.fn;
 #ifdef CONFIG_THREAD_INFO_IN_TASK
           ti.thread_flags = task->thread_info.flags;
 #else
           ti.thread_flags = 0;
+#endif
+#ifdef CONFIG_IO_URING
+          ti.io_uring = (void *)task->io_uring;
+#else
+          ti.io_uring = 0;
 #endif
           ti.flags = task->flags;
           ti.ptrace = task->ptrace;
@@ -5731,6 +5742,10 @@ init_module (void)
   REPORT(s_sock_diag_handlers, "sock_diag_handlers")
   s_sock_diag_table_mutex = (struct mutex *)lkcd_lookup_name("sock_diag_table_mutex");
   REPORT(s_sock_diag_table_mutex, "sock_diag_table_mutex")
+  s_my_task_work_cancel = (my_task_work_cancel)lkcd_lookup_name("task_work_cancel");
+  REPORT(s_my_task_work_cancel, "task_work_cancel")
+  s_task_work_add = (my_task_work_add)lkcd_lookup_name("task_work_add");
+  REPORT(s_task_work_add, "task_work_add")
 #ifdef CONFIG_NETFILTER
   s_nf_hook_mutex = (struct mutex *)lkcd_lookup_name("nf_hook_mutex");
   REPORT(s_nf_hook_mutex, "nf_hook_mutex")
@@ -5804,7 +5819,7 @@ init_module (void)
 #ifdef CONFIG_UPROBES
   find_uprobe_ptr = (find_uprobe)lkcd_lookup_name("find_uprobe");
   get_uprobe_ptr = (get_uprobe)lkcd_lookup_name("get_uprobe");
-  REPORT(get_uprobe_ptr, "get_uprobe")
+  // REPORT(get_uprobe_ptr, "get_uprobe")
   put_uprobe_ptr = (put_uprobe)lkcd_lookup_name("put_uprobe");
 #endif
 #ifdef HAS_ARM64_THUNKS

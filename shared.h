@@ -1336,6 +1336,8 @@ struct one_task_info
 {
   void *addr;
   void *sched_class;
+  void *restart_fn;
+  void *io_uring;
   unsigned long thread_flags; // from thread_info.flags
   unsigned int flags;
   unsigned int ptrace;
