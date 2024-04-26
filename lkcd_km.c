@@ -98,6 +98,7 @@ MODULE_LICENSE("GPL");
 // Char we show before each debug print
 const char program_name[] = "lkcd";
 
+struct cred *s_init_cred = 0;
 struct rw_semaphore *s_net = 0;
 rwlock_t *s_dev_base_lock = 0;
 struct sock_diag_handler **s_sock_diag_handlers = 0;
@@ -158,7 +159,7 @@ extern unsigned char get_gs_byte(long offset);
 static unsigned long lkcd_lookup_name_scinit(const char *name);
 unsigned long kallsyms_lookup_name_c(const char *name)
 {
-	return 0;
+ return 0;
 }
 
 DEFINE_STATIC_CALL(lkcd_lookup_name_sc, lkcd_lookup_name_scinit);
@@ -320,10 +321,10 @@ static int open_lkcd(struct inode *inode, struct file *file)
 }
 
 static int close_lkcd(struct inode *inode, struct file *file) 
-{ 
-  module_put(THIS_MODULE);  
+{
+  module_put(THIS_MODULE);
   return 0;
-} 
+}
 
 const char *get_ioctl_name(unsigned int num)
 {
@@ -343,9 +344,22 @@ const char *get_ioctl_name(unsigned int num)
 struct file *file_open(const char *path, int flags, int rights, int *err) 
 {
     struct file *filp = NULL;
+    const struct cred *old_real = NULL, *old;
     *err = 0;
 
+    if ( s_init_cred )
+    {
+      old_real = current->real_cred;
+      old = current->cred;
+      rcu_assign_pointer(current->real_cred, s_init_cred);
+      rcu_assign_pointer(current->cred, s_init_cred);
+    }
     filp = filp_open(path, flags, rights);
+    if ( old_real != NULL )
+    {
+      rcu_assign_pointer(current->real_cred, old_real);
+      rcu_assign_pointer(current->cred, old);
+    }
     if (IS_ERR(filp)) {
         *err = PTR_ERR(filp);
         return NULL;
@@ -353,7 +367,7 @@ struct file *file_open(const char *path, int flags, int rights, int *err)
     return filp;
 }
 
-void file_close(struct file *file) 
+static inline void file_close(struct file *file)
 {
     filp_close(file, NULL);
 }
@@ -381,12 +395,12 @@ typedef void (*und_iterate_supers)(void (*f)(struct super_block *, void *), void
 und_iterate_supers iterate_supers_ptr = 0;
 seqlock_t *mount_lock = 0;
 
-inline void lock_mount_hash(void)
+static inline void lock_mount_hash(void)
 {
   write_seqlock(mount_lock);
 }
 
-inline void unlock_mount_hash(void)
+static inline void unlock_mount_hash(void)
 {
   write_sequnlock(mount_lock);
 }
@@ -401,6 +415,9 @@ struct mutex *s_tracepoint_module_list_mutex = 0;
 typedef int (*und_bpf_prog_array_length)(struct bpf_prog_array *progs);
 und_bpf_prog_array_length bpf_prog_array_length_ptr = 0;
 
+// x86 only
+// on arm64 there is aarch64_insn_write but it accepts whole instruction with len 4 bytes
+// on arm there is __patch_text and it also accepts whole instruction with len 4 bytes
 typedef void *(*t_patch_text)(void *addr, const void *opcode, size_t len);
 t_patch_text s_patch_text = 0;
 
@@ -883,7 +900,6 @@ static struct user_return_notifier s_urn = {
  .on_user_return = test_dummy_urn, 
  .link = NULL
 };
-#endif /* CONFIG_USER_RETURN_NOTIFIER */
 
 struct urn_params
 {
@@ -893,7 +909,6 @@ struct urn_params
   unsigned long *out_data;
 };
 
-#ifdef CONFIG_USER_RETURN_NOTIFIER
 static void copy_lrn(void *info)
 {
   struct urn_params *params = (struct urn_params *)info;
@@ -5760,6 +5775,8 @@ init_module (void)
     return -ENOMEM;
   }
 #endif /* HAS_ARM64_THUNKS */
+  s_init_cred = (struct cred *)lkcd_lookup_name("init_cred");
+  REPORT(s_init_cred, "init_cred")
   k_pre_handler_kretprobe = (void *)lkcd_lookup_name("pre_handler_kretprobe");
   REPORT(k_pre_handler_kretprobe, "pre_handler_kretprobe")
   s_dbg_open = (const struct file_operations *)lkcd_lookup_name("debugfs_open_proxy_file_operations");
