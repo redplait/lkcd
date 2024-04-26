@@ -69,6 +69,7 @@ void usage(const char *prog)
   printf("-kpe addr - enable kprobe\n");
   printf("-m - dump zpool drivers\n");
   printf("-n - dump nets\n");
+  printf("-p PID list. mutually exclusive option with -s\n");
   printf("-r - check .rodata section\n");
   printf("-S - check security_hooks\n");
   printf("-s - check fs_ops for sysfs files\n");
@@ -4378,6 +4379,49 @@ void dump_mods(sa64 delta, int opt_t)
   }
 }
 
+void dump_task(sa64 delta, int pid)
+{
+  one_task_info ti;
+  ti.addr = (void *)pid;
+  int err = ioctl(g_fd, IOCTL_TASK_INFO, (int *)&ti);
+  if ( err )
+  {
+    printf("IOCTL_TASK_INFO for PID %d failed, errno %d (%s)\n", pid, errno, strerror(errno));
+    return;
+  }
+  printf("PID %d at %p\n", pid, ti.addr);
+  printf(" thread.flags: %lX\n", ti.thread_flags);
+  printf(" flags: %lX\n", ti.flags);
+  if ( ti.io_uring ) dump_kptr2((unsigned long)ti.io_uring, "io_uring", delta);
+  if ( ti.ptrace ) printf(" ptrace: %lX\n", ti.ptrace);
+  if ( ti.works_count ) {
+    printf(" works_count: %ld\n", ti.works_count);
+    size_t ksize = sizeof(unsigned long) * (1 + ti.works_count);
+    unsigned long *kbuf = (unsigned long *)malloc(ksize);
+    if ( kbuf )
+    {
+      kbuf[0] = pid;
+      kbuf[1] = ti.works_count;
+      err = ioctl(g_fd, IOCTL_TASK_WORKS, (int *)kbuf);
+      if ( err )
+      {
+        printf("IOCTL_TASK_WORKS for PID %d failed, errno %d (%s)\n", pid, errno, strerror(errno));
+      } else {
+        for ( unsigned long wi = 0; wi < kbuf[0]; ++wi )
+        {
+          printf("  work[%ld]", wi);
+          dump_unnamed_kptr(kbuf[1 + wi], delta);
+        }
+      }
+      free(kbuf);
+    }
+  }
+  if ( ti.sched_class ) dump_kptr((unsigned long)ti.sched_class, "sched_class", delta);
+  if ( ti.restart_fn ) dump_kptr((unsigned long)ti.restart_fn, "restart_block.fn", delta);
+  if ( ti.seccomp_filter ) dump_kptr((unsigned long)ti.seccomp_filter, "seccomp_filter", delta);
+  if ( ti.mce_kill_me ) dump_kptr((unsigned long)ti.mce_kill_me, "mce_kill_me", delta);
+}
+
 int main(int argc, char **argv)
 {
    // read options
@@ -4388,6 +4432,7 @@ int main(int argc, char **argv)
        opt_k = 0, opt_K = 0,
        opt_m = 0,
        opt_n = 0,
+       opt_p = 0,
        opt_r = 0,
        opt_s = 0, opt_S = 0,
        opt_t = 0, opt_T = 0,
@@ -4440,7 +4485,7 @@ int main(int argc, char **argv)
        optind++; need_driver = 1;
        continue;
      }
-     c = getopt(argc, argv, "BbCcdFfghHKkmnrSstTuvj:");
+     c = getopt(argc, argv, "BbCcdFfghHKkmnprSstTuvj:");
      if (c == -1)
       break;
 
@@ -4498,6 +4543,9 @@ int main(int argc, char **argv)
         case 'n':
           opt_n = 1; need_driver = 1;
          break;
+        case 'p':
+          opt_p = 1; need_driver = 1;
+         break;
         case 'r':
           opt_r = 1;
          break;
@@ -4522,6 +4570,12 @@ int main(int argc, char **argv)
    }
    if (optind == argc)
      usage(argv[0]);
+
+   if ( opt_p && opt_s )
+   {
+     printf("-p & s are mutually exclusive options\n");
+     return 1;
+   }
 
    elfio reader;
    int has_syms = 0;
@@ -4649,6 +4703,19 @@ int main(int argc, char **argv)
        dump_super_blocks(delta);
      if ( -1 != g_fd && opt_n )
        dump_nets(delta);
+     if ( -1 != g_fd && opt_p )
+     {
+       for ( int idx = optind; idx < argc; idx++ )
+       {
+         int pid = atoi(argv[idx]);
+         if ( !pid )
+         {
+           printf("bad pid '%s'\n", argv[idx]);
+           continue;
+         }
+         dump_task(delta, pid);
+       }
+     }
      // check sysfs f_ops
      if ( -1 != g_fd && opt_s )
      {
