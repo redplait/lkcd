@@ -12,6 +12,7 @@ global get_gs_dword
 global get_gs_word
 global get_gs_byte
 global get_this_gs
+global xchg_ptrs
 ; all put_gs_xxx functions return old value
 global put_gs
 global put_gs_dword
@@ -66,4 +67,14 @@ put_gs_byte:
 	shl ax, 8 ; now byte in ah
 	mov al, [gs:rdi] ; store old value in al
 	mov [gs:rdi], ah ; set new value
+	retn
+
+; linux kernel arch_xchg is very hard to use so this is simple impl of function to exchange couple of pointers
+; 1st param - first arg in rdi
+; 2nd param - address of what must be placed to 1st
+; also put old value from 1st arg to 2nd and return it
+xchg_ptrs:
+	mov rax, [rsi] ; second arg
+	lock xchg [rdi], rax
+	mov rax, [rsi] ; put old value in second arg
 	retn
