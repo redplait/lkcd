@@ -2,6 +2,7 @@
 
 #ifdef HAS_ARM64_THUNKS
 
+#include "../rn.h"
 #include "arm64thunk.c"
 #include <linux/mm.h>
 
@@ -30,20 +31,21 @@ static int has_bti = 0;
 static u8 *s_thunks = NULL;
 static u8 *s_next_thunk = NULL;
 
+RSection
 int init_bti_thunks(void)
 {
   unsigned long start;
 #ifdef CONFIG_ARM64
   has_bti = cpus_have_const_cap(ARM64_BTI);
 #elif defined(CONFIG_X86_KERNEL_IBT)
-  has_bti = 1;
+  has_bti = 1; // boot_cpu_has(X86_FEATURE_IBT);
 #endif
   if ( !has_bti )
     return 1;
   s_vmalloc_node_range = (t_vmalloc_node_range)lkcd_lookup_name("__vmalloc_node_range");
   if ( !s_vmalloc_node_range )
   {
-    printk("cannot find __vmalloc_node_range");
+    printk(report_fmt, "__vmalloc_node_range");
     return 0;
   }
   if ( !func_has_bti(s_vmalloc_node_range) )
@@ -54,7 +56,7 @@ int init_bti_thunks(void)
   s_set_memory_x = (t_set_memory_x)lkcd_lookup_name("set_memory_x");
   if ( !s_set_memory_x )
   {
-    printk("cannot find set_memory_x");
+    printk(report_fmt, "set_memory_x");
     return 0;
   }
   if ( !func_has_bti(s_set_memory_x) )
@@ -65,7 +67,7 @@ int init_bti_thunks(void)
   s_set_memory_ro = (t_set_memory_ro)lkcd_lookup_name("set_memory_ro");
   if ( !s_set_memory_ro )
   {
-    printk("cannot find set_memory_ro");
+    printk(report_fmt, "set_memory_ro");
     return 0;
   }
   if ( !func_has_bti(s_set_memory_ro) )
@@ -110,6 +112,7 @@ void bti_thunks_lock_ro(void)
   s_set_memory_x((unsigned long)s_thunks, THUNKS_PAGES);
 }
 
+RSection
 void *alloc_bti_thunk(void *addr, const char *sym_name)
 {
   if ( !has_bti )
@@ -135,6 +138,7 @@ void *alloc_bti_thunk(void *addr, const char *sym_name)
   }
 }
 
+RSection
 void *bti_wrap(const char *sym_name)
 {
   void *addr = (void *)lkcd_lookup_name(sym_name);

@@ -13,6 +13,7 @@ const unsigned char s_bit_c[4] = {
 const unsigned int b_op = 0x14000000;
 #endif
 
+RSection
 int arm64_make_thunk(unsigned char *thunk, unsigned char *off)
 {
   int i;
@@ -25,7 +26,7 @@ int arm64_make_thunk(unsigned char *thunk, unsigned char *off)
 #ifndef CONFIG_ARM64
   offset = (long)off - (long)thunk - 9;
   *(unsigned char *)(thunk + 4) = 0xe9; // jmp imm32
-  *(unsigned int *)(thunk + 5) = (unsigned int)off;
+  *(unsigned int *)(thunk + 5) = (unsigned int)offset;
 #else
   *(unsigned int *)(thunk + 4) = b_op | ((offset >> 2) & 0x03ffffff);
 #endif
