@@ -7,19 +7,22 @@
 'var' causes a section type conflict with ‘init_module’
    Possible solutions (dirty hacks mostly):
   - gcc plugin to force attributes on all string literals reffered from functions in .init.text section
-  - patch gcc/varasm.cc function get_section
+  - patch gcc/varasm.cc function get_section:
+      https://github.com/redplait/dwarfdump/commit/5223d8cb7e2bd412f4bceb4c06c50655a3a14bd7
+     for gcc12
   - perl script to make .S file from _RN markers like
 .section .init.text
 label:
 .string "your string here"
 */
 
-// for non-patched gcc change this macro to __initconst
 #define RSection __attribute__ ((__section__ (".init.text")))
+// for non-patched gcc change this macro to __initconst
+#define RDSection __attribute__ ((__section__ (".init.text")))
 
 // place some string to .init.rodata section
 // ugly construction but seems that gcc unable expant ##X## in ""
-#define _RN(name) static const char rn_##name##__[] RSection  =
+#define _RN(name) static const char rn_##name##__[] RDSection  =
 
 // get string from .init.rodata section
 #define _GN(name) rn_##name##__

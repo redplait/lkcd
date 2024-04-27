@@ -5750,8 +5750,8 @@ static struct miscdevice lkcd_dev = {
 };
 
 #include "rn.h"
-const char report_fmt[] RSection = "cannot find %s\n";
-static const char no_reg[] RSection = "Unable to register the lkcd device, err %d\n";
+const char report_fmt[] RDSection = "cannot find %s\n";
+static const char no_reg[] RDSection = "Unable to register the lkcd device, err %d\n";
 _RN(init_cred) "init_cred";
 _RN(pre_hkret) "pre_handler_kretprobe";
 _RN(dbg_open) "debugfs_open_proxy_file_operations";
