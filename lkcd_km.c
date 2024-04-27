@@ -98,48 +98,48 @@ MODULE_LICENSE("GPL");
 // Char we show before each debug print
 const char program_name[] = "lkcd";
 
-struct cred *s_init_cred = 0;
-struct rw_semaphore *s_net = 0;
-rwlock_t *s_dev_base_lock = 0;
-struct sock_diag_handler **s_sock_diag_handlers = 0;
-struct mutex *s_sock_diag_table_mutex = 0;
+static struct cred *s_init_cred = 0;
+static struct rw_semaphore *s_net = 0;
+static rwlock_t *s_dev_base_lock = 0;
+static struct sock_diag_handler **s_sock_diag_handlers = 0;
+static struct mutex *s_sock_diag_table_mutex = 0;
 #ifdef CONFIG_NETFILTER
-struct mutex *s_nf_hook_mutex = 0;
-struct mutex *s_nf_log_mutex = 0;
+static struct mutex *s_nf_hook_mutex = 0;
+static struct mutex *s_nf_log_mutex = 0;
 #endif /* CONFIG_NETFILTER */
 #ifdef CONFIG_KEYS
 typedef struct key *(*my_key_lookup)(key_serial_t id);
-my_key_lookup f_key_lookup = 0;
-struct rw_semaphore *s_key_types_sem = 0;
-struct list_head *s_key_types_list = 0;
-struct rb_root *s_key_serial_tree = 0;
-spinlock_t *s_key_serial_lock = 0;
+static my_key_lookup f_key_lookup = 0;
+static struct rw_semaphore *s_key_types_sem = 0;
+static struct list_head *s_key_types_list = 0;
+static struct rb_root *s_key_serial_tree = 0;
+static spinlock_t *s_key_serial_lock = 0;
 #endif /* CONFIG_KEYS */
-struct ftrace_ops *s_ftrace_end = 0;
-void *delayed_timer = 0;
-struct alarm_base *s_alarm = 0;
+static struct ftrace_ops *s_ftrace_end = 0;
+static void *delayed_timer = 0;
+static struct alarm_base *s_alarm = 0;
 
 typedef int (*my_mprotect_pkey)(unsigned long start, size_t len, unsigned long prot, int pkey);
-my_mprotect_pkey s_mprotect = 0;
+static my_mprotect_pkey s_mprotect = 0;
 
 typedef int (*my_lookup)(unsigned long addr, char *symname);
 my_lookup s_lookup = 0;
-struct mutex *s_module_mutex = 0;
-struct list_head *s_modules = 0;
+static struct mutex *s_module_mutex = 0;
+static struct list_head *s_modules = 0;
 typedef int (*my_vmalloc_or_module_addr)(const void *);
-my_vmalloc_or_module_addr s_vmalloc_or_module_addr = 0;
+static my_vmalloc_or_module_addr s_vmalloc_or_module_addr = 0;
 
 typedef struct callback_head *(*my_task_work_cancel)(struct task_struct *task, task_work_func_t func);
 typedef int (*my_task_work_add)(struct task_struct *task, struct callback_head *work, enum task_work_notify_mode notify);
-my_task_work_cancel s_my_task_work_cancel = 0;
-my_task_work_add s_task_work_add = 0;
+static my_task_work_cancel s_my_task_work_cancel = 0;
+static my_task_work_add s_task_work_add = 0;
 
 #ifdef CONFIG_ZPOOL
-struct list_head *z_drivers_head = 0;
-spinlock_t *z_drivers_lock = 0;
+static struct list_head *z_drivers_head = 0;
+static spinlock_t *z_drivers_lock = 0;
 #endif
-struct list_head *s_slab_caches = 0;
-struct mutex *s_slab_mutex = 0;
+static struct list_head *s_slab_caches = 0;
+static struct mutex *s_slab_mutex = 0;
 
 #define KPROBE_HASH_BITS 6
 #define KPROBE_TABLE_SIZE (1 << KPROBE_HASH_BITS)
@@ -372,9 +372,9 @@ static inline void file_close(struct file *file)
     filp_close(file, NULL);
 }
 
-const struct file_operations *s_dbg_open = 0;
-const struct file_operations *s_dbg_full = 0;
-void *k_pre_handler_kretprobe = 0;
+static const struct file_operations *s_dbg_open = 0;
+static const struct file_operations *s_dbg_full = 0;
+static void *k_pre_handler_kretprobe = 0;
 
 int is_dbgfs(const struct file_operations *in)
 {
@@ -392,8 +392,8 @@ typedef struct kernfs_node *(*krnf_node_type)(struct dentry *dentry);
 static krnf_node_type krnf_node_ptr = 0;
 
 typedef void (*und_iterate_supers)(void (*f)(struct super_block *, void *), void *arg);
-und_iterate_supers iterate_supers_ptr = 0;
-seqlock_t *mount_lock = 0;
+static und_iterate_supers iterate_supers_ptr = 0;
+static seqlock_t *mount_lock = 0;
 
 static inline void lock_mount_hash(void)
 {
@@ -406,27 +406,27 @@ static inline void unlock_mount_hash(void)
 }
 
 // trace events list and semaphore
-struct rw_semaphore *s_trace_event_sem = 0;
-struct mutex *s_event_mutex = 0;
-struct list_head *s_ftrace_events = 0;
-struct mutex *s_bpf_event_mutex = 0;
-struct mutex *s_tracepoints_mutex = 0;
-struct mutex *s_tracepoint_module_list_mutex = 0;
+static struct rw_semaphore *s_trace_event_sem = 0;
+static struct mutex *s_event_mutex = 0;
+static struct list_head *s_ftrace_events = 0;
+static struct mutex *s_bpf_event_mutex = 0;
+static struct mutex *s_tracepoints_mutex = 0;
+static struct mutex *s_tracepoint_module_list_mutex = 0;
 typedef int (*und_bpf_prog_array_length)(struct bpf_prog_array *progs);
-und_bpf_prog_array_length bpf_prog_array_length_ptr = 0;
+static und_bpf_prog_array_length bpf_prog_array_length_ptr = 0;
 
 // x86 only
 // on arm64 there is aarch64_insn_write but it accepts whole instruction with len 4 bytes
 // on arm there is __patch_text and it also accepts whole instruction with len 4 bytes
 typedef void *(*t_patch_text)(void *addr, const void *opcode, size_t len);
-t_patch_text s_patch_text = 0;
+static t_patch_text s_patch_text = 0;
 
 #ifdef CONFIG_FSNOTIFY
 typedef struct fsnotify_mark *(*und_fsnotify_first_mark)(struct fsnotify_mark_connector **connp);
 typedef struct fsnotify_mark *(*und_fsnotify_next_mark)(struct fsnotify_mark *mark);
-struct srcu_struct *fsnotify_mark_srcu_ptr = 0;
-und_fsnotify_first_mark fsnotify_first_mark_ptr = 0;
-und_fsnotify_next_mark  fsnotify_next_mark_ptr  = 0;
+static struct srcu_struct *fsnotify_mark_srcu_ptr = 0;
+static und_fsnotify_first_mark fsnotify_first_mark_ptr = 0;
+static und_fsnotify_next_mark  fsnotify_next_mark_ptr  = 0;
 
 static struct fsnotify_mark *my_fsnotify_first_mark(struct fsnotify_mark_connector **connp)
 {
@@ -776,9 +776,9 @@ void fill_super_blocks(struct super_block *sb, void *arg)
 typedef struct und_uprobe *(*find_uprobe)(struct inode *inode, loff_t offset);
 typedef struct und_uprobe *(*get_uprobe)(struct und_uprobe *uprobe);
 typedef void (*put_uprobe)(struct und_uprobe *uprobe);
-find_uprobe find_uprobe_ptr = 0;
-get_uprobe  get_uprobe_ptr =  0;
-put_uprobe  put_uprobe_ptr =  0;
+static find_uprobe find_uprobe_ptr = 0;
+static get_uprobe  get_uprobe_ptr =  0;
+static put_uprobe  put_uprobe_ptr =  0;
 
 struct und_uprobe *my_get_uprobe(struct und_uprobe *uprobe)
 {
@@ -5749,7 +5749,15 @@ static struct miscdevice lkcd_dev = {
     .mode = 0444
 };
 
-const char *report_fmt = "cannot find %s\n";
+#include "rn.h"
+const char report_fmt[] RSection = "cannot find %s\n";
+static const char no_reg[] RSection = "Unable to register the lkcd device, err %d\n";
+_RN(init_cred) "init_cred";
+_RN(pre_hkret) "pre_handler_kretprobe";
+_RN(dbg_open) "debugfs_open_proxy_file_operations";
+_RN(dbg_full) "debugfs_full_proxy_file_operations";
+_RN(mod_mutex) "module_mutex";
+_RN(check_mem) "is_vmalloc_or_module_addr";
 
 #ifdef HAS_ARM64_THUNKS
 #define SYM_LOAD(name, type, val)  val = (type)bti_wrap(name);
@@ -5765,7 +5773,7 @@ init_module (void)
   int ret = misc_register(&lkcd_dev);
   if (ret)
   {
-    printk("Unable to register the lkcd device\n");
+    printk(no_reg, ret);
     return ret;
   }
 #ifdef HAS_ARM64_THUNKS
@@ -5775,23 +5783,23 @@ init_module (void)
     return -ENOMEM;
   }
 #endif /* HAS_ARM64_THUNKS */
-  s_init_cred = (struct cred *)lkcd_lookup_name("init_cred");
-  REPORT(s_init_cred, "init_cred")
-  k_pre_handler_kretprobe = (void *)lkcd_lookup_name("pre_handler_kretprobe");
-  REPORT(k_pre_handler_kretprobe, "pre_handler_kretprobe")
-  s_dbg_open = (const struct file_operations *)lkcd_lookup_name("debugfs_open_proxy_file_operations");
-  REPORT(s_dbg_open, "debugfs_open_proxy_file_operations")
-  s_dbg_full = (const struct file_operations *)lkcd_lookup_name("debugfs_full_proxy_file_operations");
-  REPORT(s_dbg_full, "debugfs_full_proxy_file_operations")
-  SYM_LOAD("is_vmalloc_or_module_addr", my_vmalloc_or_module_addr, s_vmalloc_or_module_addr);
+  s_init_cred = (struct cred *)lkcd_lookup_name(_GN(init_cred));
+  REPORT(s_init_cred, _GN(init_cred))
+  k_pre_handler_kretprobe = (void *)lkcd_lookup_name(_GN(pre_hkret));
+  REPORT(k_pre_handler_kretprobe, _GN(pre_hkret))
+  s_dbg_open = (const struct file_operations *)lkcd_lookup_name(_GN(dbg_open));
+  REPORT(s_dbg_open, _GN(dbg_open))
+  s_dbg_full = (const struct file_operations *)lkcd_lookup_name(_GN(dbg_full));
+  REPORT(s_dbg_full, _GN(dbg_full))
+  SYM_LOAD(_GN(check_mem), my_vmalloc_or_module_addr, s_vmalloc_or_module_addr);
   SYM_LOAD("kernfs_node_from_dentry", krnf_node_type, krnf_node_ptr)
   SYM_LOAD("iterate_supers", und_iterate_supers, iterate_supers_ptr)
   SYM_LOAD("do_mprotect_pkey", my_mprotect_pkey, s_mprotect)
   SYM_LOAD("lookup_module_symbol_name", my_lookup, s_lookup)
   s_modules = (struct list_head *)lkcd_lookup_name("modules");
   REPORT(s_modules, "modules")
-  s_module_mutex = (struct mutex *)lkcd_lookup_name("module_mutex");
-  REPORT(s_module_mutex, "module_mutex");
+  s_module_mutex = (struct mutex *)lkcd_lookup_name(_GN(mod_mutex));
+  REPORT(s_module_mutex, _GN(mod_mutex));
   mount_lock = (seqlock_t *)lkcd_lookup_name("mount_lock");
   REPORT(mount_lock, "mount_lock");
   s_net = (struct rw_semaphore *)lkcd_lookup_name("net_rwsem");
