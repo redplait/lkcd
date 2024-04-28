@@ -5752,12 +5752,12 @@ static struct miscdevice lkcd_dev = {
 #include "rn.h"
 const char report_fmt[] RDSection = "cannot find %s\n";
 static const char no_reg[] RDSection = "Unable to register the lkcd device, err %d\n";
-_RN(init_cred) "init_cred";
-_RN(pre_hkret) "pre_handler_kretprobe";
-_RN(dbg_open) "debugfs_open_proxy_file_operations";
-_RN(dbg_full) "debugfs_full_proxy_file_operations";
-_RN(mod_mutex) "module_mutex";
-_RN(check_mem) "is_vmalloc_or_module_addr";
+_RN(init_cred, init_cred)
+_RN(pre_hkret, pre_handler_kretprobe)
+_RN(dbg_open, debugfs_open_proxy_file_operations)
+_RN(dbg_full, debugfs_full_proxy_file_operations)
+_RN(mod_mutex, module_mutex)
+_RN(check_mem, is_vmalloc_or_module_addr)
 
 #ifdef HAS_ARM64_THUNKS
 #define SYM_LOAD(name, type, val)  val = (type)bti_wrap(name);

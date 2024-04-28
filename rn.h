@@ -21,11 +21,11 @@ label:
 #define RDSection __attribute__ ((__section__ (".init.text")))
 
 // place some string to .init.rodata section
-// ugly construction but seems that gcc unable expant ##X## in ""
-#define _RN(name) static const char rn_##name##__[] RDSection  =
+// ugly construction with using stringification
+#define _RN(name, sym) static const char rn_##name[] RDSection = #sym;
 
 // get string from .init.rodata section
-#define _GN(name) rn_##name##__
+#define _GN(name) rn_##name
 
 // can be used for example in arm64.bti/arm64thunk.c
 extern const char report_fmt[];
