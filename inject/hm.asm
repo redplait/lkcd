@@ -35,6 +35,7 @@ entry_malloc_hook:
  call [rel dlsym_ptr]
  test rax, rax
  jz .fail
+ lea rdi, [rel entry_malloc_hook] ; first arg - address of this memory chunk
  call rax
 .fail:
  pop r9

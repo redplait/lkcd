@@ -4,7 +4,7 @@ ELFIO=../../ELFIO
 all: a.out test.so
 
 test.so: payload.c
-	gcc -o test.so -fpic -shared payload.c
+	gcc -g -O -o test.so -fpic -shared payload.c
 
 # don`t remove -fpic options, see details https://maskray.me/blog/2021-01-09-copy-relocations-canonical-plt-entries-and-protected
 a.out: test.cc hm.inc injparams.cc injparams2.cc hd.cc
@@ -18,3 +18,6 @@ hm: hm.asm
 
 hm.inc: hm
 	perl ./bin.pl hm > hm.inc
+
+dis: test.so
+	objdump -d test.so -M intel --disassemble=inject
