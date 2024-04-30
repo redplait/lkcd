@@ -16,9 +16,15 @@ label:
 .string "your string here"
 */
 
+// bcs I have patched gcc for x86-64 only
+#ifdef CONFIG_X86_64
 #define RSection __attribute__ ((__section__ (".init.text")))
 // for non-patched gcc change this macro to __initconst
 #define RDSection __attribute__ ((__section__ (".init.text")))
+#else
+#define RSection __initconst
+#define RDSection __initconst
+#endif
 
 // place some string to .init.rodata section
 // ugly construction with using stringification
