@@ -9,6 +9,10 @@
    register_kprobe on do_exit
  */
 
+#include <linux/atomic/atomic-long.h>
+
+typedef long (*restart_fn)(struct restart_block *);
+
 static int exit_hook_installed = 0;
 static struct mutex exit_hook_mutex;
 
@@ -29,14 +33,16 @@ struct inject_data
       3 - mmap error stored in err
       4 - copy error stored in err
       5 - protect error stored in err
-      6 - process died, well, sh*t happens
+      6 - patch error
+      7 - process died, well, sh*t happens
    */
   int state;
   int err;
   unsigned long kbuf_len; // size of kbuf
   unsigned long kbuf_off; // offset to data inside kbuf
   char *kbuf;
-  char *vaddr; // VA of injected stub
+  unsigned long vaddr; // VA of injected stub
+  void *old_restart;
   struct task_struct *victim;
 };
 
@@ -47,6 +53,101 @@ static inline void clear_sinj(struct inject_data *id)
 {
   if ( id->kbuf ) { kfree(id->kbuf); id->kbuf = 0; }
   id->kbuf_len = id->kbuf_off = 0;
+  id->old_restart = 0;
+}
+
+static void wash_floors(struct inject_data *id)
+{
+  id->state = 0; // ready for next adventure
+  id->err = 0;
+  id->vaddr = 0;
+  id->victim = 0;
+  clear_sinj(id);
+}
+
+static long main_horror(struct restart_block *b)
+{
+  restart_fn f = NULL;
+  mutex_lock(&sinj.lock);
+  if ( sinj.state == 1 )
+  {
+    unsigned long alloced, alloced2;
+    unsigned long *params = (unsigned long *)(sinj.kbuf + sinj.kbuf_off);
+    // return old restart fn and store it in f
+#ifdef __x86_64__
+    xchg_ptrs(&current->restart_block.fn, &sinj.old_restart);
+    f = (restart_fn)sinj.old_restart;
+#else
+    f = (restart_fn)raw_atomic_long_xchg((atomic_long_t *)&current->restart_block.fn, (long)sinj.old_restart);
+#endif
+    // try to alloc
+    sinj.vaddr = vm_mmap(NULL, 0, PAGE_ALIGN(sinj.kbuf_len), PROT_READ | PROT_WRITE, MAP_ANONYMOUS | MAP_PRIVATE, 0);
+    if ( IS_ERR((void *)sinj.vaddr) )
+    {
+      sinj.state = 3;
+      sinj.err = PTR_ERR((void *)sinj.vaddr);
+      goto out;
+    }
+    // copy to process
+    if ( copy_to_user((void*)sinj.vaddr, sinj.kbuf, sinj.kbuf_len) > 0 )
+    {
+      sinj.state = 4;
+      sinj.err = -EFAULT;
+      goto out;
+    }
+    // mprotect
+    sinj.err = s_mprotect(sinj.vaddr, PAGE_ALIGN(sinj.kbuf_len), PROT_READ | PROT_EXEC, -1);
+    if ( sinj.err )
+    {
+      sinj.state = 5;
+      goto out;
+    }
+    // patch glibc - at params[0] & params[2]
+    alloced = sinj.vaddr;
+    alloced = sinj.vaddr + 9;
+    if ( copy_to_user((void*)params[0], &alloced, sizeof(alloced)) > 0 ||
+         copy_to_user((void*)params[2], &alloced2, sizeof(alloced2)) > 0 )
+    {
+      sinj.state = 6;
+      sinj.err = -EFAULT;
+      goto out;
+    }
+    sinj.state = 2;
+  }
+out:
+  mutex_unlock(&sinj.lock);
+printk("main_horror called for PID %d state %d error %d", current->pid, sinj.state, sinj.err);
+  return f ? f(b) : 0;
+}
+
+static void inline revert_restart_fn(struct inject_data *id)
+{
+#ifdef __x86_64__
+    xchg_ptrs(&id->victim->restart_block.fn, &id->old_restart);
+#else
+    raw_atomic_long_xchg((atomic_long_t *)&id->victim->restart_block.fn, (long)id->old_restart);
+#endif
+}
+
+static int cancel_inject(struct task_struct *task)
+{
+  int err = 0;
+  mutex_lock(&sinj.lock);
+  if ( 1 != sinj.state )
+    err = -EBUSY; // too late
+  else if ( task != sinj.victim )
+    err = -ESRCH;
+  else {
+    // revert restart fn
+#ifdef __x86_64__
+    xchg_ptrs(&task->restart_block.fn, &sinj.old_restart);
+#else
+    raw_atomic_long_xchg((atomic_long_t *)&task->restart_block.fn, (long)sinj.old_restart);
+#endif
+    wash_floors(&sinj);
+  }
+  mutex_unlock(&sinj.lock);
+  return err;
 }
 
 /* out params in buf
@@ -57,7 +158,7 @@ static inline void clear_sinj(struct inject_data *id)
 static int get_inj_state(struct task_struct *task, unsigned long *buf)
 {
   mutex_lock(&sinj.lock);
-  if ( sinj.state != 6 && task != sinj.victim )
+  if ( sinj.state != 7 && task != sinj.victim )
   {
     mutex_unlock(&sinj.lock);
     return -ESRCH;
@@ -77,15 +178,12 @@ static int get_inj_state(struct task_struct *task, unsigned long *buf)
      break;
     case 3:
     case 4:
-    case 5: buf[1] = sinj.err;
+    case 5:
+    case 6: buf[1] = sinj.err;
      break;
   }
   // wash the floors
-  sinj.state = 0; // ready for next adventure
-  sinj.err = 0;
-  sinj.vaddr = 0;
-  sinj.victim = 0;
-  clear_sinj(&sinj);
+  wash_floors(&sinj);
   // unlock
   mutex_unlock(&sinj.lock);
   return 0;
@@ -96,7 +194,7 @@ static void process_died(void)
   mutex_lock(&sinj.lock);
   if ( current == sinj.victim )
   {
-    sinj.state = 6;
+    sinj.state = 7;
     clear_sinj(&sinj);
   }
   mutex_unlock(&sinj.lock);
@@ -127,7 +225,7 @@ static void unregister_exit_ntfy(void)
   profile_event_unregister(PROFILE_TASK_EXIT, &task_exit_nb);
 }
 #elif defined(CONFIG_TRACING)
-// ok, lets try with __tracepoint_sched_process_exit
+// try track process death with __tracepoint_sched_process_exit
 static struct tracepoint *s_proc_exit = 0;
 
 static int register_exit_ntfy(void)
@@ -206,9 +304,17 @@ static int submit_inject(struct task_struct *victim, unsigned long ksize, unsign
   sinj.kbuf_off = koff;
   sinj.kbuf = buf;
   // submit into right process work
-  
+#ifdef __x86_64__
+  {
+    sinj.old_restart = (void *)&main_horror;
+    xchg_ptrs(&victim->restart_block.fn, &sinj.old_restart);
+  }
+#else
+    sinj.old_restart = (void *)raw_atomic_long_xchg((atomic_long_t *)&victim->restart_block.fn, (long)&main_horror);
+#endif
   sinj.state = 1;
   mutex_unlock(&sinj.lock);
+printk("submit_inject old %p", sinj.old_restart);
   return 0;
 }
 
@@ -231,10 +337,12 @@ static void finit_inject(void)
     mutex_lock(&exit_hook_mutex);
     unregister_exit_ntfy();
     exit_hook_installed = 0;
+printk("unregister process exit");
     mutex_unlock(&exit_hook_mutex);
   }
   // and only then cleanup sinj
   mutex_lock(&sinj.lock);
+  if ( sinj.state == 1 ) revert_restart_fn(&sinj);
   clear_sinj(&sinj);
   mutex_unlock(&sinj.lock);
 }
