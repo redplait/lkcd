@@ -385,6 +385,9 @@ struct one_net_dev
   void *rtnl_link_ops;
   void *nf_hooks_ingress;
   void *nf_hooks_egress;
+  void *priv_destructor; // since 4.1.9
+  unsigned long tcx_in_cnt; // since 6.6 - bpf count if tcx_ingress
+  unsigned long tcx_e_cnt;  // since 6.6 - bpf count if tcx_egress
   unsigned long num_ihook_entries; // nf_hooks_ingress->num_hook_entries
   unsigned long num_ehook_entries; // nf_hooks_egress->num_hook_entries
   unsigned long netdev_chain_cnt;  // count of net_notifier_list

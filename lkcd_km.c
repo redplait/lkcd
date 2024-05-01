@@ -5,11 +5,14 @@
 #include <linux/ptrace.h>
 #include <linux/version.h>
 #include <linux/slab.h>
+#if LINUX_VERSION_CODE < KERNEL_VERSION(6,0,0)
 #ifdef CONFIG_SLAB
 #include <linux/slab_def.h>
 #endif
 #ifdef CONFIG_SLUB
+extern void *slab_address(const struct slab *slab);
 #include <linux/slub_def.h>
+#endif
 #endif
 #include <asm/io.h>
 #include <linux/vmalloc.h>
@@ -51,6 +54,7 @@
 #include <linux/trace.h>
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(6,0,0)
 #include <linux/ftrace.h>
+#include <linux/task_work.h>
 #endif
 #include <linux/trace_events.h>
 #include "uprobes.h"
@@ -97,6 +101,10 @@
 MODULE_LICENSE("GPL");
 // Char we show before each debug print
 const char program_name[] = "lkcd";
+
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5,10,0)
+#define strlcpy strscpy
+#endif
 
 static struct cred *s_init_cred = 0;
 static struct rw_semaphore *s_net = 0;
@@ -157,7 +165,7 @@ extern unsigned char get_gs_byte(long offset);
 #include <linux/static_call.h>
 
 static unsigned long lkcd_lookup_name_scinit(const char *name);
-unsigned long kallsyms_lookup_name_c(const char *name)
+static unsigned long kallsyms_lookup_name_c(const char *name)
 {
  return 0;
 }
@@ -302,13 +310,13 @@ static unsigned long lkcd_lookup_name_scinit(const char *name)
 	return 0;
 }
 
-unsigned long lkcd_lookup_name(const char *name)
+static unsigned long lkcd_lookup_name(const char *name)
 {
  return static_call(lkcd_lookup_name_sc)(name);
 }
 
 #else
-unsigned long lkcd_lookup_name(const char *name)
+static unsigned long lkcd_lookup_name(const char *name)
 {
  return kallsyms_lookup_name(name);
 }
@@ -326,7 +334,7 @@ static int close_lkcd(struct inode *inode, struct file *file)
   return 0;
 }
 
-const char *get_ioctl_name(unsigned int num)
+static const char *get_ioctl_name(unsigned int num)
 {
   switch(num)
   {
@@ -341,7 +349,7 @@ const char *get_ioctl_name(unsigned int num)
 }
 
 // ripped from https://stackoverflow.com/questions/1184274/read-write-files-within-a-linux-kernel-module
-struct file *file_open(const char *path, int flags, int rights, int *err) 
+static struct file *file_open(const char *path, int flags, int rights, int *err) 
 {
     struct file *filp = NULL;
     const struct cred *old_real = NULL, *old;
@@ -376,7 +384,7 @@ static const struct file_operations *s_dbg_open = 0;
 static const struct file_operations *s_dbg_full = 0;
 static void *k_pre_handler_kretprobe = 0;
 
-int is_dbgfs(const struct file_operations *in)
+static inline int is_dbgfs(const struct file_operations *in)
 {
   return (in == s_dbg_open) || (in == s_dbg_full);
 }
@@ -460,7 +468,7 @@ struct super_mark_args
   struct one_fsnotify *data;
 };
 
-void count_superblock_marks(struct super_block *sb, void *arg)
+static void count_superblock_marks(struct super_block *sb, void *arg)
 {
   struct super_mark_args *args = (struct super_mark_args *)arg;
   if ( (void *)sb != args->sb_addr )
@@ -476,7 +484,7 @@ void count_superblock_marks(struct super_block *sb, void *arg)
   }
 }
 
-void fill_superblock_marks(struct super_block *sb, void *arg)
+static void fill_superblock_marks(struct super_block *sb, void *arg)
 {
   struct super_mark_args *args = (struct super_mark_args *)arg;
   if ( (void *)sb != args->sb_addr )
@@ -520,7 +528,7 @@ struct inode_mark_args
   struct one_fsnotify *data;
 };
 
-void fill_mount_marks(struct super_block *sb, void *arg)
+static void fill_mount_marks(struct super_block *sb, void *arg)
 {
   struct inode_mark_args *args = (struct inode_mark_args *)arg;
   if ( (void *)sb != args->sb_addr )
@@ -564,7 +572,7 @@ void fill_mount_marks(struct super_block *sb, void *arg)
   }
 }
 
-void fill_inode_marks(struct super_block *sb, void *arg)
+static void fill_inode_marks(struct super_block *sb, void *arg)
 {
   struct inode_mark_args *args = (struct inode_mark_args *)arg;
   if ( (void *)sb != args->sb_addr )
@@ -619,7 +627,7 @@ struct super_inodes_args
   struct one_inode *data;
 };
 
-void fill_super_block_inodes(struct super_block *sb, void *arg)
+static void fill_super_block_inodes(struct super_block *sb, void *arg)
 {
   struct super_inodes_args *args = (struct super_inodes_args *)arg;
   if ( (void *)sb != args->sb_addr )
@@ -667,7 +675,7 @@ struct super_mount_args
   struct one_mount *data;
 };
 
-void fill_super_block_mounts(struct super_block *sb, void *arg)
+static void fill_super_block_mounts(struct super_block *sb, void *arg)
 {
   struct super_mount_args *args = (struct super_mount_args *)arg;
   if ( (void *)sb != args->sb_addr )
@@ -723,12 +731,12 @@ struct super_args
    struct one_super_block *data;
 };
 
-void count_super_blocks(struct super_block *sb, void *arg)
+static void count_super_blocks(struct super_block *sb, void *arg)
 {
   (*(unsigned long *)arg)++;
 }
 
-void fill_super_blocks(struct super_block *sb, void *arg)
+static void fill_super_blocks(struct super_block *sb, void *arg)
 {
   struct super_args *args = (struct super_args *)arg;
   unsigned long index = args->curr[0];
@@ -780,7 +788,7 @@ static find_uprobe find_uprobe_ptr = 0;
 static get_uprobe  get_uprobe_ptr =  0;
 static put_uprobe  put_uprobe_ptr =  0;
 
-struct und_uprobe *my_get_uprobe(struct und_uprobe *uprobe)
+static struct und_uprobe *my_get_uprobe(struct und_uprobe *uprobe)
 {
 	refcount_inc(&uprobe->ref);
 	return uprobe;
@@ -877,12 +885,12 @@ static struct kprobe test_kp = {
 static unsigned long kprobe_aggr = 0;
 
 // ripped from kernel/kprobes.c
-int is_krpobe_aggregated(struct kprobe *p)
+static int is_krpobe_aggregated(struct kprobe *p)
 {
   return (unsigned long)p->pre_handler == kprobe_aggr;
 }
 
-void patch_kprobe(struct kprobe *p, unsigned long reason)
+static void patch_kprobe(struct kprobe *p, unsigned long reason)
 {
   if ( reason )
     p->flags &= ~KPROBE_FLAG_DISABLED;
@@ -892,7 +900,7 @@ void patch_kprobe(struct kprobe *p, unsigned long reason)
 #endif /* CONFIG_KPROBES */
 
 #ifdef CONFIG_USER_RETURN_NOTIFIER
-void test_dummy_urn(struct user_return_notifier *urn)
+static void test_dummy_urn(struct user_return_notifier *urn)
 {
 }
 
@@ -998,7 +1006,7 @@ static void copy_trace_event_call(const struct trace_event_call *c, struct one_t
 #endif
 }
 
-void fill_one_cgroup(struct one_cgroup *grp, struct cgroup_subsys_state *css)
+static void fill_one_cgroup(struct one_cgroup *grp, struct cgroup_subsys_state *css)
 {
   int i;
   // bcs self (type cgroup_subsys_state) is first field in cgroup
@@ -1031,7 +1039,7 @@ void fill_one_cgroup(struct one_cgroup *grp, struct cgroup_subsys_state *css)
   }
 }
 
-void fill_bpf_prog(struct one_bpf_prog *curr, struct bpf_prog *prog)
+static void fill_bpf_prog(struct one_bpf_prog *curr, struct bpf_prog *prog)
 {
   curr->prog = (void *)prog;
   curr->prog_type = (int)prog->type;
@@ -1077,7 +1085,7 @@ static unsigned int module_total_size(struct module *mod)
 #endif
 
 // warning - size of string is hardcoded BUFF_SIZE 
-void read_user_string(char *name, unsigned long ioctl_param)
+static void read_user_string(char *name, unsigned long ioctl_param)
 {
   int i;
   char ch, *temp = (char *) ioctl_param;
@@ -1103,6 +1111,22 @@ static int extract_sp(struct file *file, struct subsys_private **sp)
   return 0;
 }
 
+#ifdef CONFIG_NET_XGRESS
+#include <linux/bpf_mprog.h>
+
+static unsigned long count_mprog_count(struct bpf_mprog_entry *entry)
+{
+  const struct bpf_mprog_fp *fp;
+  const struct bpf_prog *tmp;
+  unsigned long res = 0;
+  if ( !entry ) return res;
+  bpf_mprog_foreach_prog(entry, fp, tmp) res++;
+  return res;
+}
+#endif
+
+#include "inject.inc"
+
 static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long ioctl_param)
 {
   unsigned long ptrbuf[16];
@@ -1117,7 +1141,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
   {
     case IOCTL_READ_PTR:
        COPY_ARG
-       if ( !virt_addr_valid(ptrbuf[0]) &&
+       if ( !virt_addr_valid((void *)ptrbuf[0]) &&
          (s_vmalloc_or_module_addr && !s_vmalloc_or_module_addr((const void *)ptrbuf[0])) ) return -EFAULT;
        if ( copy_to_user((void*)ioctl_param, (void*)ptrbuf[0], sizeof(void *)) > 0 )
          return -EFAULT;
@@ -2134,7 +2158,11 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
          u.p.dma_cleanup = 0;
 #endif
          u.p.pm = (void *)sp->bus->pm;
+#if LINUX_VERSION_CODE < KERNEL_VERSION(6,8,0)
          u.p.iommu_ops = (void *)sp->bus->iommu_ops;
+#else
+         u.p.iommu_ops = 0;
+#endif
        }
        u.p._class = (void *)sp->class;
        if ( u.p._class )
@@ -3531,6 +3559,9 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
               curr->netdev_ops  = (void *)dev->netdev_ops;
               curr->ethtool_ops = (void *)dev->ethtool_ops;
               curr->header_ops  = (void *)dev->header_ops;
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4,1,9)
+              curr->priv_destructor = (void *)dev->priv_destructor;
+#endif
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(4,12,0)
               curr->xdp_prog    = (void *)dev->xdp_prog;
 #endif
@@ -3542,6 +3573,10 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
                 curr->wireless_handler = (void *)dev->wireless_handlers->standard;
                 curr->wireless_get_stat = (void *)dev->wireless_handlers->get_wireless_stats;
               }
+#endif
+#ifdef CONFIG_NET_XGRESS
+              if ( dev->tcx_ingress ) curr->tcx_in_cnt = count_mprog_count(dev->tcx_ingress);
+              if ( dev->tcx_egress )  curr->tcx_e_cnt = count_mprog_count(dev->tcx_egress);
 #endif
 #ifdef CONFIG_NETFILTER_EGRESS
               curr->nf_hooks_egress = (void *)dev->nf_hooks_egress;
@@ -4022,7 +4057,9 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
                 curr->addr_filters_validate = (void *)pmu->addr_filters_validate;
                 curr->addr_filters_sync = (void *)pmu->addr_filters_sync;
                 curr->aux_output_match = (void *)pmu->aux_output_match;
+#if LINUX_VERSION_CODE < KERNEL_VERSION(6,3,0)
                 curr->filter_match = (void *)pmu->filter_match;
+#endif
                 curr->check_period = (void *)pmu->check_period;
                 curr++;
               }
@@ -5090,6 +5127,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
      break; /* IOCTL_GET_ZPOOL_DRV */
 #endif /* CONFIG_ZPOOL */
 
+#if LINUX_VERSION_CODE < KERNEL_VERSION(6,0,0)
 // for some unknown reason in this case kmem_cache defined in non-includeable mm/slab.h file
 #ifndef CONFIG_SLOB
     case IOCTL_GET_SLABS:
@@ -5130,6 +5168,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
       }
      break; /* IOCTL_GET_SLABS */
 #endif /* CONFIG_SLOB */
+#endif
 
     case IOCTL_ENUM_CALGO:
      COPY_ARGS(3)
@@ -5165,7 +5204,9 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
             {
               curr->ctxsize = q->cra_type->ctxsize;
               curr->extsize = q->cra_type->extsize;
+#if LINUX_VERSION_CODE < KERNEL_VERSION(6,5,0)
               curr->init = q->cra_type->init;
+#endif
               curr->init_tfm = q->cra_type->init_tfm;
               curr->show = q->cra_type->show;
               curr->report = q->cra_type->report;
@@ -5615,7 +5656,7 @@ static loff_t memory_lseek(struct file *file, loff_t offset, int orig)
 	switch (orig) {
 	case SEEK_CUR:
 		offset += file->f_pos;
-		/* fall through */
+		fallthrough;
 	case SEEK_SET:
 		/* to avoid userland mistaking f_pos=-9 as -EBADF=-9 */
 		if ((unsigned long long)offset >= -MAX_ERRNO) {
@@ -5758,6 +5799,7 @@ _RN(dbg_open, debugfs_open_proxy_file_operations)
 _RN(dbg_full, debugfs_full_proxy_file_operations)
 _RN(mod_mutex, module_mutex)
 _RN(check_mem, is_vmalloc_or_module_addr)
+_RN(krnf_node, kernfs_node_from_dentry)
 
 #ifdef HAS_ARM64_THUNKS
 #define SYM_LOAD(name, type, val)  val = (type)bti_wrap(name);
@@ -5792,7 +5834,7 @@ init_module (void)
   s_dbg_full = (const struct file_operations *)lkcd_lookup_name(_GN(dbg_full));
   REPORT(s_dbg_full, _GN(dbg_full))
   SYM_LOAD(_GN(check_mem), my_vmalloc_or_module_addr, s_vmalloc_or_module_addr);
-  SYM_LOAD("kernfs_node_from_dentry", krnf_node_type, krnf_node_ptr)
+  SYM_LOAD(_GN(krnf_node), krnf_node_type, krnf_node_ptr)
   SYM_LOAD("iterate_supers", und_iterate_supers, iterate_supers_ptr)
   SYM_LOAD("do_mprotect_pkey", my_mprotect_pkey, s_mprotect)
   SYM_LOAD("lookup_module_symbol_name", my_lookup, s_lookup)
@@ -5893,11 +5935,13 @@ init_module (void)
 #ifdef HAS_ARM64_THUNKS
   bti_thunks_lock_ro();
 #endif
+  init_inject();
   return 0;
 }
 
 void cleanup_module (void)
 {
+  finit_inject();
 #ifdef __x86_64__
   if ( urn_installed )
   {
@@ -5905,11 +5949,13 @@ void cleanup_module (void)
      urn_installed = 0;
   }
 #endif /* __x86_64__ */
+#ifdef CONFIG_KPROBES
   if ( test_kprobe_installed )
   {
      unregister_kprobe(&test_kp);
      test_kprobe_installed = 0;
   }
+#endif
 #ifdef CONFIG_UPROBES
   if ( debuggee_inode )
   {
