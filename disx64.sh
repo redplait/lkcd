@@ -1,0 +1,1 @@
+objdump -d lkcd.ko -M intel --disassemble=lkcd_ioctl
