@@ -3095,10 +3095,12 @@ void dump_nets(sa64 delta)
       printf(" Dev[%ld]: %p %s ntfy_cnt %ld type %d mtu %d min_mtu %d max_mtu %d\n", 
         j, nd->addr, nd->name, nd->netdev_chain_cnt, nd->type, nd->mtu, nd->min_mtu, nd->max_mtu
       );
+      if ( nd->priv_destructor )
+        dump_kptr((unsigned long)nd->priv_destructor, " priv_destructor", delta);
       if ( nd->wireless_handler )
         dump_kptr((unsigned long)nd->wireless_handler, " wireless_handler", delta);
       if ( nd->wireless_get_stat )
-        dump_kptr((unsigned long)nd->wireless_handler, " wireless_get_stat", delta);
+        dump_kptr((unsigned long)nd->wireless_get_stat, " wireless_get_stat", delta);
       if ( nd->netdev_ops )
         dump_kptr((unsigned long)nd->netdev_ops, " netdev_ops", delta);
       if ( nd->ethtool_ops )
@@ -3123,6 +3125,9 @@ void dump_nets(sa64 delta)
         dump_kptr((unsigned long)nd->dcbnl_ops, " dcbnl_ops", delta);
       if ( nd->macsec_ops )
         dump_kptr((unsigned long)nd->macsec_ops, " macsec_ops", delta);
+      // since 6.6
+      if ( nd->tcx_in_cnt ) printf("   tcx_ingress bpf: %ld\n", nd->tcx_in_cnt);
+      if ( nd->tcx_e_cnt )  printf("   tcx_egress bpf: %ld\n", nd->tcx_e_cnt);
       const size_t l4size = 4 * sizeof(unsigned long);
       if ( nd->num_ihook_entries )
       {
