@@ -10,7 +10,6 @@
 #include <linux/slab_def.h>
 #endif
 #ifdef CONFIG_SLUB
-extern void *slab_address(const struct slab *slab);
 #include <linux/slub_def.h>
 #endif
 #endif
@@ -159,17 +158,13 @@ extern void *get_this_gs(long this_cpu, long offset);
 extern unsigned int get_gs_dword(long offset);
 extern unsigned short get_gs_word(long offset);
 extern unsigned char get_gs_byte(long offset);
+extern void *xchg_ptrs(void *, void *);
 #endif /* __x86_64__ */
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(5,10,0)
 #include <linux/static_call.h>
 
 static unsigned long lkcd_lookup_name_scinit(const char *name);
-static unsigned long kallsyms_lookup_name_c(const char *name)
-{
- return 0;
-}
-
 DEFINE_STATIC_CALL(lkcd_lookup_name_sc, lkcd_lookup_name_scinit);
 #endif
 
@@ -1726,6 +1721,53 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
        goto copy_count;
      }
      break; /* IOCTL_CNTSNTFYCHAIN */
+
+    case IOCTL_INJECT:
+      if ( !s_mprotect || !s_task_work_add || !s_my_task_work_cancel  ) return -ENOCSI;
+      COPY_ARGS(3)
+      else {
+        int err = 0;
+        struct pid *p = NULL;
+        struct task_struct *task = NULL;
+        if ( ptrbuf[0] )
+        {
+          // get task_struct
+          p = find_get_pid((pid_t)(ptrbuf[0]));
+          if ( !p) return -ESRCH;
+          task = pid_task(p, PIDTYPE_PID);
+        }
+        // zero length - get state
+        if ( !ptrbuf[1] )
+        {
+          err = get_inj_state(task, ptrbuf);
+          if ( p ) put_pid(p);
+          if ( err ) return err;
+          if (copy_to_user((void*)ioctl_param, (void*)ptrbuf, sizeof(ptrbuf[0]) * 3) > 0)
+            return -EFAULT;
+          return 0;
+        }
+        if ( 1 == ptrbuf[1] )
+        {
+          // cancel current inject request
+          if ( !task ) err = -EINVAL;
+          else err = cancel_inject(task);
+          if ( p ) put_pid(p);
+          return err;  
+        }
+        // yes, this is real inject request
+        if ( !task ) err = -ESRCH;
+        else {
+          // alloc and copy
+          kbuf = kmalloc(ptrbuf[1], GFP_KERNEL);
+          if ( !kbuf ) err = -ENOMEM;
+          else if ( copy_from_user( (void*)kbuf, (void*)(ioctl_param + sizeof(unsigned long) * 3), ptrbuf[1]) > 0 ) err = -EFAULT;
+          else err = submit_inject(task, ptrbuf[1], ptrbuf[2], (char *)kbuf);
+          if ( err ) kfree(kbuf);
+        }
+        if ( p ) put_pid(p);
+        return err;
+      }
+     break; /* IOCTL_INJECT */
 
     case IOCTL_TEST_MMAP:
       COPY_ARGS(2)
@@ -5929,8 +5971,9 @@ init_module (void)
 #ifdef CONFIG_UPROBES
   find_uprobe_ptr = (find_uprobe)lkcd_lookup_name("find_uprobe");
   get_uprobe_ptr = (get_uprobe)lkcd_lookup_name("get_uprobe");
-  // REPORT(get_uprobe_ptr, "get_uprobe")
+  if ( !get_uprobe_ptr ) get_uprobe_ptr = my_get_uprobe;
   put_uprobe_ptr = (put_uprobe)lkcd_lookup_name("put_uprobe");
+  REPORT(put_uprobe_ptr, "put_uprobe")
 #endif
 #ifdef HAS_ARM64_THUNKS
   bti_thunks_lock_ro();

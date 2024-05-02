@@ -1504,9 +1504,21 @@ struct one_slab
   unsigned long ctor;
 };
 
-// read slabs
+// read slabs. unfortunately works only for 5.x kernels
 // in param - size
 // out params: unsigned long + N * one_slab
 #define IOCTL_GET_SLABS                     _IOR(IOCTL_NUM, 0x66, int*)
+
+// inject
+// in params
+//  0 - PID
+//  1 - length, if zero - get state of inject, 1 - cancel
+//  2 - offset
+//  3 ... - body of inject stub
+// out params
+//  0 - state, see comment in inject_data
+//  1 - error (if any)
+//  2 - injected stub address (if state was 2)
+#define IOCTL_INJECT                        _IOR(IOCTL_NUM, 0x68, int*)
 
 #endif /* LKCD_SHARED_H */
