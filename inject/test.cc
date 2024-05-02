@@ -134,12 +134,41 @@ void open_driver()
   }
 }
 
+int inject2(pid_t pid, char *params)
+{
+  open_driver();
+  int err = ioctl(g_fd, IOCTL_INJECT, params);
+  if ( err )
+  {
+   printf("IOCTL_INJECT failed, errno %d (%s)\n", errno, strerror(errno));
+   return 0;
+  }
+  // wait for status
+  while(1)
+  {
+    unsigned long wp[3] = { pid, 0, 0 };
+    err = ioctl(g_fd, IOCTL_INJECT, wp);
+    if ( err )
+    {
+      printf("wait IOCTL_INJECT failed, errno %d (%s)\n", errno, strerror(errno));
+      return 0;
+    }
+    if ( wp[0] == 1 ) { printf("wait\n"); sleep(1); continue; }
+    if ( wp[0] == 2 ) printf("injected at %p\n", (void *)wp[2]);
+    else printf("state %ld error %ld\n", wp[0], -wp[1]);
+    return (int)wp[1];
+  }
+}
+
+
 void loop()
 {
   printf("pid %d\n", getpid());
   do {
+     void *alloced = malloc(10);
      std::string s;
      std::cin >> s;
+     if ( alloced ) free(alloced);
   } while(1);
 }
 
@@ -176,14 +205,21 @@ int main(int argc, char **argv)
     size_t res = paysize;
     if ( !inj_path.empty() )
       res = poff + inj_path.size() + 1;
-    char *buf = (char *)malloc(res);
-    if ( !res )
+    const size_t param_size = 3 * sizeof(unsigned long);
+    char *buf = (char *)malloc(res + param_size);
+    if ( !buf )
     {
       printf("cannot alloc buffer len %lX\n", res);
       return 1;
     }
-    fill_buffer(buf, off, poff, &ip);
-    HexDump((unsigned char *)buf, (int)res);
+    unsigned long *p = (unsigned long *)buf;
+    p[0] = pid;
+    p[1] = res;
+    p[2] = off;
+    fill_buffer(buf + param_size, off, poff, &ip);
+    HexDump((unsigned char *)buf, (int)(res + param_size));
+    inject2(pid, buf);
+    free(buf);
   } else {
     if ( !fill_myself(&ip) ) return 1;
     if ( !inject(&ip) ) return 1;
