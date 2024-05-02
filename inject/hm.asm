@@ -21,9 +21,13 @@ entry_malloc_hook:
  mov [rdi], rsi
  add rax, 16
  mov rdi, [rax]
+ ; second hook may not be used
+ test rdi, rdi
+ jz .dlopen
  mov rsi, [rax + 8] ; fh_old
  mov [rdi], rsi
 ; call dlopen
+.dlopen:
  push 2 ; RTLD_NOW
  lea rdi, [rel dll_path]
  pop rsi
