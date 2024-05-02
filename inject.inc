@@ -65,14 +65,71 @@ static void wash_floors(struct inject_data *id)
   clear_sinj(id);
 }
 
+static int do_inject(struct inject_data *id)
+{
+  unsigned long paddr1, paddr2, asize = PAGE_ALIGN(id->kbuf_len);
+  unsigned long *params = (unsigned long *)(id->kbuf + id->kbuf_off);
+  // try to alloc
+  id->vaddr = vm_mmap(NULL, 0, asize, PROT_READ | PROT_WRITE, MAP_ANONYMOUS | MAP_PRIVATE, 0);
+  if ( IS_ERR((void *)id->vaddr) )
+  {
+    id->err = PTR_ERR((void *)id->vaddr);
+    return id->state = 3;
+  }
+  // copy to process
+  if ( copy_to_user((void*)id->vaddr, id->kbuf, id->kbuf_len) > 0 )
+  {
+    id->err = -EFAULT;
+    return id->state = 4;
+  }
+  // read old values
+  if ( copy_from_user(&params[1], (void *)params[0], sizeof(params[1])) > 0 )
+    printk("warning: copy old value1 from %lX failed\n", params[0]);
+  if ( params[2] && copy_from_user(&params[3], (void *)params[2], sizeof(params[3])) > 0 )
+    printk("warning: copy old value2 from %lX failed\n", params[2]);
+  // mprotect
+  id->err = s_mprotect(id->vaddr, asize, PROT_READ | PROT_EXEC, -1);
+  if ( id->err )
+    return id->state = 5;
+  // patch glibc - at params[0] & params[2]
+  paddr1 = id->vaddr;
+  // unfortunately code to inject must know lot more dirty intimate details about injection stub than I would like
+  paddr2 = id->vaddr + 9; // offset to __free_hook entry
+printk("patch %lX to %lX and %lX to %lX\n", params[0], paddr1, params[2], paddr2);
+  if ( copy_to_user((void*)params[0], &paddr1, sizeof(paddr1)) > 0 ||
+       (params[2] && copy_to_user((void*)params[2], &paddr2, sizeof(paddr2)) > 0) )
+  {
+    id->err = -EFAULT;
+    return id->state = 6;
+  }
+#ifdef DEBUG
+  // check patch - for debug only
+  paddr1 = paddr2 = 0;
+  if ( !copy_from_user(&paddr1, (void*)params[0], sizeof(paddr1)) &&
+       !copy_from_user(&paddr2, (void*)params[2], sizeof(paddr2)) )
+printk("patched %lX: %lX and %lX: %lX\n", params[0], paddr1, params[2], paddr2);
+#endif
+  return id->state = 2;
+}
+
+/* task_struct->restart_block.fn is not called. lkmem -p PID shows
+   PID 576513 at 0xffff90e28c4c0000
+    thread.flags: 0
+    flags: 400000
+    sched_class: 0xffffffff976f4818 - kernel!fair_sched_class
+    restart_block.fn: 0xffffffffc12d9a80 - lkcd!main_horror
+   while for normal process something like
+    restart_block.fn: 0xffffffff960cfbc0 - kernel!do_no_restart_syscall
+#define INJECT_RESTART
+*/
+
+#ifdef INJECT_RESTART
 static long main_horror(struct restart_block *b)
 {
   restart_fn f = NULL;
   mutex_lock(&sinj.lock);
   if ( sinj.state == 1 )
   {
-    unsigned long alloced, alloced2;
-    unsigned long *params = (unsigned long *)(sinj.kbuf + sinj.kbuf_off);
     // return old restart fn and store it in f
 #ifdef __x86_64__
     xchg_ptrs(&current->restart_block.fn, &sinj.old_restart);
@@ -80,52 +137,54 @@ static long main_horror(struct restart_block *b)
 #else
     f = (restart_fn)raw_atomic_long_xchg((atomic_long_t *)&current->restart_block.fn, (long)sinj.old_restart);
 #endif
-    // try to alloc
-    sinj.vaddr = vm_mmap(NULL, 0, PAGE_ALIGN(sinj.kbuf_len), PROT_READ | PROT_WRITE, MAP_ANONYMOUS | MAP_PRIVATE, 0);
-    if ( IS_ERR((void *)sinj.vaddr) )
-    {
-      sinj.state = 3;
-      sinj.err = PTR_ERR((void *)sinj.vaddr);
-      goto out;
-    }
-    // copy to process
-    if ( copy_to_user((void*)sinj.vaddr, sinj.kbuf, sinj.kbuf_len) > 0 )
-    {
-      sinj.state = 4;
-      sinj.err = -EFAULT;
-      goto out;
-    }
-    // mprotect
-    sinj.err = s_mprotect(sinj.vaddr, PAGE_ALIGN(sinj.kbuf_len), PROT_READ | PROT_EXEC, -1);
-    if ( sinj.err )
-    {
-      sinj.state = 5;
-      goto out;
-    }
-    // patch glibc - at params[0] & params[2]
-    alloced = sinj.vaddr;
-    alloced = sinj.vaddr + 9;
-    if ( copy_to_user((void*)params[0], &alloced, sizeof(alloced)) > 0 ||
-         copy_to_user((void*)params[2], &alloced2, sizeof(alloced2)) > 0 )
-    {
-      sinj.state = 6;
-      sinj.err = -EFAULT;
-      goto out;
-    }
-    sinj.state = 2;
+    do_inject(&sinj);
   }
-out:
   mutex_unlock(&sinj.lock);
-printk("main_horror called for PID %d state %d error %d", current->pid, sinj.state, sinj.err);
+#ifdef DEBUG
+ printk("main_horror called for PID %d state %d error %d", current->pid, sinj.state, sinj.err);
+#endif
   return f ? f(b) : 0;
 }
+#else
+static void main_horror(struct callback_head *head)
+{
+  mutex_lock(&sinj.lock);
+  if ( sinj.state == 1 ) do_inject(&sinj);
+  mutex_unlock(&sinj.lock);
+#ifdef DEBUG
+ printk("main_horror called for PID %d state %d error %d", current->pid, sinj.state, sinj.err);
+#endif
+}
+
+static struct callback_head s_inj_work = {
+ .func = &main_horror
+};
+#endif /* INJECT_RESTART */
+
 
 static void inline revert_restart_fn(struct inject_data *id)
 {
+#ifdef INJECT_RESTART
 #ifdef __x86_64__
     xchg_ptrs(&id->victim->restart_block.fn, &id->old_restart);
 #else
     raw_atomic_long_xchg((atomic_long_t *)&id->victim->restart_block.fn, (long)id->old_restart);
+#endif
+#else
+    s_my_task_work_cancel(id->victim, &main_horror);
+#endif
+}
+
+static void inline cancel_restart_fn(struct task_struct *task, struct inject_data *id)
+{
+#ifdef INJECT_RESTART
+#ifdef __x86_64__
+    xchg_ptrs(&task->restart_block.fn, &id->old_restart);
+#else
+    raw_atomic_long_xchg((atomic_long_t *)&task->restart_block.fn, (long)id->old_restart);
+#endif
+#else
+    s_my_task_work_cancel(id->victim, &main_horror);
 #endif
 }
 
@@ -139,11 +198,7 @@ static int cancel_inject(struct task_struct *task)
     err = -ESRCH;
   else {
     // revert restart fn
-#ifdef __x86_64__
-    xchg_ptrs(&task->restart_block.fn, &sinj.old_restart);
-#else
-    raw_atomic_long_xchg((atomic_long_t *)&task->restart_block.fn, (long)sinj.old_restart);
-#endif
+    cancel_restart_fn(task, &sinj);
     wash_floors(&sinj);
   }
   mutex_unlock(&sinj.lock);
@@ -270,6 +325,7 @@ static void unregister_exit_ntfy(void)
 
 static int submit_inject(struct task_struct *victim, unsigned long ksize, unsigned long koff, char *buf)
 {
+  int ret = 0;
   mutex_lock(&sinj.lock);
   if ( sinj.state )
   {
@@ -282,7 +338,7 @@ static int submit_inject(struct task_struct *victim, unsigned long ksize, unsign
   if ( !exit_hook_installed )
   {
     // run process watchdog
-    int ret = register_exit_ntfy();
+    ret = register_exit_ntfy();
     if ( ret )
     {
       mutex_unlock(&exit_hook_mutex);
@@ -304,17 +360,23 @@ static int submit_inject(struct task_struct *victim, unsigned long ksize, unsign
   sinj.kbuf_off = koff;
   sinj.kbuf = buf;
   // submit into right process work
+#ifdef INJECT_RESTART
 #ifdef __x86_64__
   {
     sinj.old_restart = (void *)&main_horror;
     xchg_ptrs(&victim->restart_block.fn, &sinj.old_restart);
   }
 #else
-    sinj.old_restart = (void *)raw_atomic_long_xchg((atomic_long_t *)&victim->restart_block.fn, (long)&main_horror);
+  sinj.old_restart = (void *)raw_atomic_long_xchg((atomic_long_t *)&victim->restart_block.fn, (long)&main_horror);
 #endif
+#else
+  ret = s_task_work_add(victim, &s_inj_work, TWA_RESUME);
+#endif /* INJECT_RESTART */
   sinj.state = 1;
   mutex_unlock(&sinj.lock);
-printk("submit_inject old %p", sinj.old_restart);
+#ifdef DEBUG
+ printk("submit_inject old %p ret %d", sinj.old_restart, ret);
+#endif
   return 0;
 }
 
