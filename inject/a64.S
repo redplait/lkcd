@@ -23,7 +23,7 @@
  */
 t1:
   bti c // bcs this is indirectly called function
-  adr_l x9, .dtab
+  adr x9, .dtab
   ldr x9, [x9, 8]
   b .cmn_thunk
 t2:
@@ -35,8 +35,8 @@ t2:
   stp x0, x1, [sp, -16]!
   stp x2, x9, [sp, -16]!
   // restore old hooks
-  adr_l x10, .dtab
-  ldr x9, [x10], 8  // addr of hook_nalloc, x10 += 8
+  adr x10, .dtab
+  ldr x9, [x10], 8  // addr of hook_malloc, x10 += 8
   ldr x11, [x10], 8 // old hook_malloc value, x10 += 8
   str x11, [x9]
   ldr x9, [x10], 8  // addr of free_hook, x10 += 8
@@ -45,16 +45,16 @@ t2:
   str x11, [x9]
 .skip_second:
   mov x1, 2 // RTLD_NOW - second arg for dlopen
-  adr_l x0, dll_path
+  adr x0, dll_path
   ldr_l x10, dlopen_ptr
   blr x10
   cbz x0, .fail
-  adr_l x1, func_name // second arg for dlsym
+  adr x1, func_name // second arg for dlsym
   ldr_l x10, dlsym_ptr
   blr x10
   cbz x0, .fail
   mov x10, x0
-  adr_l x0, t1
+  adr x0, t1
   blr x10
 .fail:
   ldp x2, x9, [sp], 16

@@ -126,7 +126,7 @@ printf("mprot err %d\n", err);
  // set hooks
  *(void **)ip->mh = alloced;
 #ifdef __aarch64__
- *(void **)ip->fh = alloced + 0x14;
+ *(void **)ip->fh = alloced + 0x10;
 #else
  *(void **)ip->fh = alloced + 9;
 #endif
