@@ -17,9 +17,18 @@ int g_fd = -1;
 std::string inj_path;
 
 const unsigned char payload[] = {
+#ifdef __aarch64__
+#include "a64.inc"
+#else
 #include "hm.inc"
+#endif
 };
-const size_t paysize = std::size(payload);
+const size_t paysize =
+#ifdef __aarch64__
+  sizeof(payload);
+#else
+  std::size(payload);
+#endif
 
 void usage(const char *prog)
 {
@@ -116,7 +125,11 @@ printf("mprot err %d\n", err);
  }
  // set hooks
  *(void **)ip->mh = alloced;
+#ifdef __aarch64__
+ *(void **)ip->fh = alloced + 0x14;
+#else
  *(void **)ip->fh = alloced + 9;
+#endif
  return 1;
 emprot:
   printf("cannot mprotect, errno %d (%s)", errno, strerror(errno));
