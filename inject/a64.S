@@ -34,23 +34,24 @@ t2:
   stp x29, x30, [sp, -16]!
   stp x0, x1, [sp, -16]!
   stp x2, x9, [sp, -16]!
+  // dirty hack - use FP as ptr to marker
+  adr x29, .dtab
   // restore old hooks
-  adr x10, .dtab
-  ldr x9, [x10], 8  // addr of hook_malloc, x10 += 8
-  ldr x11, [x10], 8 // old hook_malloc value, x10 += 8
+  ldr x9, [x29]      // addr of hook_malloc
+  ldr x11, [x29, 8]  // old hook_malloc value
   str x11, [x9]
-  ldr x9, [x10], 8  // addr of free_hook, x10 += 8
+  ldr x9, [x29, 16]  // addr of free_hook
   cbz x9, .skip_second // skip if second hook not used
-  ldr x11, [x10] // value of fh_old
+  ldr x11, [x29, 24]   // value of fh_old
   str x11, [x9]
 .skip_second:
   mov x1, 2 // RTLD_NOW - second arg for dlopen
   adr x0, dll_path
-  ldr_l x10, dlopen_ptr
+  ldr x10, [x29, 32]
   blr x10
   cbz x0, .fail
   adr x1, func_name // second arg for dlsym
-  ldr_l x10, dlsym_ptr
+  ldr x10, [x29, 40]
   blr x10
   cbz x0, .fail
   mov x10, x0
