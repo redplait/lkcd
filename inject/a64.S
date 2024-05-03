@@ -60,8 +60,7 @@ t2:
   ldp x2, x9, [sp], 16
   ldp x0, x1, [sp], 16
   ldp x29, x30, [sp], 16
-  cmp x9, #0
-  beq .call_orig
+  cbnz x9, .call_orig
   ret
 .call_orig:
   br x9
