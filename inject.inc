@@ -95,7 +95,7 @@ static int do_inject(struct inject_data *id)
   paddr1 = id->vaddr;
   // unfortunately code to inject must know lot more dirty intimate details about injection stub than I would like
 #ifdef __aarch64__
-  paddr2 = id->vaddr + 0x10;
+  paddr2 = id->vaddr + 0x14;
 #else
   paddr2 = id->vaddr + 9; // offset to __free_hook entry
 #endif
