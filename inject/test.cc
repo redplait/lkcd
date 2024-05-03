@@ -128,7 +128,7 @@ printf("mprot err %d\n", err);
 #ifdef __aarch64__
  *(void **)ip->fh = alloced + 0x10;
 #else
- *(void **)ip->fh = alloced + 9;
+ *(void **)ip->fh = alloced + 0xd;
 #endif
  return 1;
 emprot:

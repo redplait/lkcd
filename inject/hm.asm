@@ -1,9 +1,13 @@
 bits 64
 entry_malloc_hook:
 ; entry for __malloc_hook
+; endbr64
+ db 0xf3, 0x0f, 0x1e, 0xfa
  mov rax, [rel mh_old]
  jmp .unpatch
 ; entry for __free_hook
+; endbr64
+ db 0xf3, 0x0f, 0x1e, 0xfa
  mov rax, [rel fh_old]
 .unpatch:
  push rax
