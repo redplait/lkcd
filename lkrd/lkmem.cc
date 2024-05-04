@@ -2699,10 +2699,16 @@ void dump_genl(a64 addr, sa64 delta)
       dump_kptr((unsigned long)curr->pre_doit, " pre_doit", delta);
     if ( curr->post_doit )
       dump_kptr((unsigned long)curr->post_doit, " post_doit", delta);
+    if ( curr->mcast_bind )
+      dump_kptr((unsigned long)curr->mcast_bind, " mcast_bind", delta);
+    if ( curr->mcast_unbind )
+      dump_kptr((unsigned long)curr->mcast_unbind, " mcast_unbind", delta);
     if ( curr->ops )
       dump_kptr((unsigned long)curr->ops, " ops", delta);
     if ( curr->small_ops )
       dump_kptr((unsigned long)curr->small_ops, " small_ops", delta);
+    if ( curr->split_ops )
+      dump_kptr((unsigned long)curr->split_ops, " split_ops", delta);
   }
 }
 
