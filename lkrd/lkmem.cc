@@ -2120,6 +2120,12 @@ void dump_bpf_targets(a64 list, a64 lock, sa64 delta)
       dump_kptr((unsigned long)curr->fill_link_info, "  fill_link_info", delta);
     if ( curr->seq_info )
       dump_kptr((unsigned long)curr->seq_info, "  seq_info", delta);
+    if ( curr->seq_ops )
+      dump_kptr((unsigned long)curr->seq_ops, "  seq_ops", delta);
+    if ( curr->init_seq_private )
+      dump_kptr((unsigned long)curr->init_seq_private, "  init_seq_private", delta);
+    if ( curr->fini_seq_private )
+      dump_kptr((unsigned long)curr->fini_seq_private, "  fini_seq_private", delta);
    }
   );
 }
