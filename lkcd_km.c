@@ -4432,7 +4432,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
           } else {
             struct one_genl_family *curr;
             kbuf_size = sizeof(unsigned long) + ptrbuf[1] * sizeof(struct one_genl_family);
-            kbuf = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL);
+            kbuf = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL | __GFP_ZERO);
             if ( !kbuf )
               return -ENOMEM;
             curr = (struct one_genl_family *)(kbuf + 1);
@@ -4443,10 +4443,20 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
                 break;
               curr->addr = (void *)family;
               curr->id = family->id;
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5,2,0)
+              curr->policy = (void *)family->policy;
+#endif
               curr->pre_doit = (void *)family->pre_doit;
               curr->post_doit = (void *)family->post_doit;
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5,7,10)
+              curr->mcast_bind = (void *)family->mcast_bind;
+              curr->mcast_unbind = (void *)family->mcast_unbind;
+#endif
               curr->ops = (void *)family->ops;
               curr->small_ops = (void *)family->small_ops;
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6,2,0)
+              curr->split_ops = (void *)family->split_ops;
+#endif
               strlcpy(curr->name, family->name, GENL_NAMSIZ);
               // next iteration
               count++;

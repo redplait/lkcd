@@ -679,8 +679,13 @@ struct one_genl_family
   char name[GENL_NAMSIZ];
   void *pre_doit;
   void *post_doit;
+  // till 5.7.10
+  void *mcast_bind;
+  void *mcast_unbind;
   void *ops;
   void *small_ops;
+  void *split_ops; // since 6.2
+  void *policy;
 };
 
 // read registered genl_family
