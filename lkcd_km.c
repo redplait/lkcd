@@ -5065,7 +5065,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
           } else {
             struct one_bpf_reg *curr;
             kbuf_size = sizeof(unsigned long) + sizeof(struct one_bpf_reg) * ptrbuf[2];
-            kbuf = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL);
+            kbuf = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL | __GFP_ZERO);
             if ( !kbuf )
               return -ENOMEM;
             curr = (struct one_bpf_reg *)(kbuf + 1);
@@ -5081,8 +5081,18 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
               curr->detach_target   = (void *)ti->reg_info->detach_target;
               curr->show_fdinfo     = (void *)ti->reg_info->show_fdinfo;
               curr->fill_link_info  = (void *)ti->reg_info->fill_link_info;
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5,9,0)
               curr->seq_info        = (void *)ti->reg_info->seq_info;
+              if ( curr->seq_info )
+              {
+                curr->seq_ops = (void *)ti->reg_info->seq_info->seq_ops;
+                curr->init_seq_private = (void *)ti->reg_info->seq_info->init_seq_private;
+                curr->fini_seq_private = (void *)ti->reg_info->seq_info->fini_seq_private;
+              }
+#endif
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5,11,0)
               curr->feature         = ti->reg_info->feature;
+#endif
               curr++;
               count++;
             }
