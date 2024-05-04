@@ -2810,7 +2810,9 @@ void dump_netlinks(a64 nca, a64 lock, sa64 delta)
       if ( curr->netlink_bind )
         dump_kptr((unsigned long)curr->netlink_bind, " netlink_bind", delta);
       if ( curr->netlink_unbind )
-        dump_kptr((unsigned long)curr->netlink_bind, " netlink_unbind", delta);
+        dump_kptr((unsigned long)curr->netlink_unbind, " netlink_unbind", delta);
+      if ( curr->netlink_release )
+        dump_kptr((unsigned long)curr->netlink_release, " netlink_release", delta);
       if ( curr->cb_dump )
         dump_kptr((unsigned long)curr->cb_dump, " cb.dump", delta);
       if ( curr->cb_done )
