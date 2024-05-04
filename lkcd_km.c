@@ -4471,7 +4471,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
           struct rhashtable_iter iter;
           struct one_nl_socket *curr;
           kbuf_size = sizeof(unsigned long) + ptrbuf[3] * sizeof(struct one_nl_socket);
-          kbuf = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL);
+          kbuf = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL | __GFP_ZERO);
           if ( !kbuf )
             return -ENOMEM;
           curr = (struct one_nl_socket *)(kbuf + 1);
@@ -4500,6 +4500,9 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
             curr->netlink_rcv = ns->netlink_rcv;
             curr->netlink_bind = ns->netlink_bind;
             curr->netlink_unbind = ns->netlink_unbind;
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6,6,0)
+            curr->netlink_release = ns->netlink_release;
+#endif
             curr->cb_dump = ns->cb.dump;
             curr->cb_done = ns->cb.done;
             // for next iteration

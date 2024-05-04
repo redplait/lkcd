@@ -29,6 +29,10 @@ struct netlink_sock {
 	void			(*netlink_rcv)(struct sk_buff *skb);
 	int			(*netlink_bind)(struct net *net, int group);
 	void			(*netlink_unbind)(struct net *net, int group);
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6,6,0)
+	void			(*netlink_release)(struct sock *sk,
+			   unsigned long *groups);
+#endif
 	struct module		*module;
 
 	struct rhash_head	node;

@@ -516,8 +516,9 @@ struct one_nl_socket
   void *netlink_rcv;
   void *netlink_bind;
   void *netlink_unbind;
+  void *netlink_release;
   void *cb_dump; // netlink_callback.dump
-  void *cb_done; // netlink_callback.done  
+  void *cb_done; // netlink_callback.done
 };
 
 // read netlink sockets
