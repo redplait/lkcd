@@ -8,9 +8,6 @@
    Cewl, nah, old tricks always much more reliable so for newer kernels just plain old
    register_kprobe on do_exit
  */
-
-#include <linux/atomic/atomic-long.h>
-
 typedef long (*restart_fn)(struct restart_block *);
 
 static int exit_hook_installed = 0;
@@ -95,9 +92,9 @@ static int do_inject(struct inject_data *id)
   paddr1 = id->vaddr;
   // unfortunately code to inject must know lot more dirty intimate details about injection stub than I would like
 #ifdef __aarch64__
-  paddr2 = id->vaddr + 0x14;
+  paddr2 = id->vaddr + 0x10;
 #else
-  paddr2 = id->vaddr + 9; // offset to __free_hook entry
+  paddr2 = id->vaddr + 0xd; // offset to __free_hook entry
 #endif
 printk("patch %lX to %lX and %lX to %lX\n", params[0], paddr1, params[2], paddr2);
   if ( copy_to_user((void*)params[0], &paddr1, sizeof(paddr1)) > 0 ||
@@ -128,6 +125,8 @@ printk("patched %lX: %lX and %lX: %lX\n", params[0], paddr1, params[2], paddr2);
 */
 
 #ifdef INJECT_RESTART
+#include <linux/atomic/atomic-long.h>
+
 static long main_horror(struct restart_block *b)
 {
   restart_fn f = NULL;
@@ -374,7 +373,12 @@ static int submit_inject(struct task_struct *victim, unsigned long ksize, unsign
   sinj.old_restart = (void *)raw_atomic_long_xchg((atomic_long_t *)&victim->restart_block.fn, (long)&main_horror);
 #endif
 #else
-  ret = s_task_work_add(victim, &s_inj_work, TWA_RESUME);
+  ret = s_task_work_add(victim, &s_inj_work, 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5,10,0)
+   TWA_RESUME);
+#else
+   1);
+#endif
 #endif /* INJECT_RESTART */
   sinj.state = 1;
   mutex_unlock(&sinj.lock);
