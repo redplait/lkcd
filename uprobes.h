@@ -4,14 +4,20 @@
 
 struct und_uprobe {
 	struct rb_node		rb_node;	/* node in the rb tree */
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4,11,0)
 	refcount_t		ref;
+#else
+	atomic_t		ref;
+#endif
 	struct rw_semaphore	register_rwsem;
 	struct rw_semaphore	consumer_rwsem;
 	struct list_head	pending_list;
 	struct uprobe_consumer	*consumers;
 	struct inode		*inode;		/* Also hold a ref to inode */
 	loff_t			offset;
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4,20,0)
 	loff_t			ref_ctr_offset;
+#endif
 	unsigned long		flags;
 };
 
@@ -27,6 +33,7 @@ struct dyn_event {
 	void *ops;
 };
 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5,4,0)
 // https://elixir.bootlin.com/linux/v5.13/source/kernel/trace/trace_probe.h#L232
 struct trace_probe_event {
 	unsigned int			flags;	/* For TP_FLAG_* */
@@ -34,6 +41,7 @@ struct trace_probe_event {
 	struct trace_event_call		call;
  // remaining fields omitted	
 };
+#endif
 
 // https://elixir.bootlin.com/linux/v5.13/source/kernel/trace/trace_probe.h#L241
 struct trace_probe {

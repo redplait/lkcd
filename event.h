@@ -15,13 +15,14 @@ struct event_command {
 	void *get_trigger_ops;
 };
 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4,12,0)
 // ripped from https://elixir.bootlin.com/linux/v5.11/source/kernel/trace/trace.h#L959
-
 struct ftrace_func_command {
 	struct list_head list;
 	char		*name;
 	void*		*func;
 };
+#endif
 
 // ripped from https://elixir.bootlin.com/linux/v5.11/source/kernel/trace/trace_dynevent.h#L40
 

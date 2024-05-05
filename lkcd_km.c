@@ -50,14 +50,25 @@
 #include <linux/mm.h>
 #include <linux/uaccess.h>
 #include <linux/vmalloc.h>
+#ifdef CONFIG_TRACING
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4,10,0)
 #include <linux/trace.h>
+#endif
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4,2,0)
+#include <linux/trace_events.h>
+#endif
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4,5,0)
+#include <linux/tracepoint-defs.h>
+#endif
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4,0,0)
+#include <linux/ftrace_event.h>
+#endif
+#endif
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(6,0,0)
 #include <linux/ftrace.h>
-#include <linux/task_work.h>
 #endif
-#include <linux/trace_events.h>
+#include <linux/task_work.h>
 #include "uprobes.h"
-#include <linux/tracepoint-defs.h>
 #include <net/net_namespace.h>
 #include <net/sock.h>
 #include <linux/netdevice.h>
@@ -71,7 +82,9 @@
 #include "netlink.h"
 #include <linux/crypto.h>
 #include <crypto/algapi.h>
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4,2,0)
 #include <linux/lsm_hooks.h>
+#endif
 #include <linux/bpf.h>
 #include <linux/filter.h>
 #include <linux/timer.h>
@@ -137,7 +150,11 @@ typedef int (*my_vmalloc_or_module_addr)(const void *);
 static my_vmalloc_or_module_addr s_vmalloc_or_module_addr = 0;
 
 typedef struct callback_head *(*my_task_work_cancel)(struct task_struct *task, task_work_func_t func);
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5,10,0)
 typedef int (*my_task_work_add)(struct task_struct *task, struct callback_head *work, enum task_work_notify_mode notify);
+#else
+typedef int (*my_task_work_add)(struct task_struct *task, struct callback_head *work, int);
+#endif
 static my_task_work_cancel s_my_task_work_cancel = 0;
 static my_task_work_add s_task_work_add = 0;
 
@@ -329,6 +346,7 @@ static int close_lkcd(struct inode *inode, struct file *file)
   return 0;
 }
 
+#ifdef CONFIG_BPF
 static const char *get_ioctl_name(unsigned int num)
 {
   switch(num)
@@ -342,6 +360,7 @@ static const char *get_ioctl_name(unsigned int num)
   }
   return "unknown";
 }
+#endif
 
 // ripped from https://stackoverflow.com/questions/1184274/read-write-files-within-a-linux-kernel-module
 static struct file *file_open(const char *path, int flags, int rights, int *err) 
@@ -387,8 +406,10 @@ static inline int is_dbgfs(const struct file_operations *in)
 // css_next_child is not exported so css_for_each_child not compiling. as usually
 typedef struct cgroup_subsys_state *(*kcss_next_child)(struct cgroup_subsys_state *pos, struct cgroup_subsys_state *parent);
 static kcss_next_child css_next_child_ptr = 0;
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4,15,0)
 typedef int (*kcgroup_bpf_detach)(struct cgroup *cgrp, struct bpf_prog *prog, enum bpf_attach_type type);
 static kcgroup_bpf_detach cgroup_bpf_detach_ptr = 0;
+#endif
 
 // kernfs_node_from_dentry is not exported
 typedef struct kernfs_node *(*krnf_node_type)(struct dentry *dentry);
@@ -415,8 +436,10 @@ static struct list_head *s_ftrace_events = 0;
 static struct mutex *s_bpf_event_mutex = 0;
 static struct mutex *s_tracepoints_mutex = 0;
 static struct mutex *s_tracepoint_module_list_mutex = 0;
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4,15,0)
 typedef int (*und_bpf_prog_array_length)(struct bpf_prog_array *progs);
 static und_bpf_prog_array_length bpf_prog_array_length_ptr = 0;
+#endif
 
 // x86 only
 // on arm64 there is aarch64_insn_write but it accepts whole instruction with len 4 bytes
@@ -424,7 +447,7 @@ static und_bpf_prog_array_length bpf_prog_array_length_ptr = 0;
 typedef void *(*t_patch_text)(void *addr, const void *opcode, size_t len);
 static t_patch_text s_patch_text = 0;
 
-#ifdef CONFIG_FSNOTIFY
+#if CONFIG_FSNOTIFY && LINUX_VERSION_CODE >= KERNEL_VERSION(4,15,0)
 typedef struct fsnotify_mark *(*und_fsnotify_first_mark)(struct fsnotify_mark_connector **connp);
 typedef struct fsnotify_mark *(*und_fsnotify_next_mark)(struct fsnotify_mark *mark);
 static struct srcu_struct *fsnotify_mark_srcu_ptr = 0;
@@ -622,6 +645,10 @@ struct super_inodes_args
   struct one_inode *data;
 };
 
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4,2,0)
+static spinlock_t *s_inode_sb_list_lock = 0;
+#endif
+
 static void fill_super_block_inodes(struct super_block *sb, void *arg)
 {
   struct super_inodes_args *args = (struct super_inodes_args *)arg;
@@ -631,7 +658,11 @@ static void fill_super_block_inodes(struct super_block *sb, void *arg)
     struct inode *inode;
     args->found++;
     // iterate on inodes
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4,2,0)
+    spin_lock(s_inode_sb_list_lock);
+#else
     spin_lock(&sb->s_inode_list_lock);
+#endif
     list_for_each_entry(inode, &sb->s_inodes, i_sb_list)
     {
       unsigned long index = args->curr[0];
@@ -642,7 +673,7 @@ static void fill_super_block_inodes(struct super_block *sb, void *arg)
       args->data[index].i_mode  = inode->i_mode;
       args->data[index].i_ino   = inode->i_ino;
       args->data[index].i_flags = inode->i_flags;
-#ifdef CONFIG_FSNOTIFY
+#if CONFIG_FSNOTIFY && LINUX_VERSION_CODE >= KERNEL_VERSION(4,15,0)
       args->data[index].i_fsnotify_mask = inode->i_fsnotify_mask;
       args->data[index].i_fsnotify_marks = (void *)inode->i_fsnotify_marks;
       args->data[index].mark_count = 0;
@@ -657,7 +688,11 @@ static void fill_super_block_inodes(struct super_block *sb, void *arg)
       // inc count for next iteration
       args->curr[0]++;
     }
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4,2,0)
+    spin_unlock(s_inode_sb_list_lock);
+#else
     spin_unlock(&sb->s_inode_list_lock);
+#endif
   }
 }
 
@@ -703,7 +738,7 @@ static void fill_super_block_mounts(struct super_block *sb, void *arg)
       else
         args->data[index].mnt_mp[0] = 0;
       args->data[index].mark_count = 0;
-#ifdef CONFIG_FSNOTIFY
+#if CONFIG_FSNOTIFY && LINUX_VERSION_CODE >= KERNEL_VERSION(4,15,0)
       // iterate on marks
       if ( fsnotify_first_mark_ptr && fsnotify_next_mark_ptr )
       {
@@ -743,14 +778,22 @@ static void fill_super_blocks(struct super_block *sb, void *arg)
   args->data[index].addr      = sb;
   args->data[index].dev       = sb->s_dev;
   args->data[index].s_flags   = sb->s_flags;
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4,2,0)
   args->data[index].s_iflags  = sb->s_iflags;
+#else
+  args->data[index].s_iflags  = 0;
+#endif
   args->data[index].s_op      = (void *)sb->s_op;
   args->data[index].s_type    = sb->s_type;
   args->data[index].dq_op     = (void *)sb->dq_op;
   args->data[index].s_qcop    = (void *)sb->s_qcop;
   args->data[index].s_export_op = (void *)sb->s_export_op;
   args->data[index].s_d_op    = (void *)sb->s_d_op;
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4,2,0)
   args->data[index].s_user_ns = (void *)sb->s_user_ns;
+#else
+  args->data[index].s_user_ns = 0;
+#endif
   args->data[index].inodes_cnt = 0;
   args->data[index].s_root    = (void *)sb->s_root;
   if ( sb->s_root )
@@ -760,16 +803,24 @@ static void fill_super_blocks(struct super_block *sb, void *arg)
   args->data[index].mount_count = 0;
   list_for_each_entry(mnt, &sb->s_mounts, mnt_instance)
     args->data[index].mount_count++;
-#ifdef CONFIG_FSNOTIFY
+#if CONFIG_FSNOTIFY && LINUX_VERSION_CODE >= KERNEL_VERSION(4,15,0)
   args->data[index].s_fsnotify_mask = sb->s_fsnotify_mask;
   args->data[index].s_fsnotify_marks = sb->s_fsnotify_marks;
 #endif /* CONFIG_FSNOTIFY */
   strncpy(args->data[index].s_id, sb->s_id, 31);
   // iterate on inodes
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4,2,0)
+  spin_lock(s_inode_sb_list_lock);
+#else
   spin_lock(&sb->s_inode_list_lock);
+#endif
   list_for_each_entry(inode, &sb->s_inodes, i_sb_list)
     args->data[index].inodes_cnt++;
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4,2,0)
+  spin_unlock(s_inode_sb_list_lock);
+#else
   spin_unlock(&sb->s_inode_list_lock);
+#endif
   // inc index for next
   args->curr[0]++;
 }
@@ -3998,6 +4049,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
         }
       break; /* IOCTL_GET_NLTAB */
 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4,15,0)
     case IOCTL_DEL_CGROUP_BPF:
         if ( !cgroup_bpf_detach_ptr )
          return -ENOCSI;
@@ -4039,6 +4091,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
           return cgroup_bpf_detach_ptr(found, prog, (enum bpf_attach_type)ptrbuf[4]);
         }
       break; /* IOCTL_DEL_CGROUP_BPF */
+#endif
 
     case IOCTL_GET_PMUS:
         COPY_ARGS(3)
@@ -4534,6 +4587,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
        }
      break; /* IOCTL_GET_NL_SK */
 
+#ifdef CONFIG_BPF
     case IOCTL_GET_BPF_USED_MAPS:
     case IOCTL_GET_BPF_OPCODES:
     case IOCTL_GET_BPF_PROG_BODY:
@@ -4678,6 +4732,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
          }
        }
      break; /* IOCTL_GET_BPF_LINKS */
+#endif /* CONFIG_BPF */
 
     case IOCTL_GET_TRACE_EXPORTS:
         COPY_ARGS(3)
@@ -4721,6 +4776,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
         }
      break; /* IOCTL_GET_TRACE_EXPORTS */
 
+#ifdef CONFIG_BPF
     case IOCTL_GET_BPF_RAW_EVENTS:
     case IOCTL_GET_BPF_RAW_EVENTS2:
         COPY_ARGS(3)
@@ -4755,6 +4811,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
           }
         }
      break; /* IOCTL_GET_BPF_RAW_EVENTS */
+#endif /* CONFIG_BPF */
 
 #ifdef CONFIG_FUNCTION_TRACER
     case IOCTL_GET_FTRACE_OPS:
@@ -5049,6 +5106,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
         }
      break; /* IOCTL_GET_EVENT_CMDS */
 
+#ifdef CONFIG_BPF
     case IOCTL_GET_BPF_REGS:
         COPY_ARGS(3)
         else {
@@ -5142,6 +5200,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
           }
        }
      break; /* IOCTL_GET_BPF_KSYMS */
+#endif /* CONFIG_BPF */
 
 #ifdef CONFIG_ZPOOL
     case IOCTL_GET_ZPOOL_DRV:
@@ -5964,16 +6023,22 @@ init_module (void)
   REPORT(s_tracepoints_mutex, "tracepoints_mutex")
   s_tracepoint_module_list_mutex = (struct mutex *)lkcd_lookup_name("tracepoint_module_list_mutex");
   REPORT(s_tracepoint_module_list_mutex, "tracepoint_module_list_mutex")
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4,15,0)  
   SYM_LOAD("bpf_prog_array_length", und_bpf_prog_array_length, bpf_prog_array_length_ptr)
+  SYM_LOAD("cgroup_bpf_detach", kcgroup_bpf_detach, cgroup_bpf_detach_ptr)
+#endif
   css_next_child_ptr = (kcss_next_child)lkcd_lookup_name("css_next_child");
   REPORT(css_next_child_ptr, "css_next_child")
-  SYM_LOAD("cgroup_bpf_detach", kcgroup_bpf_detach, cgroup_bpf_detach_ptr)
   SYM_LOAD("text_poke_kgdb", t_patch_text, s_patch_text)
   delayed_timer = (void *)lkcd_lookup_name("delayed_work_timer_fn");
   REPORT(delayed_timer, "delayed_work_timer_fn")
   s_alarm = (struct alarm_base *)lkcd_lookup_name("alarm_bases");
   REPORT(s_alarm, "alarm_bases")
-#ifdef CONFIG_FSNOTIFY
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4,2,0)
+  s_inode_sb_list_lock = (static spinlock_t *)lkcd_lookup_name("inode_sb_list_lock");
+  REPORT(s_inode_sb_list_lock, "inode_sb_list_lock")
+#endif
+#if CONFIG_FSNOTIFY && LINUX_VERSION_CODE >= KERNEL_VERSION(4,15,0)
   fsnotify_mark_srcu_ptr = (struct srcu_struct *)lkcd_lookup_name("fsnotify_mark_srcu");
   SYM_LOAD("fsnotify_first_mark", und_fsnotify_first_mark, fsnotify_first_mark_ptr)
   if ( !fsnotify_first_mark_ptr )
