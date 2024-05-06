@@ -1,6 +1,6 @@
 .text
 # post-processing after j can broke your brain
-.set noreorder
+.set reorder
 # t1 is entry point for malloc_hook
 # t2 for free_hook
 # to save space $8 will hold offset relative .dtab for old hook value + 4
