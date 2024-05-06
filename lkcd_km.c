@@ -92,6 +92,9 @@
 #include <linux/alarmtimer.h>
 #ifdef CONFIG_NETFILTER
 #include <net/netfilter/nf_log.h>
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4,15,0)
+#include <net/netfilter/nf_tables.h>
+#endif
 #endif
 #ifdef CONFIG_WIRELESS_EXT
 #include <net/iw_handler.h>
@@ -1004,6 +1007,7 @@ static void count_lrn(void *info)
 }
 #endif /* CONFIG_USER_RETURN_NOTIFIER */
 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4,15,0)
 // assumed that all locks was taken before calling of this function
 static unsigned long copy_trace_bpfs(const struct trace_event_call *c, unsigned long lim, unsigned long *out_buf)
 {
@@ -1021,7 +1025,9 @@ static unsigned long copy_trace_bpfs(const struct trace_event_call *c, unsigned 
   }
   return i;
 }
+#endif
 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4,2,0)
 static void copy_trace_event_call(const struct trace_event_call *c, struct one_trace_event_call *out_data)
 {
   struct hlist_head *list;
@@ -1051,13 +1057,17 @@ static void copy_trace_event_call(const struct trace_event_call *c, struct one_t
   }
 #endif
 }
+#endif
 
 static void fill_one_cgroup(struct one_cgroup *grp, struct cgroup_subsys_state *css)
 {
   int i;
   // bcs self (type cgroup_subsys_state) is first field in cgroup
   struct cgroup *cg = (struct cgroup *)css;
+  // cgroup_bpf was introduced in 4.10 + CONFIG_CGROUP_BPF
+#if defined(CONFIG_CGROUP_BPF) && LINUX_VERSION_CODE >= KERNEL_VERSION(4,10,0)
   const int bpf_cgsize = sizeof(cg->bpf.effective) / sizeof(cg->bpf.effective[0]);
+#endif
   grp->addr = (void *)cg;
   grp->ss = (void *)css->ss;
   grp->root = (void *)cg->root;
@@ -1068,11 +1078,18 @@ static void fill_one_cgroup(struct one_cgroup *grp, struct cgroup_subsys_state *
   grp->agent_work = (void *)cg->release_agent_work.func;  
   grp->serial_nr = css->serial_nr;
   grp->flags = cg->flags;
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4,10,0)
   grp->level = cg->level;
+#endif
   grp->kn = (void *)cg->kn;
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5,5,0)
   grp->id = cgroup_id(cg);
+#else
+  grp->id = cg->id;
+#endif
   for ( i = 0; i < CGROUP_SUBSYS_COUNT; i++ )
     if ( rcu_dereference_raw(cg->subsys[i]) ) grp->ss_cnt++;
+#if defined(CONFIG_CGROUP_BPF) && LINUX_VERSION_CODE >= KERNEL_VERSION(4,10,0)
   for ( i = 0; i < bpf_cgsize && i < CG_BPF_MAX; i++ )
   {
     grp->prog_array[i] = (void *)cg->bpf.effective[i];
@@ -1083,26 +1100,43 @@ static void fill_one_cgroup(struct one_cgroup *grp, struct cgroup_subsys_state *
       grp->prog_array_cnt[i] = 0;
     grp->bpf_flags[i] = cg->bpf.flags[i];
   }
+#endif
 }
 
 static void fill_bpf_prog(struct one_bpf_prog *curr, struct bpf_prog *prog)
 {
   curr->prog = (void *)prog;
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4,1,0)
   curr->prog_type = (int)prog->type;
+#endif
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4,17,0)
   curr->expected_attach_type = (int)prog->expected_attach_type;
+#endif
   curr->len = prog->len;
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4,13,0)
   curr->jited_len = prog->jited_len;
+#endif
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4,10,0)
   memcpy(curr->tag, prog->tag, 8);
+#endif
   curr->bpf_func = (void *)prog->bpf_func;
   curr->aux = (void *)prog->aux;
   if ( prog->aux )
   {
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4,13,0)
     curr->aux_id = prog->aux->id;
-    curr->used_map_cnt = prog->aux->used_map_cnt;
-    curr->used_btf_cnt = prog->aux->used_btf_cnt;
-    curr->func_cnt = prog->aux->func_cnt;
     curr->stack_depth = prog->aux->stack_depth;
+#endif
+    curr->used_map_cnt = prog->aux->used_map_cnt;
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5,12,0)
+    curr->used_btf_cnt = prog->aux->used_btf_cnt;
+#endif
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4,16,0)
+    curr->func_cnt = prog->aux->func_cnt;
+#endif
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5,5,0)
     curr->num_exentries = prog->aux->num_exentries;
+#endif
   } else {
     curr->aux_id = 0;
     curr->used_map_cnt = curr->used_btf_cnt = curr->func_cnt = curr->stack_depth = curr->num_exentries = 0;
@@ -1253,6 +1287,9 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(6,4,0)
             curr->base = mod->mem[MOD_TEXT].base;
             curr->size = module_total_size(mod);
+#elif LINUX_VERSION_CODE < KERNEL_VERSION(4,5,0)
+            curr->base = mod->module_core;
+            curr->size = mod->init_size + mod->core_size;
 #else
             curr->base = mod->core_layout.base;
             curr->size = mod->init_layout.size + mod->core_layout.size;
@@ -1282,6 +1319,8 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
             curr->addr = mod;
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(6,4,0)
             curr->base = mod->mem[MOD_TEXT].base;
+#elif LINUX_VERSION_CODE < KERNEL_VERSION(4,5,0)
+            curr->base = mod->module_core;
 #else
             curr->base = mod->core_layout.base;
 #endif
@@ -1349,6 +1388,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
        }
       break; /* IOCTL_GET_NETDEV_CHAIN */
 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5,4,0)
     case READ_CPUFREQ_NTFY:
        COPY_ARGS(3)
         else {
@@ -1410,6 +1450,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
            return -EFAULT;
         }
       break; /* READ_CPUFREQ_CNT */
+#endif
 
     case IOCTL_REM_BNTFY:
        COPY_ARGS(2)
@@ -1673,6 +1714,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
        }
      break; /* READ_CLK_NTFY */
 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4,7,0)
     case READ_DEVFREQ_NTFY:
        COPY_ARGS(3)
        else {
@@ -1722,6 +1764,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
          }
        }
      break; /* READ_DEVFREQ_NTFY */
+#endif
 
     case IOCTL_ENUMSNTFYCHAIN:
      COPY_ARGS(2)
@@ -1902,7 +1945,9 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
           }
           ti.addr = task;
           ti.sched_class = (void *)task->sched_class;
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4,0,0)
           ti.restart_fn = (void *)task->restart_block.fn;
+#endif
 #ifdef CONFIG_THREAD_INFO_IN_TASK
           ti.thread_flags = task->thread_info.flags;
 #else
@@ -1915,7 +1960,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
 #endif
           ti.flags = task->flags;
           ti.ptrace = task->ptrace;
-#ifdef CONFIG_X86_MCE
+#if defined(CONFIG_X86_MCE) && LINUX_VERSION_CODE >= KERNEL_VERSION(5,8,0)
           ti.mce_kill_me = (void *)task->mce_kill_me.func;
 #else
           ti.mce_kill_me = 0;
@@ -1942,6 +1987,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
       }
      break; /* IOCTL_TASK_INFO */
 
+#ifdef CONFIG_TRACEPOINTS
     case IOCTL_TRACEV_CNT:
       COPY_ARGS(3)
       if ( !ptrbuf[0] || !ptrbuf[1] ) return -EINVAL;
@@ -2013,9 +2059,14 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
       if ( s_vmalloc_or_module_addr && !s_vmalloc_or_module_addr((const void *)ptrbuf[0]) ) return -EFAULT;
       else {
         struct one_mod_tracepoint *curr;
+        // tracepoint_ptr_t and tracepoint_ptr_deref were intriduced in 4.19
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4,19,0)
         tracepoint_ptr_t *begin = (tracepoint_ptr_t *)ptrbuf[0],
-          *end = begin + ptrbuf[1],
-          *iter;
+           *end = begin + ptrbuf[1], *iter;
+#else
+        struct tracepoint **begin = (struct tracepoint **)ptrbuf[0],
+           **end = begin + ptrbuf[1], **iter;
+#endif
         kbuf_size = sizeof(unsigned long) + ptrbuf[1] * sizeof(struct one_mod_tracepoint);
         kbuf = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL | __GFP_ZERO);
         if ( !kbuf ) return -ENOMEM;
@@ -2025,7 +2076,12 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
         for ( iter = begin; count < ptrbuf[1] && iter < end; count++, curr++, iter++ )
         {
            struct tracepoint_func *func;
-           struct tracepoint *tp = tracepoint_ptr_deref(iter);
+           struct tracepoint *tp = 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4,19,0)
+             tracepoint_ptr_deref(iter);
+#else
+             *iter;
+#endif
            curr->addr = tp;
            curr->enabled = atomic_read(&tp->key.enabled);
            curr->regfunc = (unsigned long)tp->regfunc;
@@ -2132,6 +2188,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
        goto copy_kbuf;
      }
      break; /* IOCTL_TRACEPOINT_FUNCS */
+#endif /* CONFIG_TRACEPOINTS */
 
     case IOCTL_BUS_NTFY:
       if ( krnf_node_ptr == NULL ) return -EFAULT;
@@ -2349,7 +2406,11 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
              ptrbuf[9] = (unsigned long)kobj->ktype->release;
              ptrbuf[10] = (unsigned long)kobj->ktype->child_ns_type;
              ptrbuf[11] = (unsigned long)kobj->ktype->namespace;
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4,19,0)
              ptrbuf[12] = (unsigned long)kobj->ktype->get_ownership;
+#else
+             ptrbuf[12] = 0;
+#endif
            }
          }
        } else if ( !k ) 
@@ -2364,7 +2425,11 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
            if ( is_dbg )
            {
              struct seq_file *seq = (struct seq_file *)file->private_data;
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4,7,0)
              ptrbuf[2] = (unsigned long)debugfs_real_fops(file);
+#else
+             ptrbuf[2] = 0;
+#endif
              if ( seq && S_ISREG(file->f_path.dentry->d_inode->i_mode) )
                ptrbuf[3] = (unsigned long)seq->op;
            }
@@ -2377,7 +2442,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
       }
      break; /* IOCTL_KERNFS_NODE */
 
-#ifdef CONFIG_FSNOTIFY
+#if defined(CONFIG_FSNOTIFY) && LINUX_VERSION_CODE >= KERNEL_VERSION(4,15,0)
      case IOCTL_GET_INODE_MARKS:
        if ( !iterate_supers_ptr )
          return -ENOCSI;
@@ -2459,41 +2524,6 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
          }
        break; /* IOCTL_GET_SUPERBLOCK_MARKS */
 
-     case IOCTL_GET_SUPERBLOCK_INODES:
-       if ( !iterate_supers_ptr )
-         return -ENOCSI;
-       COPY_ARGS(2)
-       // check size
-       if ( !ptrbuf[1] )
-         return -EINVAL;
-       else {
-         struct super_inodes_args sargs;
-         kbuf_size = sizeof(unsigned long) + ptrbuf[1] * sizeof(struct one_inode);
-         // fill super_inodes_args
-         sargs.sb_addr = (void *)ptrbuf[0];
-         sargs.cnt     = ptrbuf[1];
-         sargs.found   = 0;
-         sargs.curr = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL);
-         if ( !sargs.curr )
-           return -ENOMEM;
-         sargs.data = (struct one_inode *)(sargs.curr + 1);
-         sargs.curr[0] = 0;
-         iterate_supers_ptr(fill_super_block_inodes, (void*)&sargs);
-         if ( !sargs.found )
-         {
-           kfree(sargs.curr);
-           return -ENOENT;
-         }
-         kbuf_size = sizeof(unsigned long) + sargs.curr[0] * sizeof(struct one_inode);
-         if (copy_to_user((void*)ioctl_param, (void*)sargs.curr, kbuf_size) > 0)
-         {
-           kfree(sargs.curr);
-           return -EFAULT;
-         }
-         kfree(sargs.curr);
-       }
-      break; /* IOCTL_GET_SUPERBLOCK_INODES */
-
      case IOCTL_GET_MOUNT_MARKS:
        if ( !iterate_supers_ptr || !mount_lock)
          return -ENOCSI;
@@ -2529,6 +2559,42 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
          kfree(args.curr);
        }
       break; /* IOCTL_GET_MOUNT_MARKS */
+#endif /* CONFIG_FSNOTIFY */
+
+     case IOCTL_GET_SUPERBLOCK_INODES:
+       if ( !iterate_supers_ptr )
+         return -ENOCSI;
+       COPY_ARGS(2)
+       // check size
+       if ( !ptrbuf[1] )
+         return -EINVAL;
+       else {
+         struct super_inodes_args sargs;
+         kbuf_size = sizeof(unsigned long) + ptrbuf[1] * sizeof(struct one_inode);
+         // fill super_inodes_args
+         sargs.sb_addr = (void *)ptrbuf[0];
+         sargs.cnt     = ptrbuf[1];
+         sargs.found   = 0;
+         sargs.curr = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL);
+         if ( !sargs.curr )
+           return -ENOMEM;
+         sargs.data = (struct one_inode *)(sargs.curr + 1);
+         sargs.curr[0] = 0;
+         iterate_supers_ptr(fill_super_block_inodes, (void*)&sargs);
+         if ( !sargs.found )
+         {
+           kfree(sargs.curr);
+           return -ENOENT;
+         }
+         kbuf_size = sizeof(unsigned long) + sargs.curr[0] * sizeof(struct one_inode);
+         if (copy_to_user((void*)ioctl_param, (void*)sargs.curr, kbuf_size) > 0)
+         {
+           kfree(sargs.curr);
+           return -EFAULT;
+         }
+         kfree(sargs.curr);
+       }
+      break; /* IOCTL_GET_SUPERBLOCK_INODES */
 
      case IOCTL_GET_SUPERBLOCK_MOUNTS:
        if ( !iterate_supers_ptr || !mount_lock)
@@ -2594,9 +2660,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
        }
       break; /* IOCTL_GET_SUPERBLOCKS */
 
-#endif /* CONFIG_FSNOTIFY */
-
-// #ifdef __x86_64__
+#ifdef CONFIG_UPROBES
      case IOCTL_CNT_UPROBES:
        COPY_ARGS(2)
        else {
@@ -2614,6 +2678,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
        }
        break; /* IOCTL_CNT_UPROBES */
 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4,15,0)
      case IOCTL_TRACE_UPROBE_BPFS:
         if ( !bpf_prog_array_length_ptr )
           return -ENOCSI;
@@ -2659,6 +2724,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
           goto copy_kbuf;
         }
        break; /* IOCTL_TRACE_UPROBE_BPFS */
+#endif
 
      case IOCTL_TRACE_UPROBE:
         COPY_ARGS(4)
@@ -2684,8 +2750,10 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
               tup = container_of(con, struct trace_uprobe, consumer);
               break;
             }
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4,2,0)
             if ( tup != NULL )
               copy_trace_event_call(&tup->tp.event->call, &buf);
+#endif
             up_read(&up->consumer_rwsem);
             break;
           }
@@ -2699,7 +2767,6 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
         }
        break; /* IOCTL_TRACE_UPROBE */
 
-#ifdef CONFIG_UPROBES
      case IOCTL_UPROBES_CONS:
        COPY_ARGS(4)
        // 2 - uprobe, 3 - size
@@ -2837,7 +2904,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
             return ret;
           }
           test_kprobe_installed = 1;
-          printk(KERN_INFO "[lkcd] test kprobe installed at %p\n", kp.addr);
+          printk(KERN_INFO "[lkcd] test kprobe installed at %p\n", test_kp.addr);
        }
        if ( !ptrbuf[0] && test_kprobe_installed )
        {
@@ -3182,8 +3249,12 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
           curr->device = con->device;
           curr->unblank = con->unblank;
           curr->setup = con->setup;
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5,7,0)
           curr->exit = con->exit;
+#endif
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4,1,0)
           curr->match = con->match;
+#endif
           // curr->dropped = con->dropped;
           curr->flags = con->flags;
           curr->index = con->index;
@@ -3215,8 +3286,16 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
           if ( params.addr )
           {
             params.dump = (void *)s_sock_diag_handlers[ptrbuf[0]]->dump;
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4,2,0)
             params.get_info = (void *)s_sock_diag_handlers[ptrbuf[0]]->get_info;
+#else
+            params.get_info = 0;
+#endif
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4,5,0)
             params.destroy = (void *)s_sock_diag_handlers[ptrbuf[0]]->destroy;
+#else
+            params.destroy = 0;
+#endif
           } else
             params.dump = params.get_info = params.destroy = 0;
           // unlock
@@ -3227,6 +3306,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
         }
        break; /* IOCTL_GET_SOCK_DIAG */
 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4,13,0)
      case IOCTL_GET_ULP_OPS:
         COPY_ARGS(3)
         if ( !ptrbuf[0] || !ptrbuf[1] ) return -EINVAL;
@@ -3276,6 +3356,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
           }
         }
        break; /* IOCTL_GET_ULP_OPS */
+#endif
 
      case IOCTL_GET_PROTOS:
         COPY_ARGS(3)
@@ -3375,7 +3456,12 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
           return -ENOCSI;
         if ( !ptrbuf[2] ) goto copy_count;
         else {
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4,9,0)
           struct nf_hook_entries *nfh = NULL;
+#else
+          struct list_head *nfh = NULL;
+          struct nf_hook_ops *elem;
+#endif
           struct net_device *dev, *right_dev = NULL;
           struct net *net;
           kbuf_size = sizeof(unsigned long) * (1 + ptrbuf[2]);
@@ -3406,10 +3492,24 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
             return -ENODEV;
           }
 #ifdef CONFIG_NETFILTER_EGRESS
-          if ( ptrbuf[3] ) nfh = right_dev->nf_hooks_egress;
+          if ( ptrbuf[3] )
+          {
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4,9,0)
+            nfh = right_dev->nf_hooks_egress;
+#else
+            nfh = &right_dev->nf_hooks_egress;
 #endif
-#ifndef CONFIG_NETFILTER_INGRESS
-          if ( !ptrbuf[3] ) nfh = right_dev->nf_hooks_ingress;
+          }
+#endif
+#ifdef CONFIG_NETFILTER_INGRESS
+          if ( !ptrbuf[3] )
+          {
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4,9,0)
+           nfh = right_dev->nf_hooks_ingress;
+#else
+           nfh = &right_dev->nf_hooks_ingress;
+#endif
+          }
 #endif
           if ( !nfh )
           {
@@ -3420,8 +3520,18 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
           }
           // ok, copy hooks
           mutex_lock(s_nf_hook_mutex);
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4,9,0)
+          // nf_hook_entry was introduced in 4.9, on more old kernels is just list of nf_hook_ops
           for ( ; count < nfh->num_hook_entries && count < ptrbuf[2]; ++count )
             kbuf[1 + count] = (unsigned long)nfh->hooks[count].hook;
+#else
+         list_for_each_entry(elem, nfh, list)
+         {
+           if ( count >= ptrbuf[2] ) break;
+           kbuf[1 + count] = (unsigned long)elem->hook;
+           count++;
+         }
+#endif
           mutex_unlock(s_nf_hook_mutex);
           read_unlock(s_dev_base_lock);
           up_read(s_net);
@@ -3440,7 +3550,9 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
         if ( !ptrbuf[1] )
         {
           struct net *net = peek_net(ptrbuf[0]);
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4,3,0)
           int i;
+#endif
           if ( !net )
           {
             up_read(s_net);
@@ -3448,12 +3560,14 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
           }
           mutex_lock(s_nf_log_mutex);
 #if LINUX_VERSION_CODE <= KERNEL_VERSION(4,15,0)
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4,3,0)
           for ( i = 0; i < ARRAY_SIZE(net->nf.hooks); ++i )
           {
             int j;
             for ( j = 0; j < ARRAY_SIZE(net->nf.hooks[i]); ++j )
               if ( net->nf.hooks[i][j] ) count++;
           }
+#endif
 #else
           // ipv4
           for ( i = 0; i < ARRAY_SIZE(net->nf.hooks_ipv4); ++i )
@@ -3478,7 +3592,9 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
           up_read(s_net);
           goto copy_count;
         } else {
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4,3,0)
           int i, j;
+#endif
           struct net *net;
           struct one_nf_logger *curr;
           kbuf_size = sizeof(unsigned long) + ptrbuf[1] * sizeof(struct one_nf_logger);
@@ -3495,6 +3611,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
           curr = (struct one_nf_logger *)(kbuf + 1);
           mutex_lock(s_nf_log_mutex);
 #if LINUX_VERSION_CODE <= KERNEL_VERSION(4,15,0)
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4,3,0)
           for ( i = 0; i < ARRAY_SIZE(net->nf.hooks); ++i )
           {
             for ( j = 0; j < ARRAY_SIZE(net->nf.hooks[i]); ++j )
@@ -3508,6 +3625,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
               count++; curr++;
             }
           }
+#endif
 #else
 #define ENUM_NF_TAB(tab, proto) \
     for ( i = 0; i < ARRAY_SIZE(net->nf.tab); ++i ) { \
@@ -3619,7 +3737,9 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
           up_read(s_net);
           goto copy_count;
         } else {
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5,9,0)
           int xdp;
+#endif
           struct net *net;
           struct net_device *dev;
           struct one_net_dev *curr;
@@ -3646,8 +3766,10 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
               strlcpy(curr->name, dev->name, IFNAMSIZ);
               curr->flags       = dev->flags;
               curr->mtu         = dev->mtu;
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4,10,0)
               curr->min_mtu     = dev->min_mtu;
               curr->max_mtu     = dev->max_mtu;
+#endif
               curr->type        = dev->type;
               curr->netdev_ops  = (void *)dev->netdev_ops;
               curr->ethtool_ops = (void *)dev->ethtool_ops;
@@ -3685,7 +3807,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
 #ifdef CONFIG_NET_L3_MASTER_DEV
               curr->l3mdev_ops = (void *)dev->l3mdev_ops;
 #endif
-#ifdef CONFIG_IPV6
+#if defined(CONFIG_IPV6) && LINUX_VERSION_CODE >= KERNEL_VERSION(4,8,0)
               curr->ndisc_ops = (void *)dev->ndisc_ops;
 #endif
 #ifdef CONFIG_XFRM_OFFLOAD
@@ -3850,7 +3972,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
             if ( !net )
             {
               up_read(s_net);
-              kfree(buf);
+              kfree(kbuf);
               return -ENODEV;
             }
             list_for_each_entry(afi, &net->nft.af_info, list)
@@ -3868,7 +3990,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
             }
             up_read(s_net);  
             // copy to user
-            kbuf_size = sizeof(unsigned long) + buf[0] * sizeof(struct one_nft_af);
+            kbuf_size = sizeof(unsigned long) + count * sizeof(struct one_nft_af);
             goto copy_kbuf_count;
           }
         }
@@ -3920,7 +4042,9 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
                if ( net->genl_sock->sk_filter && net->genl_sock->sk_filter->prog )
                  curr->genl_sock_filter = (void *)net->genl_sock->sk_filter->prog->bpf_func;
             }
+#if LINUX_VERSION_CODE > KERNEL_VERSION(4,17,0)
             curr->uevent_sock = (void *)net->uevent_sock;
+#endif
             curr->diag_nlsk = (void *)net->diag_nlsk;
             if ( net->diag_nlsk )
             {
@@ -3930,12 +4054,14 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
             }
             curr->netdev_chain_cnt = 0;
             curr->dev_cnt = 0;
+#if LINUX_VERSION_CODE > KERNEL_VERSION(5,5,0)
             if ( net->netdev_chain.head != NULL )
             {
               struct notifier_block *b;
               for ( b = net->netdev_chain.head; b != NULL; b = b->next )
                curr->netdev_chain_cnt++;
             }
+#endif
             if ( s_dev_base_lock )
             {
               struct net_device *dev;
@@ -3944,8 +4070,8 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
                 curr->dev_cnt++;
               read_unlock(s_dev_base_lock);
             }
-#if defined(CONFIG_NETFILTER) && LINUX_VERSION_CODE < KERNEL_VERSION(5,15,0)
-            if ( net->queue_handler )
+#if defined(CONFIG_NETFILTER) && LINUX_VERSION_CODE < KERNEL_VERSION(5,15,0) && LINUX_VERSION_CODE >= KERNEL_VERSION(4,7,0)
+            if ( net->nf.queue_handler )
             {
               curr->nf_outfn = net->nf.queue_handler->outfn;
               curr->nf_hook_drop = net->nf.queue_handler->nf_hook_drop;
@@ -4007,6 +4133,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
         }
       break; /* IOCTL_GET_RTNL_AF_OPS */
 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4,0,0)
     case IOCTL_GET_NLTAB:
         COPY_ARGS(3)
         if ( ptrbuf[2] >= MAX_LINKS ) return -EFBIG;
@@ -4048,6 +4175,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
             return -EFAULT;
         }
       break; /* IOCTL_GET_NLTAB */
+#endif
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(4,15,0)
     case IOCTL_DEL_CGROUP_BPF:
@@ -4133,8 +4261,10 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
                 curr->pmu_enable = (void *)pmu->pmu_enable;
                 curr->pmu_disable = (void *)pmu->pmu_disable;
                 curr->event_init = (void *)pmu->event_init;
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4,0,0)
                 curr->event_mapped = (void *)pmu->event_mapped;
                 curr->event_unmapped = (void *)pmu->event_unmapped;
+#endif
                 curr->add = (void *)pmu->add;
                 curr->del = (void *)pmu->del;
                 curr->start = (void *)pmu->start;
@@ -4144,18 +4274,28 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
                 curr->commit_txn = (void *)pmu->commit_txn;
                 curr->cancel_txn = (void *)pmu->cancel_txn;
                 curr->event_idx = (void *)pmu->event_idx;
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4,1,0)
                 curr->sched_task = (void *)pmu->sched_task;
-                curr->swap_task_ctx = (void *)pmu->swap_task_ctx;
                 curr->setup_aux = (void *)pmu->setup_aux;
                 curr->free_aux = (void *)pmu->free_aux;
+#endif
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5,5,0)
+                curr->swap_task_ctx = (void *)pmu->swap_task_ctx;
                 curr->snapshot_aux = (void *)pmu->snapshot_aux;
+#endif
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4,1,0)
                 curr->addr_filters_validate = (void *)pmu->addr_filters_validate;
                 curr->addr_filters_sync = (void *)pmu->addr_filters_sync;
+#endif
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5,4,0)
                 curr->aux_output_match = (void *)pmu->aux_output_match;
-#if LINUX_VERSION_CODE < KERNEL_VERSION(6,3,0)
+#endif
+#if LINUX_VERSION_CODE < KERNEL_VERSION(6,3,0) && LINUX_VERSION_CODE >= KERNEL_VERSION(4,2,0)
                 curr->filter_match = (void *)pmu->filter_match;
 #endif
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4,19,24)
                 curr->check_period = (void *)pmu->check_period;
+#endif
                 curr++;
               }
               count++;
@@ -4207,13 +4347,21 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
             {
               curr->addr = map;
               curr->ops = map->ops;
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4,12,0)
               curr->inner_map_meta = map->inner_map_meta;
+#endif
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4,18,0)
               curr->btf = map->btf;
+#endif
               curr->map_type = map->map_type;
               curr->key_size = map->key_size;
               curr->value_size = map->value_size;
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4,13,0)
               curr->id = map->id;
+#endif
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4,15,0)
               strlcpy(curr->name, map->name, 16);
+#endif
               curr++; count++;
             } else break;
           }
@@ -4227,6 +4375,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
       }
       break; /* IOCTL_GET_BPF_MAPS */
 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4,15,0)
     case IOCTL_GET_CGROUP_BPF:
         if ( !bpf_prog_array_length_ptr )
           return -ENOCSI;
@@ -4294,6 +4443,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
           goto copy_kbuf_count;
        }
       break; /* IOCTL_GET_CGROUP_BPF */
+#endif
 
     case IOCTL_GET_CGROUP_SS:
         COPY_ARGS(5)
@@ -4501,12 +4651,14 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
 #endif
               curr->pre_doit = (void *)family->pre_doit;
               curr->post_doit = (void *)family->post_doit;
-#if LINUX_VERSION_CODE < KERNEL_VERSION(5,7,10)
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5,7,10) && LINUX_VERSION_CODE >= KERNEL_VERSION(3,19,0)
               curr->mcast_bind = (void *)family->mcast_bind;
               curr->mcast_unbind = (void *)family->mcast_unbind;
 #endif
               curr->ops = (void *)family->ops;
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5,10,0)
               curr->small_ops = (void *)family->small_ops;
+#endif
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(6,2,0)
               curr->split_ops = (void *)family->split_ops;
 #endif
@@ -4523,6 +4675,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
         }
       break; /* IOCTL_GET_GENL_FAMILIES */
 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4,0,0)
     case IOCTL_GET_NL_SK:
         COPY_ARGS(4)
         if ( !ptrbuf[3] ) return -EINVAL;
@@ -4586,6 +4739,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
           goto copy_kbuf_count;
        }
      break; /* IOCTL_GET_NL_SK */
+#endif
 
 #ifdef CONFIG_BPF
     case IOCTL_GET_BPF_USED_MAPS:
@@ -4607,7 +4761,11 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
          {
            if ( prog == target )
            {
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4,4,0)
+             atomic_inc(&prog->aux->refcnt);
+#else
              bpf_prog_inc(prog);
+#endif
              if ( IOCTL_GET_BPF_PROG_BODY == ioctl_num )
                body = (char *)prog->bpf_func;
              else if ( IOCTL_GET_BPF_USED_MAPS == ioctl_num && prog->aux )
@@ -4670,6 +4828,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
        }
      break; /* IOCTL_GET_BPF_PROGS */
 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5,7,0)
     case IOCTL_GET_BPF_LINKS:
        COPY_ARGS(3)
        else {
@@ -4732,8 +4891,10 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
          }
        }
      break; /* IOCTL_GET_BPF_LINKS */
+#endif
 #endif /* CONFIG_BPF */
 
+#if defined(CONFIG_TRACING) && LINUX_VERSION_CODE >= KERNEL_VERSION(4,10,0)
     case IOCTL_GET_TRACE_EXPORTS:
         COPY_ARGS(3)
         else {
@@ -4775,8 +4936,9 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
           }
         }
      break; /* IOCTL_GET_TRACE_EXPORTS */
+#endif
 
-#ifdef CONFIG_BPF
+#if defined(CONFIG_BPF) && LINUX_VERSION_CODE >= KERNEL_VERSION(4,17,0)
     case IOCTL_GET_BPF_RAW_EVENTS:
     case IOCTL_GET_BPF_RAW_EVENTS2:
         COPY_ARGS(3)
@@ -4848,7 +5010,9 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
                 break;
               curr->addr = (void *)p;
               curr->func = (void *)p->func;
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4,1,5)
               curr->saved_func = (void *)p->saved_func;
+#endif
               curr->flags = p->flags;
               curr++;
               count++;
@@ -4983,6 +5147,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
      break; /* IOCTL_GET_DYN_EVT_OPS */
 #endif /* CONFIG_DYNAMIC_EVENTS */
 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4,2,0)
     case IOCTL_GET_EVT_CALLS:
         if ( !s_trace_event_sem || !s_event_mutex || !s_ftrace_events || !s_bpf_event_mutex )
           return -ENOCSI;
@@ -5060,6 +5225,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
           goto copy_kbuf_count;
         }
      break; /* IOCTL_GET_EVT_CALLS */
+#endif
 
     case IOCTL_GET_EVENT_CMDS:
         COPY_ARGS(3)
@@ -5106,7 +5272,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
         }
      break; /* IOCTL_GET_EVENT_CMDS */
 
-#ifdef CONFIG_BPF
+#if defined(CONFIG_BPF) && LINUX_VERSION_CODE >= KERNEL_VERSION(5,8,0)
     case IOCTL_GET_BPF_REGS:
         COPY_ARGS(3)
         else {
@@ -5334,7 +5500,9 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
               curr->init_tfm = q->cra_type->init_tfm;
               curr->show = q->cra_type->show;
               curr->report = q->cra_type->report;
+#if LINUX_VERSION_CODE > KERNEL_VERSION(4,2,0)
               curr->free = q->cra_type->free;
+#endif
               curr->tfmsize = q->cra_type->tfmsize;
             }
             // copy algo methods
@@ -5362,6 +5530,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
      }
      break; /* IOCTL_ENUM_CALGO */
 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4,2,0)
     case IOCTL_GET_LSM_HOOKS:
      COPY_ARGS(2)
      else {
@@ -5390,7 +5559,9 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
         }
       }
       break; /* IOCTL_GET_LSM_HOOKS */
+#endif
 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4,14,0)
     case IOCTL_GET_ALARMS:
       if ( !s_alarm )
         return -ENOCSI;
@@ -5407,6 +5578,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
           ptrbuf[0] = 0;
           // lock
           spin_lock_irqsave(&ca->lock, flags);
+          // before 4.14 timerqueue_head has head & next fields
           for ( iter = rb_first(&ca->timerqueue.rb_root.rb_root); iter != NULL; iter = rb_next(iter) )
             ptrbuf[0]++;
           // unlock
@@ -5542,6 +5714,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
       }
      }
      break; /* IOCTL_GET_KTIMERS */
+#endif
 
 #ifdef CONFIG_KEYS
     case IOCTL_KEYTYPE_NAME:
@@ -5613,12 +5786,17 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
         int len, err;
         struct key *k = f_key_lookup((key_serial_t)ptrbuf[0]);
         if ( IS_ERR(k) ) return PTR_ERR(k);
-        if ( !(k->len_desc & 0xffff) || !k->description )
+ #if LINUX_VERSION_CODE >= KERNEL_VERSION(4,3,0)
+ # define KEY_DESC_LEN(k) k->len_desc
+ #else
+ # define KEY_DESC_LEN(k) k->index_key.desc_len
+ #endif 
+        if ( !(KEY_DESC_LEN(k) & 0xffff) || !k->description )
         {
           key_put(k);
           return -ENOTNAM;
         }
-        len = k->len_desc & 0xffff;
+        len = KEY_DESC_LEN(k) & 0xffff;
         err = copy_to_user((void*)ioctl_param, (void*)k->description, len + 1);
         key_put(k);
         return (err > 0) ? -EFAULT : 0;
@@ -5658,14 +5836,20 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
             curr->last_used = xkey->last_used_at;
             curr->uid = xkey->uid.val;
             curr->gid = xkey->gid.val;
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4,13,10)
             curr->state = xkey->state;
+#endif
             curr->perm = xkey->perm;
             curr->datalen = xkey->datalen;
-            curr->len_desc = xkey->len_desc;
+            curr->len_desc = KEY_DESC_LEN(xkey);
             curr->flags = xkey->flags;
             curr->type = xkey->type;
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4,12,0)
             if ( xkey->restrict_link )
               curr->rest_check = (void *)xkey->restrict_link->check;
+#elif LINUX_VERSION_CODE >= KERNEL_VERSION(4,7,0)
+            curr->rest_check = (void *)xkey->restrict_link;
+#endif
             // for next iteration
             curr++; count++;
           }
@@ -5776,7 +5960,15 @@ static loff_t memory_lseek(struct file *file, loff_t offset, int orig)
  printk(KERN_INFO "[+] lkcd_seek: %llX\n", offset);
 #endif /* _DEBUG */
 
+#ifndef fallthrough
+# define fallthrough __attribute__ ((fallthrough))
+#endif
+
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4,3,0)
 	inode_lock(file_inode(file));
+#else
+  mutex_lock(&file_inode(file)->i_mutex);
+#endif
 	switch (orig) {
 	case SEEK_CUR:
 		offset += file->f_pos;
@@ -5797,7 +5989,11 @@ static loff_t memory_lseek(struct file *file, loff_t offset, int orig)
 	default:
 		ret = -EINVAL;
 	}
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4,3,0)
 	inode_unlock(file_inode(file));
+#else
+  mutex_unlock(&file_inode(file)->i_mutex);
+#endif
 #ifdef _DEBUG
   printk(KERN_INFO "[+] lkcd_seek: %llX ret %lld\n", offset, ret);
 #endif /* _DEBUG */
@@ -6035,7 +6231,7 @@ init_module (void)
   s_alarm = (struct alarm_base *)lkcd_lookup_name("alarm_bases");
   REPORT(s_alarm, "alarm_bases")
 #if LINUX_VERSION_CODE < KERNEL_VERSION(4,2,0)
-  s_inode_sb_list_lock = (static spinlock_t *)lkcd_lookup_name("inode_sb_list_lock");
+  s_inode_sb_list_lock = (spinlock_t *)lkcd_lookup_name("inode_sb_list_lock");
   REPORT(s_inode_sb_list_lock, "inode_sb_list_lock")
 #endif
 #if CONFIG_FSNOTIFY && LINUX_VERSION_CODE >= KERNEL_VERSION(4,15,0)
