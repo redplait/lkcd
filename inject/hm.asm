@@ -4,12 +4,13 @@ entry_malloc_hook:
 ; endbr64
  db 0xf3, 0x0f, 0x1e, 0xfa
  mov rax, [rel mh_old]
- jmp .unpatch
+ jmp unpatch
+entry_free_hook:
 ; entry for __free_hook
 ; endbr64
  db 0xf3, 0x0f, 0x1e, 0xfa
  mov rax, [rel fh_old]
-.unpatch:
+unpatch:
  push rax
 ; save arg regs
  push rdi
@@ -69,5 +70,6 @@ mh_old: dq 0
 fh_old: dq 0
 dlopen_ptr: dq 0
 dlsym_ptr: dq 0
+db entry_free_hook - entry_malloc_hook
 func_name: db "inject", 0
 dll_path:  db "./test.so", 0

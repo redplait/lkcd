@@ -96,6 +96,8 @@ int inject(inj_params *ip)
  // find marker
  size_t off = 0, poff = 0;
  if ( !find_markers(off, poff) ) return 0;
+ const size_t dtab_size = 6 * sizeof(unsigned long);
+ const char *tab = (const char *)(payload + off);
  // alloc
  char *alloced = nullptr;
  if ( g_fd != -1 )
@@ -125,11 +127,7 @@ printf("mprot err %d\n", err);
  }
  // set hooks
  *(void **)ip->mh = alloced;
-#ifdef __aarch64__
- *(void **)ip->fh = alloced + 0x10;
-#else
- *(void **)ip->fh = alloced + 0xd;
-#endif
+ *(void **)ip->fh = alloced + tab[dtab_size];
  return 1;
 emprot:
   printf("cannot mprotect, errno %d (%s)", errno, strerror(errno));
@@ -172,7 +170,6 @@ int inject2(pid_t pid, char *params)
     return (int)wp[1];
   }
 }
-
 
 void loop()
 {

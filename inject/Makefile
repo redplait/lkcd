@@ -23,12 +23,8 @@ dis: test.so
 	objdump -d test.so -M intel --disassemble=inject
 
 # aarch64 related stuff
-# I can't use aarch64-linux-gnu-as --version
-# > GNU assembler (GNU Binutils for Ubuntu) 2.34
-# during compilation I got
-# > Error: selected processor does not support `bti c'
 a64.o: a64.S
-	~/disc/src/binutils-gdb/gas/as-new -o $@ $^
+	aarch64-linux-gnu-as -o $@ $^
 
 a64.bin: a64.o
 	aarch64-linux-gnu-ld -Ttext 200000 -o $@ $^

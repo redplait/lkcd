@@ -22,12 +22,20 @@
  * Stack must be aligned on 16 bytes if I right remember
  */
 t1:
-  bti c // bcs this is indirectly called function
+/* aarch64-linux-gnu-as --version
+> GNU assembler (GNU Binutils for Ubuntu) 2.34
+  gave compilation error
+> Error: selected processor does not support `bti c'
+  so this is dirty hack to put bti c
+*/
+//  bti c // bcs this is indirectly called function
+  .byte 0x5F, 0x24, 0x03, 0xD5
   adr x9, .dtab
   ldr x9, [x9, 8]
   b .cmn_thunk
 t2:
-  bti c // bcs this is indirectly called function
+//  bti c // bcs this is indirectly called function
+  .byte 0x5F, 0x24, 0x03, 0xD5
   ldr_l x9, fh_old
 .cmn_thunk:
   // store regs
@@ -73,6 +81,7 @@ t2:
 fh_old: .xword 0
 dlopen_ptr: .xword 0
 dlsym_ptr: .xword 0
+.byte t2 - t1
 func_name: .string "inject"
 dll_path:  .string "./test.so"
 
