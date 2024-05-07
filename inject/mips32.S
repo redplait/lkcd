@@ -50,8 +50,8 @@ t2:
   addi $5, $gp, func_name - .dtab # $5 holds address of func_name
   jalr $8, $ra
   beq $2, $0, .end # check result, if zero - goto .end
-  li $4, .dtab - t1
-  subu $4, $gp, $4  # address of t1
+ # li $4, .dtab - t1
+  addi $4, $gp, t1 - .dtab  # address of t1
   jalr $2, $ra    # call function returned from dlsym, arg in $4 - address of t1
 .end:
   # pop back saved in stack $8
