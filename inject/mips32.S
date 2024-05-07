@@ -28,33 +28,30 @@ t2:
   # load $gp with address of .dtab - dirty hack for PICode
   jal .rel
 .rel:
-  li $9, .dtab - .rel
   # now $gp holds address of .dtab
-  addu $gp, $ra, $9
+  addi $gp, $ra, .dtab - .rel
   # restore old hooks
   lw $9, 0($gp)  # addr of malloc_hook
   lw $8, 4($gp)  # value of old malloc_hook
   sw $8, ($9)
   lw $9, 8($gp)  # addr of free_hook
-  beq $9, $0, .call_dlopen # can be zero - then skip patch
   lw $8, 12($gp) # value of old free_hook
+  beq $9, $0, .call_dlopen # can be zero - then skip patch
   sw $8, ($9)
 .call_dlopen:
   # args: 1st in $4, second in $5
-  li $9, dll_path - .dtab
-  li $5, 2 # RTLD_NOW
-  addu $4, $gp, $9 # $4 holds address of dll_path
+  addi $4, $gp, dll_path - .dtab # $4 holds address of dll_path
   lw $8, 16($gp)   # dlopen_ptr
+  li $5, 2 # RTLD_NOW
   jalr $8, $ra
   beq $2, $0, .end # check result, if zero - goto .end
-  li $9, func_name - .dtab
   move $4, $2      # first arg - handle from dlopen
   lw $8, 20($gp)   # dlsym_ptr
-  addu $5, $gp, $9 # $5 holds address of func_name
+  addi $5, $gp, func_name - .dtab # $5 holds address of func_name
   jalr $8, $ra
   beq $2, $0, .end # check result, if zero - goto .end
   li $4, .dtab - t1
-  subu $4, $gp, $4 # address of t1
+  subu $4, $gp, $4  # address of t1
   jalr $2, $ra    # call function returned from dlsym, arg in $4 - address of t1
 .end:
   # pop back saved in stack $8
@@ -79,5 +76,6 @@ t2:
 fh_old: .word 0
 dlopen_ptr: .word 0
 dlsym_ptr: .word 0
+.byte t2 - t1
 func_name: .string "inject"
 dll_path:  .string "./test.so"
