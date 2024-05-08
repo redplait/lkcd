@@ -35,3 +35,18 @@ a64: a64.bin
 a64.inc: a64
 	perl ./bin.pl a64 > $@
 	-rm a64.o a64.bin
+
+# loongarch related stuff
+l64.o: loongarch.S
+	~/disc/src/binutils-gdb/gas/as-new -o $@ $^
+
+l64.bin: l64.o
+	~/disc/src/binutils-gdb/ld/ld-new -Ttext 200000 -o $@ $^
+
+l64: l64.bin
+	~/disc/src/binutils-gdb/binutils/objcopy --dump-section .text=$@ $^
+
+l64.inc: l64
+	perl ./bin.pl a64 > $@
+#	-rm l64
+
