@@ -212,20 +212,24 @@ sub get_uniq {
 }
 
 # move label to addendum of func
+# returns size in bytes of patched opcodes
 sub move_label {
   my($fobj, $func, $label) = @_;
   my $lv = mark_label($fobj, $label);
   my $xr = $func->[2];
+  my $dec = 0;
   foreach my $iter ( @$xr ) {
     next if ( $iter->[2] ne $label );
     # patch adrp to adr
     $fobj->[2]->[$iter->[0]]->[2] =~ s/adrp/adr/;
     # disable next string
     $fobj->[2]->[$iter->[0] + 1]->[0] = 1;
+    $dec += 4;
   }
   # finally put $lv to addendum of this func
   my $add = $fobj->[2]->[ $func->[3] ]->[3];
   push @$add, $lv;
+  return $dec;
 }
 
 # fill hash with minimal offsets of corresponding adrp
@@ -467,7 +471,9 @@ sub apatch {
        next;
      }
      $curr_fsize += $rname->[1];
-     move_label($fobj, $value, $rname->[0]);
+     # bcs we eliminate 1 add instruction - whole size of function can be decreased
+     # probably this could do possible to return early rejected xrefs but it' too tedious to rescan
+     $curr_fsize -= move_label($fobj, $value, $rname->[0]);
      $res++;
    }
  }
