@@ -38,12 +38,13 @@
 #  * put it before .cfi_endproc in .text section
 #  * inc size of function for length of moved string + 1
 # Amen
+# 9 may 2024 (c) redplait
 use strict;
 use warnings;
 use Carp;
 use Getopt::Std;
 
-use vars qw/$opt_D $opt_d $opt_f $opt_l $opt_v/;
+use vars qw/$opt_D $opt_d $opt_f $opt_l $opt_v $opt_w/;
 # main restriction on size of function
 my $g_limit = 2048;
 
@@ -57,6 +58,7 @@ Options:
  -f - dump functions
  -l - dump literals
  -v - verbose mode
+ -w - don't rewrite original file
 EOF
   exit(8);
 }
@@ -97,6 +99,12 @@ sub put_string {
   my($fobj, $str) = @_;
   my $aref = $fobj->[2];
   push @$aref, [ 0, -1, $str ];
+}
+
+sub put_end_instr {
+  my($fobj, $str) = @_;
+  my $aref = $fobj->[2];
+  push @$aref, [ 0, -2, $str, [] ];
 }
 
 sub put_instr {
@@ -142,6 +150,14 @@ sub dump_labels {
   }
 }
 
+# dump moved const literal to file $fh
+sub dump_label {
+ my($fobj, $fh, $lv) = @_;
+ for ( my $i = $lv->[0]; $i < $lv->[1]; $i++ ) {
+   printf($fh "%s\n", $fobj->[2]->[$i]->[2]);
+ }
+}
+
 # mark label for deleting
 sub mark_label {
   my($fobj, $lname) = @_;
@@ -149,18 +165,19 @@ sub mark_label {
   if ( !exists( $lh->{$lname} ) )
   {
     carp("no label $lname");
-    return 0;
+    return undef;
   }
   my $v = $lh->{$lname};
   for ( my $i = $v->[0]; $i < $v->[1]; $i++ )
   { $fobj->[2]->[$i]->[0] = 1; }
-  return 1;
+  return $lh->{$lname};
 }
 
 # each function is array where indexes
 # 0 - total xrefs to literal consts
 # 1 - size in bytes
 # 2 - array of refs
+# 3 - line number of addendum
 sub add_func {
  my($fobj, $fname) = @_;
  my $fh = $fobj->[4];
@@ -169,9 +186,72 @@ sub add_func {
    carp("duplicated function $fname");
    return undef;
  }
- my $r = [ 0, 0, [] ];
+ my $r = [ 0, 0, [], -1 ];
  $fh->{$fname} = $r;
  return $r;
+}
+
+# scan function and return hash{name} -> size of uniq referred labels
+sub get_uniq {
+ my($f, $lh, $rh) = @_;
+ return 0 if ( !$f->[0] ); # no refs in this function
+ my $res = 0;
+ my $xr = $f->[2];
+ foreach my $iter ( @$xr )
+ {
+   next if ( !exists $lh->{$iter->[2]} );
+   # check that this label has ref count = 1
+   my $lv = $lh->{$iter->[2]};
+   my $rsize = scalar keys %{ $lv->[2] };
+   next if ( $rsize != 1 );
+   # cool
+   $res++;
+   $rh->{ $iter->[2] } = $lv;
+ }
+ return $res;
+}
+
+# move label to addendum of func
+sub move_label {
+  my($fobj, $func, $label) = @_;
+  my $lv = mark_label($fobj, $label);
+  my $xr = $func->[2];
+  foreach my $iter ( @$xr ) {
+    next if ( $iter->[2] ne $label );
+    # patch adrp to adr
+    $fobj->[2]->[$iter->[0]]->[2] =~ s/adrp/adr/;
+    # disable next string
+    $fobj->[2]->[$iter->[0] + 1]->[0] = 1;
+  }
+  # finally put $lv to addendum of this func
+  my $add = $fobj->[2]->[ $func->[3] ]->[3];
+  push @$add, $lv;
+}
+
+# fill hash with minimal offsets of corresponding adrp
+# return count of found offsets
+sub extract_offsets {
+ my($fobj, $func, $u_ref, $res) = @_;
+ my $xr = $func->[2];
+ my $rcount = 0;
+ foreach my $iter ( @$xr ) {
+   next if ( !exists $u_ref->{$iter->[2]} );
+   next if ( exists $res->{$iter->[2]} );
+   # iter->[0] contains line number, for instructions in [1] it has pc
+   $res->{$iter->[2]} = $fobj->[2]->[$iter->[0]]->[1];
+   $rcount++;
+ }
+ return $rcount;
+}
+
+# get length of const literal, very weak version - I just return length of whole "string"
+sub extract_len {
+ my($fobj, $lv) = @_;
+ for ( my $i = $lv->[0]; $i < $lv->[1]; $i++ ) {
+   my $str = $fobj->[2]->[$i]->[2];
+   return length($1) if ( $str =~ /^\s+\.string\s+\"(.*)\"$/ );
+ }
+ return undef;
 }
 
 sub dump_funcs {
@@ -196,11 +276,12 @@ sub put_xref {
  push @$ar, [ $fx_line, $fx_reg, $fx_name ];
 };
 
+# common method for damping results, can be used for debug purposes too
 sub dump_patch
 {
-  my($fobj, $chext) = @_;
+  my($fobj, $rewrite) = @_;
   my $fname = $fobj->[1];
-  $fname =~ s/\.s$/\.sp/ if ( $chext );
+  $fname =~ s/\.s$/\.sp/ if ( !$rewrite );
   my($fh, $str);
     if ( !open($fh, '>', $fname) )
   {
@@ -210,7 +291,16 @@ sub dump_patch
   my $arr = $fobj->[2];
   foreach $str ( @{ $arr } )
   {
-    printf($fh "%s\n", $str->[2]) if ( !$str->[0] );
+    next if ( $str->[0] );
+    if ( -2 == $str->[1] ) { # dump addendum before .cfi_endproc
+      my $ar = $str->[3];
+      if ( defined $ar ) {
+        foreach my $ml ( @$ar ) {
+          dump_label($fobj, $fh, $ml);
+        }
+      }
+    }
+    printf($fh "%s\n", $str->[2]);
   }
   close $fh;
   return 1;
@@ -284,9 +374,12 @@ sub read_s
       if ( $str =~ /^\s*\.cfi_endproc/ )
       {
         $state = 0;
-        if ( defined $fdata ) { $fdata->[1] = $pc * 4; }
+        if ( defined $fdata ) {
+          $fdata->[1] = $pc * 4;   # fix function size
+          $fdata->[3] = $line - 1; # addendum
+        }
 # printf("%s pc %X\n", $func_name, $pc) if defined($opt_d);
-        put_string($fobj, $str); next;
+        put_end_instr($fobj, $str); next;
       }
       # skip labels
       if ( $str =~ /:$/ )
@@ -334,11 +427,55 @@ sub read_s
 # main workhorse
 sub apatch {
  my $fobj = shift;
- return 0;
+ # iterate for all functions
+ my $fh = $fobj->[4];
+ my $lh = $fobj->[3];
+ my $res = 0;
+ while( my ($key, $value) = each %$fh) {
+   my %uniq;
+   next if ( !get_uniq($value, $lh, \%uniq) );
+   if ( defined($opt_v) ) {
+     printf("func %s:\n", $key);
+     foreach my $rname ( keys %uniq ) {
+       printf(" %s\n", $rname);
+     }
+   }
+   # sort them by sizes, index 0 - name, 1 - size
+   my @as;
+   while( my($name, $lv) = each %uniq ) {
+     my $rsize = extract_len($fobj, $lv);
+     next if !defined $rsize;
+     push @as, [ $name, $rsize];
+   }
+   my @sas = sort { $a->[1] <=> $b->[1] } @as;
+   if ( defined($opt_v ) ) {
+     foreach my $rname ( @sas ) {
+       printf("%s size %d\n", $rname->[0], $rname->[1]);
+     }
+   }
+   # extract minumal offsets of correspoinding adr for label xrefs
+   my %moffs;
+   extract_offsets($fobj, $value, \%uniq, \%moffs);
+   my $curr_fsize = $value->[1];
+   # patch by 1 - sadly O(N * M) where N is number of labels and M is number of xrefs in this function
+   foreach my $rname ( @sas ) {
+     # check that we can access this const literal
+     next if ( ! exists $moffs{$rname->[0]} );
+     my $diff = $curr_fsize - $moffs{$rname->[0]};
+     if ( $diff > $g_limit ) {
+       printf("skip %s bcs diff %X is too high\n", $rname->[0], $diff);
+       next;
+     }
+     $curr_fsize += $rname->[1];
+     move_label($fobj, $value, $rname->[0]);
+     $res++;
+   }
+ }
+ return $res;
 }
 
 ### main
-my $status = getopts("Ddflv");
+my $status = getopts("Ddflvw");
 HELP_MESSAGE() if ( !$status );
 HELP_MESSAGE() if ( $#ARGV == -1 );
 # process all files
@@ -351,9 +488,11 @@ foreach my $fname ( @ARGV )
   printf("%d functions, %d xrefs\n", scalar keys %{ $fobj->[4] }, $res) if defined($opt_v);
   dump_labels($fobj) if ( defined($opt_l) );
   dump_funcs($fobj) if ( defined($opt_f) );
-  dump_patch($fobj, 1) if ( defined($opt_D) );
+  dump_patch($fobj, 0) if ( defined($opt_D) );
   if ( $res )
   {
-    dump_patch($fobj, 0) if apatch($fobj);
+    my $rewrite = 1;
+    $rewrite = 0 if ( defined $opt_w );
+    dump_patch($fobj, $rewrite) if apatch($fobj);
   }
 }
