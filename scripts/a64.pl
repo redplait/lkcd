@@ -34,8 +34,8 @@
 # we can
 #  * replace this pair (so reduce code size on 4 byte) with
 #>> adr x0, .LCXX
-#  * mark original string definition and removed
-#  * put it before .cfi_endproc in .text section
+#  * mark original .LCXX definition as removed
+#  * move it before .cfi_endproc in .text section
 #  * inc size of function for length of moved string + 1
 # Amen
 # 9 may 2024 (c) redplait
@@ -186,7 +186,7 @@ sub add_func {
    carp("duplicated function $fname");
    return undef;
  }
- my $r = [ 0, 0, [], -1 ];
+ my $r = [ 0, 0, [], undef ];
  $fh->{$fname} = $r;
  return $r;
 }
@@ -235,14 +235,14 @@ sub move_label {
 # fill hash with minimal offsets of corresponding adrp
 # return count of found offsets
 sub extract_offsets {
- my($fobj, $func, $u_ref, $res) = @_;
+ my($func, $u_ref, $res) = @_;
  my $xr = $func->[2];
  my $rcount = 0;
  foreach my $iter ( @$xr ) {
    next if ( !exists $u_ref->{$iter->[2]} );
    next if ( exists $res->{$iter->[2]} );
    # iter->[0] contains line number, for instructions in [1] it has pc
-   $res->{$iter->[2]} = $fobj->[2]->[$iter->[0]]->[1];
+   $res->{$iter->[2]} = $iter->[3];
    $rcount++;
  }
  return $rcount;
@@ -267,17 +267,17 @@ sub dump_funcs {
    my $xr = $value->[2];
    foreach my $iter ( @$xr )
    {
-     printf(" at line %d reg %s -> %s\n", $iter->[0], $iter->[1], $iter->[2]);
+     printf(" at line %d pc %X reg %s -> %s\n", $iter->[0], $iter->[3], $iter->[1], $iter->[2]);
    }
  }
 }
 
 # add xref inside function
 sub put_xref {
- my($fdata, $fx_line, $fx_reg, $fx_name) = @_;
+ my($fdata, $fx_line, $fx_reg, $fx_name, $pc) = @_;
  my $ar = $fdata->[2];
  $fdata->[0]++;
- push @$ar, [ $fx_line, $fx_reg, $fx_name ];
+ push @$ar, [ $fx_line, $fx_reg, $fx_name, $pc ];
 };
 
 # common method for damping results, can be used for debug purposes too
@@ -322,9 +322,8 @@ sub read_s
   my $line = 0;
   my $pc = 0;
   my $l_state = 0;
-  my $f_state = 0;
   # xref data
-  my($fx_line, $fx_reg, $fx_name);
+  my($fx_line, $fx_reg, $fx_name, $fx_pc);
   while( $str = <$fh> )
   {
     chomp $str; $line++;
@@ -366,7 +365,7 @@ sub read_s
     }
     if ( $str =~ /^\s*\.type\s+(\S+), \%function/ )
     {
-      $in_rs = $pc = $f_state = 0;
+      $in_rs = $pc = 0;
       $func_name = $1;
       $state = 1;
       $fdata = add_func($fobj, $func_name);
@@ -377,7 +376,7 @@ sub read_s
     {
       if ( $str =~ /^\s*\.cfi_endproc/ )
       {
-        $state = 0;
+        $state = $l_state = 0;
         if ( defined $fdata ) {
           $fdata->[1] = $pc * 4;   # fix function size
           $fdata->[3] = $line - 1; # addendum
@@ -401,6 +400,7 @@ sub read_s
           $fx_line = $line - 1;
           $fx_reg = $1;
           $fx_name = $2;
+          $fx_pc = $pc - 4;
           add_lref($fobj, $fx_name, $func_name);
           next;
         }
@@ -414,7 +414,7 @@ sub read_s
           next if ( $dreg ne $fx_reg );
           next if ( $3 ne $fx_name );
 # printf("%s refs to %s\n", $func_name, $fx_name);
-          put_xref($fdata, $fx_line, $fx_reg, $fx_name);
+          put_xref($fdata, $fx_line, $fx_reg, $fx_name, $fx_pc);
           $res++;
         }
       }
@@ -459,7 +459,7 @@ sub apatch {
    }
    # extract minumal offsets of correspoinding adr for label xrefs
    my %moffs;
-   extract_offsets($fobj, $value, \%uniq, \%moffs);
+   extract_offsets($value, \%uniq, \%moffs);
    my $curr_fsize = $value->[1];
    # patch by 1 - sadly O(N * M) where N is number of labels and M is number of xrefs in this function
    foreach my $rname ( @sas ) {
@@ -467,7 +467,7 @@ sub apatch {
      next if ( ! exists $moffs{$rname->[0]} );
      my $diff = $curr_fsize - $moffs{$rname->[0]};
      if ( $diff > $g_limit ) {
-       printf("skip %s bcs diff %X is too high\n", $rname->[0], $diff);
+       printf("skip %s bcs diff %X is too high, curr_size %X, off %X\n", $rname->[0], $diff, $curr_fsize, $moffs{$rname->[0]});
        next;
      }
      $curr_fsize += $rname->[1];
