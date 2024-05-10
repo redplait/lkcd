@@ -109,9 +109,9 @@ sub put_end_instr {
 }
 
 sub put_instr {
-  my($fobj, $str, $i) = @_;
+  my($fobj, $str, $pc) = @_;
   my $aref = $fobj->[2];
-  push @$aref, [ 0, $i, $str ];
+  push @$aref, [ 0, $pc, $str ];
 }
 
 # add some const literal
@@ -385,7 +385,7 @@ sub read_s
       {
         $state = $l_state = 0;
         if ( defined $fdata ) {
-          $fdata->[1] = $pc * 4;   # fix function size
+          $fdata->[1] = $pc; # store function size
           $fdata->[3] = put_end_instr($fobj, $str);
           next;
         }
