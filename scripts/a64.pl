@@ -92,8 +92,8 @@ sub is_rsection {
 }
 
 # each stored string is array where indexes
-# 0 - state
-# 1 - for instructions inside function - offset from start
+# 0 - skip line if non-zero
+# 1 - for instructions inside function - offset from start, for end of function wnere we add moved parts -2
 # 2 - string itself
 sub put_string {
   my($fobj, $str) = @_;
@@ -105,6 +105,7 @@ sub put_end_instr {
   my($fobj, $str) = @_;
   my $aref = $fobj->[2];
   push @$aref, [ 0, -2, $str, [] ];
+  return $aref->[-1]->[3];
 }
 
 sub put_instr {
@@ -114,31 +115,35 @@ sub put_instr {
 }
 
 # add some const literal
+# literal is ref to array where indexes
+# 0 - start line number
+# 1 - end line number
+# 2 - ref to xrefs hashmap
 # params: fobj, name, start line number, end line number
 sub add_label {
  my($fobj, $l_name, $l_num, $l_end) = @_;
  my $lh = $fobj->[3];
- my %fr;
- $lh->{$l_name} = [ $l_num, $l_end, \%fr ];
+ my %xrefs;
+ $lh->{$l_name} = [ $l_num, $l_end, \%xrefs ];
 }
 
+# store xref from function fname to literal lname
 sub add_lref {
  my($fobj, $lname, $fname) = @_;
  my $lh = $fobj->[3];
  return if ( !exists $lh->{$lname} );
- my $fx = $lh->{$lname}->[2];
- $fx->{$fname} = 1;
+ my $fx = $lh->{$lname}->[2]; # xrefs hashmap
+ $fx->{$fname}++;
 }
 
 sub dump_labels {
   my $fobj = shift;
-  my $lh = $fobj->[3];
+  my $lh = $fobj->[3]; # ref to LC hashmap
   while( my ($key, $value) = each %$lh) {
    my $rsize = scalar keys %{ $value->[2] };
    printf("%s: %d refs\n", $key, $rsize);
    # dump refs to this label
-   if ( $rsize )
-   {
+   if ( $rsize ) {
      foreach my $who ( keys %{ $value->[2] } ) {
        printf(" xref from %s\n", $who);
      }
@@ -158,26 +163,25 @@ sub dump_label {
  }
 }
 
-# mark label for deleting
+# mark label lname for deleting
 sub mark_label {
   my($fobj, $lname) = @_;
-  my $lh = $fobj->[3];
-  if ( !exists( $lh->{$lname} ) )
-  {
+  my $lh = $fobj->[3]; # ref to LC hashmap
+  if ( !exists( $lh->{$lname} ) ) {
     carp("no label $lname");
     return undef;
   }
   my $v = $lh->{$lname};
   for ( my $i = $v->[0]; $i < $v->[1]; $i++ )
   { $fobj->[2]->[$i]->[0] = 1; }
-  return $lh->{$lname};
+  return $v;
 }
 
 # each function is array where indexes
 # 0 - total xrefs to literal consts
 # 1 - size in bytes
 # 2 - array of refs
-# 3 - line number of addendum
+# 3 - ref to addendum
 sub add_func {
  my($fobj, $fname) = @_;
  my $fh = $fobj->[4];
@@ -191,12 +195,12 @@ sub add_func {
  return $r;
 }
 
-# scan function and return hash{name} -> size of uniq referred labels
+# scan function and return rh - hash{name} -> size of uniq referred labels
 sub get_uniq {
  my($f, $lh, $rh) = @_;
  return 0 if ( !$f->[0] ); # no refs in this function
  my $res = 0;
- my $xr = $f->[2];
+ my $xr = $f->[2]; # array of refs
  foreach my $iter ( @$xr )
  {
    next if ( !exists $lh->{$iter->[2]} );
@@ -204,7 +208,7 @@ sub get_uniq {
    my $lv = $lh->{$iter->[2]};
    my $rsize = scalar keys %{ $lv->[2] };
    next if ( $rsize != 1 );
-   # cool
+   # cool, store ref to literal in rh
    $res++;
    $rh->{ $iter->[2] } = $lv;
  }
@@ -216,7 +220,7 @@ sub get_uniq {
 sub move_label {
   my($fobj, $func, $label) = @_;
   my $lv = mark_label($fobj, $label);
-  my $xr = $func->[2];
+  my $xr = $func->[2]; # array of refs
   my $dec = 0;
   foreach my $iter ( @$xr ) {
     next if ( $iter->[2] ne $label );
@@ -227,7 +231,7 @@ sub move_label {
     $dec += 4;
   }
   # finally put $lv to addendum of this func
-  my $add = $fobj->[2]->[ $func->[3] ]->[3];
+  my $add = $func->[3];
   push @$add, $lv;
   return $dec;
 }
@@ -236,12 +240,11 @@ sub move_label {
 # return count of found offsets
 sub extract_offsets {
  my($func, $u_ref, $res) = @_;
- my $xr = $func->[2];
+ my $xr = $func->[2]; # array of refs
  my $rcount = 0;
  foreach my $iter ( @$xr ) {
    next if ( !exists $u_ref->{$iter->[2]} );
    next if ( exists $res->{$iter->[2]} );
-   # iter->[0] contains line number, for instructions in [1] it has pc
    $res->{$iter->[2]} = $iter->[3];
    $rcount++;
  }
@@ -262,17 +265,22 @@ sub dump_funcs {
  my $fobj = shift;
  my $fh = $fobj->[4];
  while( my ($key, $value) = each %$fh) {
+   next if ( !$value->[0] && !defined($opt_v) );
    printf("func %s has size %X bytes %d refs\n", $key, $value->[1], $value->[0]);
    next if ( !$value->[0] );
    my $xr = $value->[2];
-   foreach my $iter ( @$xr )
-   {
+   foreach my $iter ( @$xr ) {
      printf(" at line %d pc %X reg %s -> %s\n", $iter->[0], $iter->[3], $iter->[1], $iter->[2]);
    }
  }
 }
 
 # add xref inside function
+# xref is array where indexes are
+# 0 - line number so you can access string itself and pc
+# 1 - target reg
+# 2 - label name
+# 3 - pc
 sub put_xref {
  my($fdata, $fx_line, $fx_reg, $fx_name, $pc) = @_;
  my $ar = $fdata->[2];
@@ -287,8 +295,7 @@ sub dump_patch
   my $fname = $fobj->[1];
   $fname =~ s/\.s$/\.sp/ if ( !$rewrite );
   my($fh, $str);
-    if ( !open($fh, '>', $fname) )
-  {
+    if ( !open($fh, '>', $fname) ) {
     carp("cannot create $fname");
     return 0;
   }
@@ -379,10 +386,11 @@ sub read_s
         $state = $l_state = 0;
         if ( defined $fdata ) {
           $fdata->[1] = $pc * 4;   # fix function size
-          $fdata->[3] = $line - 1; # addendum
+          $fdata->[3] = put_end_instr($fobj, $str);
+          next;
         }
 # printf("%s pc %X\n", $func_name, $pc) if defined($opt_d);
-        put_end_instr($fobj, $str); next;
+        put_string($fobj, $str); next;
       }
       # skip labels
       if ( $str =~ /:$/ )
@@ -431,10 +439,10 @@ sub read_s
 # main workhorse
 sub apatch {
  my $fobj = shift;
- # iterate for all functions
  my $fh = $fobj->[4];
  my $lh = $fobj->[3];
  my $res = 0;
+ # iterate for all functions
  while( my ($key, $value) = each %$fh) {
    my %uniq;
    next if ( !get_uniq($value, $lh, \%uniq) );
@@ -444,25 +452,31 @@ sub apatch {
        printf(" %s\n", $rname);
      }
    }
-   # sort them by sizes, index 0 - name, 1 - size
-   my @as;
+   # extract size for each label, if can't - put labels name in no_size for deleting from uniq
+   my(@as, @no_size);
    while( my($name, $lv) = each %uniq ) {
      my $rsize = extract_len($fobj, $lv);
-     next if !defined $rsize;
-     push @as, [ $name, $rsize];
+     if ( !defined $rsize ) {
+       push @no_size, $name;
+       next;
+     }
+     push @as, [ $name, $rsize]; # index 0 - name, 1 - size
    }
-   my @sas = sort { $a->[1] <=> $b->[1] } @as;
+   # remove from uniq useless labels without size
+   foreach ( @no_size ) { delete $uniq{$_}; }
+   # sort labels by sizes
+   my @size_sorted = sort { $a->[1] <=> $b->[1] } @as;
    if ( defined($opt_v ) ) {
-     foreach my $rname ( @sas ) {
+     foreach my $rname ( @size_sorted ) {
        printf("%s size %d\n", $rname->[0], $rname->[1]);
      }
    }
-   # extract minumal offsets of correspoinding adr for label xrefs
+   # extract minimal offsets of corresponding adrp for label xrefs
    my %moffs;
    extract_offsets($value, \%uniq, \%moffs);
    my $curr_fsize = $value->[1];
    # patch by 1 - sadly O(N * M) where N is number of labels and M is number of xrefs in this function
-   foreach my $rname ( @sas ) {
+   foreach my $rname ( @size_sorted ) {
      # check that we can access this const literal
      next if ( ! exists $moffs{$rname->[0]} );
      my $diff = $curr_fsize - $moffs{$rname->[0]};
@@ -472,7 +486,7 @@ sub apatch {
      }
      $curr_fsize += $rname->[1];
      # bcs we eliminate 1 add instruction - whole size of function can be decreased
-     # probably this could do possible to return early rejected xrefs but it' too tedious to rescan
+     # probably this could make possible to return early rejected xrefs but it's too tedious to rescan
      $curr_fsize -= move_label($fobj, $value, $rname->[0]);
      $res++;
    }
