@@ -372,7 +372,7 @@ sub read_s
     if ( $str =~ /^\s*\.text/ )
     {
       $check_lc->();
-      $in_rs = $state = $0;
+      $in_rs = $state = 0;
       put_string($fobj, $str); next;
     }
     # .size
