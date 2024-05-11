@@ -3,6 +3,10 @@
 
 struct inj_params
 {
+  // asm stub - filled in main
+  const unsigned char *stub;
+  size_t stub_size;
+  // addresses for dtab
   char *mh = nullptr,
        *fh = nullptr,
        *mh_old = nullptr,

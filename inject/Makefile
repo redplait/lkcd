@@ -32,7 +32,7 @@ a64.out: a64.ainc a64_nobti.ainc $(SRCS)
 # test a64.pl and compare it's results with a64.out
 a64.patched: a64.ainc a64_nobti.ainc $(SRCS)
 	aarch64-linux-gnu-g++-9 -S -I $(ELFIO) -fpic $(SRCS)
-	perl ../scripts/a64.pl $(SRCS:.cc=.s)
+	perl ../scripts/a64.pl -g $(SRCS:.cc=.s)
 	aarch64-linux-gnu-as -o injparams.o injparams.s
 	aarch64-linux-gnu-as -o injparams2.o injparams2.s
 	aarch64-linux-gnu-as -o hd.o hd.s

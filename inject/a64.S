@@ -29,13 +29,13 @@ t1:
   so this is dirty hack to put bti c
 */
 //  bti c // bcs this is indirectly called function
-  .byte 0x5F, 0x24, 0x03, 0xD5
+  .byte 0x5F, 0x24, 0x03, 0xD5 // BTI marker
   adr x9, .dtab
   ldr x9, [x9, 8]
   b .cmn_thunk
 t2:
 //  bti c // bcs this is indirectly called function
-  .byte 0x5F, 0x24, 0x03, 0xD5
+  .byte 0x5F, 0x24, 0x03, 0xD5 // BTI marker
   ldr_l x9, fh_old
 .cmn_thunk:
   // store regs
