@@ -26,11 +26,11 @@ dis: test.so
 	objdump -d test.so -M intel --disassemble=inject
 
 # aarch64 related stuff
-a64.out: a64.inc $(SRCS)
+a64.out: a64.ainc a64_nobti.ainc $(SRCS)
 	aarch64-linux-gnu-g++-9 -I $(ELFIO) -fpic -o $@ $(SRCS) $(TLIBS)
 
-# to compare with a64.out
-a64.patched: a64.inc $(SRCS)
+# test a64.pl and compare it's results with a64.out
+a64.patched: a64.ainc a64_nobti.ainc $(SRCS)
 	aarch64-linux-gnu-g++-9 -S -I $(ELFIO) -fpic $(SRCS)
 	perl ../scripts/a64.pl $(SRCS:.cc=.s)
 	aarch64-linux-gnu-as -o injparams.o injparams.s
@@ -39,20 +39,16 @@ a64.patched: a64.inc $(SRCS)
 	aarch64-linux-gnu-as -o test.o test.s
 	aarch64-linux-gnu-g++-9 -o $@ $(SRCS:.cc=.o) $(TLIBS)
 
-a64.o: a64.S
-	aarch64-linux-gnu-as -o $@ $^
+a64_nobti.S: a64.S
+	grep -v "BTI marker" $^ > $@
 
-a64.bin: a64.o
-	aarch64-linux-gnu-ld -Ttext 200000 -o $@ $^
-
-a64: a64.bin
-	aarch64-linux-gnu-objcopy --dump-section .text=$@ $^
-
-a64.inc: a64
+# awful looking pattern match rule to make .ainc from aarch64 .S file
+%.ainc: %.S
+	aarch64-linux-gnu-as -o $@.o $^
+	aarch64-linux-gnu-ld -Ttext 200000 -o $@.bin $@.o
+	aarch64-linux-gnu-objcopy --dump-section .text=a64 $@.bin
 	perl ./bin.pl a64 > $@
-	-rm a64.o a64.bin
-
-
+	-rm $@.o $@.bin
 
 # loongarch related stuff
 l64.o: loongarch.S
