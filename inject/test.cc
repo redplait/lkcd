@@ -23,7 +23,7 @@ std::string inj_path;
 const unsigned char nobti[] = {
 #include "a64_nobti.ainc"
 };
-const size_t nobti_size = sizeof(nobti_size);
+const size_t nobti_size = sizeof(nobti);
 #endif
 
 const unsigned char payload[] = {
