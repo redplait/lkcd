@@ -175,6 +175,8 @@ sub mark_label {
     return undef;
   }
   my $v = $lh->{$lname};
+  # check if this label already was disabled - for example by some instruction above
+  return undef if ( $fobj->[2]->[ $v->[0] ]->[0] );
   for ( my $i = $v->[0]; $i < $v->[1]; $i++ )
   { $fobj->[2]->[$i]->[0] = 1; }
   return $v;
@@ -233,9 +235,11 @@ sub move_label {
     $fobj->[2]->[$iter->[0] + 1]->[0] = 1;
     $dec += 4;
   }
-  # finally put $lv to addendum of this func
-  my $add = $func->[3];
-  push @$add, $lv;
+  # finally put $lv to addendum of this func if need to
+  if ( defined $lv ) {
+    my $add = $func->[3];
+    push @$add, $lv;
+  }
   return $dec;
 }
 
@@ -381,7 +385,7 @@ sub read_s
       put_string($fobj, $str); next;
     }
     # .global
-    if ( defined($opt_g) && $str =~ /^\s*\.global\s+(\S+)$/ ) {
+    if ( defined($opt_g) && $str =~ /^\s*\.globa?l\s+(\S+)$/ ) {
       $gh->{$1}++;
       put_string($fobj, $str); next;
     }
@@ -416,7 +420,7 @@ sub read_s
       }
       next;
     }
-    if ( $str =~ /^\s*\.type\s+(\S+), \%function/ )
+    if ( $str =~ /^\s*\.type\s+(\S+), [\%@]function/ )
     {
       $in_rs = $pc = 0;
       $func_name = $1;
