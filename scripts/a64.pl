@@ -44,7 +44,7 @@ use warnings;
 use Carp;
 use Getopt::Std;
 
-use vars qw/$opt_D $opt_d $opt_f $opt_l $opt_v $opt_w/;
+use vars qw/$opt_D $opt_d $opt_f $opt_g $opt_l $opt_v $opt_w/;
 # main restriction on size of function
 my $g_limit = 2048;
 
@@ -56,6 +56,7 @@ Options:
  -D - hardcore debug
  -d - make debug dumps
  -f - dump functions
+ -g - try all non-global symbols
  -l - dump literals
  -v - verbose mode
  -w - don't rewrite original file
@@ -66,20 +67,22 @@ EOF
 # file.s read logic
 # object is just ref to array with indexes
 # 0 - fh
-# 1 - filename
+# 1 - filename, used in dump_patch
 # 2 - ref to array with file content
-# 3 - ref to hash with LC, key - label name
-# 4 - ref to functions hash, key - function name
+# 3 - ref to hash with LC, key - label name, value - see add_label
+# 4 - ref to functions hash, key - function name, value - see add_func
+# 5 - ref to hash of globals, key - name
+# 6 - ref to hash of symbols size, key - name, value - number
 sub make_fobj
 {
   my $fn = shift;
-  my($fh, @res, %l_c, %f_h);
+  my($fh, @res, %l_c, %f_h, %g_h, %s_h);
   if ( !open($fh, '<', $fn) )
   {
     carp("cannot open $fn");
     return undef;
   }
-  return [ $fh, $fn, \@res, \%l_c, \%f_h ];
+  return [ $fh, $fn, \@res, \%l_c, \%f_h, \%g_h, \%s_h ];
 }
 
 # fixme - there are probably others sections for literal constants
@@ -253,7 +256,11 @@ sub extract_offsets {
 
 # get length of const literal, very weak version - I just return length of whole "string"
 sub extract_len {
- my($fobj, $lv) = @_;
+ my($fobj, $lv, $lname) = @_;
+ my $sh = $fobj->[6];
+ # consult first in sizes map
+ return $sh->{$lname} if ( exists $sh->{$lname} );
+ # ok, iterate body of this label to find .string directive
  for ( my $i = $lv->[0]; $i < $lv->[1]; $i++ ) {
    my $str = $fobj->[2]->[$i]->[2];
    return length($1) if ( $str =~ /^\s+\.string\s+\"(.*)\"$/ );
@@ -317,42 +324,82 @@ sub dump_patch
   return 1;
 }
 
+sub rm_globals {
+ my $fobj = shift;
+ return if ( !defined $opt_g );
+ my $gh = $fobj->[5];
+ my $sh = $fobj->[6];
+ my $lh = $fobj->[3];
+ foreach ( keys %$gh ) {
+   delete $sh->{$_};
+   delete $lh->{$_};
+ }
+ # and finally cleanup $gh itself
+ $fobj->[5] = ();
+}
+
 # read whole .s file content and fill LC constants in fobj->[3]
 sub read_s
 {
   my $fobj = shift;
+  my $fh = $fobj->[0];
+  my $gh = $fobj->[5];
+  my $sh = $fobj->[6];
   my $res = 0;
   my($str, $func_name, $l_name, $l_num, $fdata);
   my $state = 0;
   my $in_rs = 0;
-  my $fh = $fobj->[0];
   my $line = 0;
   my $pc = 0;
   my $l_state = 0;
   # xref data
   my($fx_line, $fx_reg, $fx_name, $fx_pc);
+  # perl's way to make macro
+  my $check_lc = sub {
+   add_label($fobj, $l_name, $l_num, $line - 1) if ( $l_state == 2 );
+   $l_state = 0;
+  };
   while( $str = <$fh> )
   {
     chomp $str; $line++;
     if ( $str =~ /^\s*\.section\s+(\.?[\.\w]+)/ )
     {
-      $state = $l_state = 0;
+      $check_lc->();
+      $state = 0;
       $in_rs = is_rsection($1);
       put_string($fobj, $str); next;
     }
     if ( $str =~ /^\s*\.text/ )
     {
-      add_label($fobj, $l_name, $l_num, $line - 1) if ( $l_state == 2 );
-      $in_rs = $state = $l_state = 0;
+      $check_lc->();
+      $in_rs = $state = $0;
+      put_string($fobj, $str); next;
+    }
+    # .size
+    if ( $str =~ /^\s*\.size\s+(\S+)\s*,\s*(\d+)$/ ) {
+      $sh->{$1} = int($2);
+      put_string($fobj, $str); next;
+    }
+    # .global
+    if ( defined($opt_g) && $str =~ /^\s*\.global\s+(\S+)$/ ) {
+      $gh->{$1}++;
       put_string($fobj, $str); next;
     }
     # try to extract const literal
     if ( $in_rs )
     {
       put_string($fobj, $str);
+      # check if this is some label
+      if ( defined($opt_g) && $str =~ /^\s*(\S+):$/ ) {
+        $check_lc->();
+        $l_name = $1;
+        $l_state = 1;
+        $l_num = $line - 1;
+        next;
+      }
       if ( $str =~ /^\s*(\.LC\S+):/ )
       {
-        add_label($fobj, $l_name, $l_num, $line - 1) if ( $l_state == 2 );
+        $check_lc->();
         $l_name = $1;
         $l_state = 1;
         $l_num = $line - 1;
@@ -364,9 +411,8 @@ sub read_s
         if ( $l_state == 1 ) { $l_state = 2; }
         else { $l_state = 0; }
 # printf("string state %d line %d\n", $l_state, $line - 1) if defined($opt_D);
-      } elsif ( $l_state == 2 ) {
-        add_label($fobj, $l_name, $l_num, $line - 1);
-        $l_state = 0;
+      } else {
+        $check_lc->();
       }
       next;
     }
@@ -455,7 +501,7 @@ sub apatch {
    # extract size for each label, if can't - put labels name in no_size for deleting from uniq
    my(@as, @no_size);
    while( my($name, $lv) = each %uniq ) {
-     my $rsize = extract_len($fobj, $lv);
+     my $rsize = extract_len($fobj, $lv, $name);
      if ( !defined $rsize ) {
        push @no_size, $name;
        next;
@@ -495,7 +541,7 @@ sub apatch {
 }
 
 ### main
-my $status = getopts("Ddflvw");
+my $status = getopts("Ddfglvw");
 HELP_MESSAGE() if ( !$status );
 HELP_MESSAGE() if ( $#ARGV == -1 );
 # process all files
@@ -505,8 +551,16 @@ foreach my $fname ( @ARGV )
   my $fobj = make_fobj($fname);
   next if !defined($fobj);
   my $res = read_s($fobj);
+  rm_globals($fobj);
   printf("%d functions, %d xrefs\n", scalar keys %{ $fobj->[4] }, $res) if defined($opt_v);
-  dump_labels($fobj) if ( defined($opt_l) );
+  if ( defined($opt_l) ) {
+    dump_labels($fobj);
+    # dump size
+    my $sh = $fobj->[6];
+    while( my ($name, $sz) = each %$sh) {
+     printf(" %s size %d\n", $name, $sz);
+    }
+  }
   dump_funcs($fobj) if ( defined($opt_f) );
   dump_patch($fobj, 0) if ( defined($opt_D) );
   if ( $res )
