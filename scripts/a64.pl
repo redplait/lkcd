@@ -310,12 +310,14 @@ sub extract_len {
 sub dump_funcs {
  my $fobj = shift;
  my $fh = $fobj->[4];
+ my $gh = $fobj->[5];
  while( my ($key, $value) = each %$fh) {
    next if ( !$value->[0] && !defined($opt_v) );
    printf("func %s has size %X bytes %d refs\n", $key, $value->[1], $value->[0]);
    next if ( !$value->[0] );
    my $xr = $value->[2];
    foreach my $iter ( @$xr ) {
+     next if ( defined($opt_g) && exists $gh->{ $iter->[2] } );
      printf(" at line %d pc %X reg %s -> %s\n", $iter->[0], $iter->[3], $iter->[1], $iter->[2]);
    }
  }
@@ -373,8 +375,6 @@ sub rm_globals {
    delete $sh->{$_};
    delete $lh->{$_};
  }
- # and finally cleanup $gh itself
- $fobj->[5] = ();
 }
 
 # read whole .s file content and fill LC constants in fobj->[3]
@@ -612,7 +612,11 @@ foreach my $fname ( @ARGV )
   {
     my $rewrite = 1;
     $rewrite = 0 if ( defined $opt_w );
-    dump_patch($fobj, $rewrite) if apatch($fobj);
+    my $patched = apatch($fobj);
+    if ( $patched ) {
+      dump_patch($fobj, $rewrite);
+      printf("patched %d ops\n", $patched) if ( defined($opt_v) );
+    }
   }
 }
 # dump bad opcodes
