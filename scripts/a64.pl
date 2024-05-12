@@ -43,19 +43,23 @@
 # Addition from 12 may 2024
 # after playing a bit with gcc optimization settings (like -O2, -Os etc) I noticed 2 weird things:
 # 1) compiler can insert some instruction(s) between adrp and following add. It's pure madness to do
-#  liveness analysis for .S files, so best what we can do - just collect some stat about such cases
-#  and probably make dirty workaround for most frequently encountered instructions (and seems that
-#  absolute champion is mov)
+#  liveness analysis for .S files, so best we can do - just collect some statistics about such cases
+#  and probably make dirty workaround for most frequently encountered instructions (seems that we have
+#  absolute champion: mov)
 # 2) regs in adrp and add may differs, kinda
 #> adrp reg1, .LCXX
 #> add reg2, reg1, :lo12:.LCXX
-#  Here we should patch to adr reg2, .LCXX
+#  Here we could patch to adr reg2, .LCXX only if those two are adjacent, bcs else can happens something like
+#> adrp reg1, .LCXX
+#> mov reg2, reg3 or any other instruction(s) used reg3
+#> add ref3, reg1, :lo12:.LCXX
+# Since all these methods are extremely unreliable I add -m option for them
 use strict;
 use warnings;
 use Carp;
 use Getopt::Std;
 
-use vars qw/$opt_D $opt_d $opt_f $opt_g $opt_l $opt_v $opt_w/;
+use vars qw/$opt_D $opt_d $opt_f $opt_g $opt_l $opt_m $opt_v $opt_w/;
 # main restriction on size of function
 my $g_limit = 2048;
 
@@ -69,6 +73,7 @@ Options:
  -f - dump functions
  -g - try all non-global symbols
  -l - dump literals
+ -m - try to detect adrp/add pairs even with interleved movs, extremely dangerous
  -v - verbose mode
  -w - don't rewrite original file
 EOF
@@ -95,6 +100,16 @@ sub dump_bad_opcodes {
  {
    printf("bad %s: %d\n", $_->[0], $_->[1]);
  }
+}
+
+# check if we know that interbed opcode is safe and don't use dreg
+sub check_mov {
+ my($str, $dreg) = @_;
+ return 0 if ( $str !~ /^\s*mov\s+(.*)$/ );
+ foreach ( split(/[\s,]+/, $1) ) {
+   return 0 if ( $_ eq $dreg );
+ }
+ return 1;
 }
 
 # file.s read logic
@@ -167,9 +182,10 @@ sub add_label {
 sub add_lref {
  my($fobj, $lname, $fname) = @_;
  my $lh = $fobj->[3];
- return if ( !exists $lh->{$lname} );
+ return 0 if ( !exists $lh->{$lname} );
  my $fx = $lh->{$lname}->[2]; # xrefs hashmap
  $fx->{$fname}++;
+ 1;
 }
 
 sub dump_labels {
@@ -233,7 +249,7 @@ sub add_func {
  return $r;
 }
 
-# scan function and return rh - hash{name} -> size of uniq referred labels
+# scan function for uniq referred labels and return rh - hash{name} -> ref to label
 sub get_uniq {
  my($f, $lh, $rh) = @_;
  return 0 if ( !$f->[0] ); # no refs in this function
@@ -264,9 +280,9 @@ sub move_label {
   foreach my $iter ( @$xr ) {
     next if ( $iter->[2] ne $label );
     # patch adrp to adr
-    $fobj->[2]->[$iter->[0]]->[2] =~ s/adrp/adr/;
-    # disable next string
-    $fobj->[2]->[$iter->[0] + 1]->[0] = 1;
+    $fobj->[2]->[$iter->[0]]->[2] = sprintf("\tadr %s, %s", $iter->[1], $iter->[2]);
+    # disable string with add, line number $iter->[4]
+    $fobj->[2]->[$iter->[4]]->[0] = 1;
     $dec += 4;
   }
   # finally put $lv to addendum of this func if need to
@@ -302,7 +318,7 @@ sub extract_len {
  # ok, iterate body of this label to find .string directive
  for ( my $i = $lv->[0]; $i < $lv->[1]; $i++ ) {
    my $str = $fobj->[2]->[$i]->[2];
-   return length($1) if ( $str =~ /^\s+\.string\s+\"(.*)\"$/ );
+   return 1 + length($1) if ( $str =~ /^\s+\.string\s+\"(.*)\"$/ );
  }
  return undef;
 }
@@ -328,12 +344,13 @@ sub dump_funcs {
 # 0 - line number so you can access string itself and pc
 # 1 - target reg
 # 2 - label name
-# 3 - pc
+# 3 - pc - used in extract_offsets
+# 4 - line number of corresponding add
 sub put_xref {
- my($fdata, $fx_line, $fx_reg, $fx_name, $pc) = @_;
+ my($fdata, $fx_line, $fx_reg, $fx_name, $pc, $add_line) = @_;
  my $ar = $fdata->[2];
  $fdata->[0]++;
- push @$ar, [ $fx_line, $fx_reg, $fx_name, $pc ];
+ push @$ar, [ $fx_line, $fx_reg, $fx_name, $pc, $add_line ];
 };
 
 # common method for damping results, can be used for debug purposes too
@@ -350,6 +367,7 @@ sub dump_patch
   my $arr = $fobj->[2];
   foreach $str ( @{ $arr } )
   {
+    my $put_align = 0;
     next if ( $str->[0] );
     if ( -2 == $str->[1] ) { # dump addendum before .cfi_endproc
       my $ar = $str->[3];
@@ -357,8 +375,10 @@ sub dump_patch
         foreach my $ml ( @$ar ) {
           dump_label($fobj, $fh, $ml);
         }
+        $put_align = 1 if ( scalar @$ar );
       }
     }
+    printf($fh "\t.align 2\n") if ( $put_align );
     printf($fh "%s\n", $str->[2]);
   }
   close $fh;
@@ -503,6 +523,7 @@ sub read_s
           # check for add reg, reg, :lo12:label
           if ( $str !~ /^\s*add\s+(\w+),\s*(\w+),\s*:lo12:(\S+)$/ ) {
             add_bad_opcode($str);
+            $l_state = 1 if ( defined($opt_m) && check_mov($str, $fx_reg) );
             next;
           }
           my $dreg = $1;
@@ -510,7 +531,7 @@ sub read_s
           next if ( $dreg ne $fx_reg );
           next if ( $3 ne $fx_name );
 # printf("%s refs to %s\n", $func_name, $fx_name);
-          put_xref($fdata, $fx_line, $fx_reg, $fx_name, $fx_pc);
+          put_xref($fdata, $fx_line, $fx_reg, $fx_name, $fx_pc, $line - 1);
           $res++;
         }
       }
@@ -592,7 +613,7 @@ sub apatch {
 }
 
 ### main
-my $status = getopts("Ddfglvw");
+my $status = getopts("Ddfglmvw");
 HELP_MESSAGE() if ( !$status );
 HELP_MESSAGE() if ( $#ARGV == -1 );
 # process all files
