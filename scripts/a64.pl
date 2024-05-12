@@ -39,6 +39,17 @@
 #  * inc size of function for length of moved string + 1
 # Amen
 # 9 may 2024 (c) redplait
+#
+# Addition from 12 may 2024
+# after playing a bit with gcc optimization settings (like -O2, -Os etc) I noticed 2 weird things:
+# 1) compiler can insert some instruction(s) between adrp and following add. It's pure madness to do
+#  liveness analysis for .S files, so best what we can do - just collect some stat about such cases
+#  and probably make dirty workaround for most frequently encountered instructions (and seems that
+#  absolute champion is mov)
+# 2) regs in adrp and add may differs, kinda
+#> adrp reg1, .LCXX
+#> add reg2, reg1, :lo12:.LCXX
+#  Here we should patch to adr reg2, .LCXX
 use strict;
 use warnings;
 use Carp;
@@ -62,6 +73,28 @@ Options:
  -w - don't rewrite original file
 EOF
   exit(8);
+}
+
+# global stat for interbed opcodes
+my %g_inter;
+
+sub add_bad_opcode {
+ my $str = shift;
+ return if ( $str !~ /^\s*(\w+)\s/ );
+ $g_inter{$1}++;
+}
+
+sub dump_bad_opcodes {
+ my @tmp;
+ while( my ($key, $value) = each %g_inter) {
+   push @tmp, [ $key, $value ];
+ }
+ # sort tmp
+ my @sorted = sort { $b->[1] <=> $a->[1] } @tmp;
+ foreach ( @sorted )
+ {
+   printf("bad %s: %d\n", $_->[0], $_->[1]);
+ }
 }
 
 # file.s read logic
@@ -442,9 +475,9 @@ sub read_s
 # printf("%s pc %X\n", $func_name, $pc) if defined($opt_d);
         put_string($fobj, $str); next;
       }
-      # skip labels
+      # skip labels - reset l_state
       if ( $str =~ /:$/ )
-      { put_string($fobj, $str); next; }
+      { put_string($fobj, $str); $l_state = 0; next; }
       # skip any directives
       if ( $str =~ /^\s+\./ )
       { put_string($fobj, $str); next; }
@@ -466,7 +499,10 @@ sub read_s
         {
           $l_state = 0;
           # check for add reg, reg, :lo12:label
-          next if ( $str !~ /^\s*add\s+(\w+),\s*(\w+),\s*:lo12:(\S+)$/ );
+          if ( $str !~ /^\s*add\s+(\w+),\s*(\w+),\s*:lo12:(\S+)$/ ) {
+            add_bad_opcode($str);
+            next;
+          }
           my $dreg = $1;
           next if ( $dreg ne $2 );
           next if ( $dreg ne $fx_reg );
@@ -515,7 +551,7 @@ sub apatch {
    # remove from uniq useless labels without size
    foreach ( @no_size ) { delete $uniq{$_}; }
    # sort labels by sizes
-   my @size_sorted = sort { $a->[1] <=> $b->[1] } @as;
+   my @size_sorted =  @as;
    if ( defined($opt_v ) ) {
      foreach my $rname ( @size_sorted ) {
        printf("%s size %d\n", $rname->[0], $rname->[1]);
@@ -574,3 +610,5 @@ foreach my $fname ( @ARGV )
     dump_patch($fobj, $rewrite) if apatch($fobj);
   }
 }
+# dump bad opcodes
+dump_bad_opcodes() if ( defined($opt_v) );
