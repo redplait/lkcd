@@ -567,9 +567,10 @@ sub apatch {
    foreach my $rname ( @size_sorted ) {
      # check that we can access this const literal
      next if ( ! exists $moffs{$rname->[0]} );
-     my $diff = $curr_fsize - $moffs{$rname->[0]};
+     my $curr_moff = $moffs{$rname->[0]};
+     my $diff = $curr_fsize - $curr_moff;
      if ( $diff > $g_limit ) {
-       printf("skip %s bcs diff %X is too high, curr_size %X, off %X\n", $rname->[0], $diff, $curr_fsize, $moffs{$rname->[0]});
+       printf("skip %s bcs diff %X is too high, curr_size %X, off %X\n", $rname->[0], $diff, $curr_fsize, $curr_moff);
        next;
      }
      # bcs we eliminate 1 add instruction - whole size of function can be decreased
@@ -579,6 +580,11 @@ sub apatch {
      if ( $dec ) {
        $curr_fsize -= $dec;
        $res++;
+       # Optimization: fix moffs located below currently processed - dec their offsets by $dec
+       while ( my($mname, $moff) = each %moffs ) {
+         next if ( $moff <= $curr_moff );
+         $moffs{$mname} -= $dec;
+       }
      }
    }
  }
