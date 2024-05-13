@@ -54,12 +54,17 @@
 #> mov reg2, reg3 or any other instruction(s) used reg3
 #> add ref3, reg1, :lo12:.LCXX
 # Since all these methods are extremely unreliable I add -m option for them
+#
+# also bcs now all moved string don't merging by ld they have duplicates (and increase overall size of binary)
+# to mitigate this I add couple options for filtering functions to patch:
+# -F filename with functions names
+# -s - section name (for example in lkm .init.text etc)
 use strict;
 use warnings;
 use Carp;
 use Getopt::Std;
 
-use vars qw/$opt_D $opt_d $opt_f $opt_g $opt_l $opt_m $opt_v $opt_w/;
+use vars qw/$opt_D $opt_F $opt_d $opt_f $opt_g $opt_l $opt_m $opt_v $opt_w/;
 # main restriction on size of function
 my $g_limit = 2048;
 
@@ -79,6 +84,30 @@ Options:
 EOF
   exit(8);
 }
+
+# functions filter
+my %g_funcfilter;
+
+sub read_F {
+ my $fh;
+ if ( !open($fh, '<', $opt_F) ) {
+    carp("cannot open file with functions $opt_F");
+    return 0;
+  }
+  my $str;
+  while( $str = <$fh> ) {
+    chomp $str;
+    $g_funcfilter{ $str }++;
+  }
+  close $fh;
+  1;
+}
+
+sub allowed_func {
+ my $fname = shift;
+ return 1 if ( !defined $opt_F );
+ return exists $g_funcfilter{$fname};
+};
 
 # global stat for interbed opcodes
 my %g_inter;
@@ -244,6 +273,7 @@ sub add_func {
    carp("duplicated function $fname");
    return undef;
  }
+ return undef if ( !allowed_func($fname) );
  my $r = [ 0, 0, [], undef ];
  $fh->{$fname} = $r;
  return $r;
@@ -526,10 +556,15 @@ sub read_s
             $l_state = 1 if ( defined($opt_m) && check_mov($str, $fx_reg) );
             next;
           }
+          next if ( $fx_reg ne $2 );  # second reg in add must be the same as first in adrp
+          next if ( $3 ne $fx_name ); # symbol must be the same
           my $dreg = $1;
-          next if ( $dreg ne $2 );
-          next if ( $dreg ne $fx_reg );
-          next if ( $3 ne $fx_name );
+          if ( $dreg ne $fx_reg )     # if add happens to other register
+          {
+            next if ( !defined $opt_m );
+            next if ( $line - 2 != $fx_line ); # check that adrp & add are adjacent
+            $fx_reg = $dreg;
+          }
 # printf("%s refs to %s\n", $func_name, $fx_name);
           put_xref($fdata, $fx_line, $fx_reg, $fx_name, $fx_pc, $line - 1);
           $res++;
@@ -613,9 +648,10 @@ sub apatch {
 }
 
 ### main
-my $status = getopts("Ddfglmvw");
+my $status = getopts("DdfglmvwF:");
 HELP_MESSAGE() if ( !$status );
 HELP_MESSAGE() if ( $#ARGV == -1 );
+exit(2) if ( defined($opt_F) && !read_F() );
 # process all files
 foreach my $fname ( @ARGV )
 {
