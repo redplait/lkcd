@@ -3,6 +3,7 @@ ELFIO=../../ELFIO
 SRCS=injparams.cc injparams2.cc hd.cc test.cc
 TLIBS=-lstdc++ -ldl
 GOPT=-g -gdwarf-4
+A64FLAGS=-I $(ELFIO) -Os -fpic
 
 all: a.out test.so
 
@@ -27,12 +28,12 @@ dis: test.so
 
 # aarch64 related stuff
 a64.out: a64.ainc a64_nobti.ainc $(SRCS)
-	aarch64-linux-gnu-g++-9 -I $(ELFIO) -fpic -o $@ $(SRCS) $(TLIBS)
+	aarch64-linux-gnu-g++-9 $(A64FLAGS) -o $@ $(SRCS) $(TLIBS)
 
 # test a64.pl and compare it's results with a64.out
 a64.patched: a64.ainc a64_nobti.ainc $(SRCS)
-	aarch64-linux-gnu-g++-9 -S -I $(ELFIO) -fpic $(SRCS)
-	perl ../scripts/a64.pl -g $(SRCS:.cc=.s)
+	aarch64-linux-gnu-g++-9 -S $(A64FLAGS) $(SRCS)
+	perl ../scripts/a64.pl -mg -F alist $(SRCS:.cc=.s)
 	aarch64-linux-gnu-as -o injparams.o injparams.s
 	aarch64-linux-gnu-as -o injparams2.o injparams2.s
 	aarch64-linux-gnu-as -o hd.o hd.s
