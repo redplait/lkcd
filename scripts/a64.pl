@@ -64,8 +64,8 @@ use warnings;
 use Carp;
 use Getopt::Std;
 
-use vars qw/$opt_D $opt_F $opt_d $opt_f $opt_g $opt_l $opt_m $opt_v $opt_w/;
-# main restriction on size of function
+use vars qw/$opt_D $opt_F $opt_d $opt_f $opt_g $opt_l $opt_m $opt_s $opt_v $opt_w/;
+# restriction on offset
 my $g_limit = 2048;
 
 sub HELP_MESSAGE()
@@ -75,10 +75,12 @@ Usage: $0 [options] file1.S ...
 Options:
  -D - hardcore debug
  -d - make debug dumps
+ -F file with list of functions to process
  -f - dump functions
  -g - try all non-global symbols
  -l - dump literals
  -m - try to detect adrp/add pairs even with interleved movs, extremely dangerous
+ -s section name
  -v - verbose mode
  -w - don't rewrite original file
 EOF
@@ -260,20 +262,28 @@ sub mark_label {
   return $v;
 }
 
+sub allowed_section {
+  my $sname = shift;
+  return 1 if ( !defined($opt_s) );
+  return 0 if ( !defined($sname) );
+  return $sname eq $opt_s;
+};
+
 # each function is array where indexes
 # 0 - total xrefs to literal consts
 # 1 - size in bytes
 # 2 - array of refs
 # 3 - ref to addendum
 sub add_func {
- my($fobj, $fname) = @_;
+ my($fobj, $fname, $sname) = @_;
  my $fh = $fobj->[4];
  if ( exists $fh->{$fname} )
  {
    carp("duplicated function $fname");
    return undef;
  }
- return undef if ( !allowed_func($fname) );
+ my $allowed = allowed_section($sname) && allowed_func($fname);
+ return undef if ( !$allowed );
  my $r = [ 0, 0, [], undef ];
  $fh->{$fname} = $r;
  return $r;
@@ -435,7 +445,7 @@ sub read_s
   my $gh = $fobj->[5];
   my $sh = $fobj->[6];
   my $res = 0;
-  my($str, $func_name, $l_name, $l_num, $fdata);
+  my($str, $func_name, $section, $l_name, $l_num, $fdata);
   my $state = 0;
   my $in_rs = 0;
   my $line = 0;
@@ -455,13 +465,16 @@ sub read_s
     {
       $check_lc->();
       $state = 0;
-      $in_rs = is_rsection($1);
+      $section = $1;
+# printf("section %s\n", $section);
+      $in_rs = is_rsection($section);
       put_string($fobj, $str); next;
     }
     if ( $str =~ /^\s*\.text/ )
     {
       $check_lc->();
       $in_rs = $state = 0;
+      $section = ".text";
       put_string($fobj, $str); next;
     }
     # .size
@@ -510,7 +523,7 @@ sub read_s
       $in_rs = $pc = 0;
       $func_name = $1;
       $state = 1;
-      $fdata = add_func($fobj, $func_name);
+      $fdata = add_func($fobj, $func_name, $section);
       put_string($fobj, $str); next;
     }
     # if we alreay inside function ?
@@ -648,7 +661,7 @@ sub apatch {
 }
 
 ### main
-my $status = getopts("DdfglmvwF:");
+my $status = getopts("DdfglmvwF:s:");
 HELP_MESSAGE() if ( !$status );
 HELP_MESSAGE() if ( $#ARGV == -1 );
 exit(2) if ( defined($opt_F) && !read_F() );
