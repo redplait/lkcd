@@ -18,7 +18,7 @@ double senseless_calc(int _i)
   return res + 0.1415;
 }
 
-double __attribute__ ((section (".init,text"))) fake_init(int i)
+double __attribute__ ((section (".init.text"))) fake_init(int i)
 {
   printf("fake_init called, arg %d\n", i);
   return senseless_calc(i);
