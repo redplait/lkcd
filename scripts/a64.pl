@@ -64,7 +64,7 @@ use warnings;
 use Carp;
 use Getopt::Std;
 
-use vars qw/$opt_D $opt_F $opt_d $opt_f $opt_g $opt_l $opt_m $opt_s $opt_v $opt_w/;
+use vars qw/$opt_D $opt_F $opt_d $opt_f $opt_g $opt_i $opt_l $opt_m $opt_s $opt_v $opt_w/;
 # restriction on offset
 my $g_limit = 2048;
 
@@ -78,6 +78,7 @@ Options:
  -F file with list of functions to process
  -f - dump functions
  -g - try all non-global symbols
+ -i - x86_64 arch
  -l - dump literals
  -m - try to detect adrp/add pairs even with interleved movs, extremely dangerous
  -s section name
@@ -213,6 +214,7 @@ sub add_label {
 sub add_lref {
  my($fobj, $lname, $fname) = @_;
  my $lh = $fobj->[3];
+# printf("add_lref %s %d\n", $lname, exists $lh->{$lname});
  return 0 if ( !exists $lh->{$lname} );
  my $fx = $lh->{$lname}->[2]; # xrefs hashmap
  $fx->{$fname}++;
@@ -319,11 +321,16 @@ sub move_label {
   my $moved = 0;
   foreach my $iter ( @$xr ) {
     next if ( $iter->[2] ne $label );
-    # patch adrp to adr
-    $fobj->[2]->[$iter->[0]]->[2] = sprintf("\tadr %s, %s", $iter->[1], $iter->[2]);
-    # disable string with add, line number $iter->[4]
-    $fobj->[2]->[$iter->[4]]->[0] = 1;
-    $dec += 4;
+    if ( defined $opt_i ) { # don't patch leaq - it's already in right format
+      # $fobj->[2]->[$iter->[0]]->[2] = sprintf("\tleaq %s(%%rip), %s", $iter->[2], $iter->[1]);
+      $dec += 1;
+    } else { # aarch64 patch
+      # patch adrp to adr
+      $fobj->[2]->[$iter->[0]]->[2] = sprintf("\tadr %s, %s", $iter->[1], $iter->[2]);
+      # disable string with add, line number $iter->[4]
+      $fobj->[2]->[$iter->[4]]->[0] = 1;
+      $dec += 4;
+    }
   }
   # finally put $lv to addendum of this func if need to
   if ( defined $lv ) {
@@ -549,6 +556,18 @@ sub read_s
       # yep, this is some instruction
       put_instr($fobj, $str, $pc); $pc += 4;
       if ( defined $fdata ) {
+        if ( defined $opt_i ) { # for x86_64 scan leaq LC(%rip), %dest_reg
+          if ( $str =~ /^\s*leaq\s+(\S+)\(\%rip\),\s*(\S+)$/ )
+          {
+            $fx_line = $line - 1;
+            $fx_reg = $2;
+            $fx_name = $1;
+            add_lref($fobj, $fx_name, $func_name);
+            put_xref($fdata, $fx_line, $fx_reg, $fx_name, $pc - 4, $fx_line) if ( $fdata->[4] );
+            $res++;
+          }
+          next;
+        }
         # check for adrp reg, label
         if ( $str =~ /^\s*adrp\s+(\w+),\s*(\S+)$/ )
         {
@@ -638,14 +657,17 @@ sub apatch {
      # check that we can access this const literal
      next if ( ! exists $moffs{$rname->[0]} );
      my $curr_moff = $moffs{$rname->[0]};
-     my $diff = $curr_fsize - $curr_moff;
-     if ( $diff > $g_limit ) {
-       printf("skip %s bcs diff %X is too high, curr_size %X, off %X\n", $rname->[0], $diff, $curr_fsize, $curr_moff);
-       next;
+     if ( !defined($opt_i) ) {
+       my $diff = $curr_fsize - $curr_moff;
+       if ( $diff > $g_limit ) {
+         printf("skip %s bcs diff %X is too high, curr_size %X, off %X\n", $rname->[0], $diff, $curr_fsize, $curr_moff);
+         next;
+       }
      }
      # bcs we eliminate 1 add instruction - whole size of function can be decreased
      # probably this could make possible to return early rejected xrefs but it's too tedious to rescan
      my($dec, $moved) = move_label($fobj, $value, $rname->[0]);
+# printf("dec %d moved %d\n", $dec, $moved);
      $curr_fsize += $rname->[1] if ( $moved );
      if ( $dec ) {
        $curr_fsize -= $dec;
@@ -662,7 +684,7 @@ sub apatch {
 }
 
 ### main
-my $status = getopts("DdfglmvwF:s:");
+my $status = getopts("DdfgilmvwF:s:");
 HELP_MESSAGE() if ( !$status );
 HELP_MESSAGE() if ( $#ARGV == -1 );
 exit(2) if ( defined($opt_F) && !read_F() );
