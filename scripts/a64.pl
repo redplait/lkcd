@@ -274,6 +274,7 @@ sub allowed_section {
 # 1 - size in bytes
 # 2 - array of refs
 # 3 - ref to addendum
+# 4 - filter flag, 1 if need to process
 sub add_func {
  my($fobj, $fname, $sname) = @_;
  my $fh = $fobj->[4];
@@ -283,8 +284,7 @@ sub add_func {
    return undef;
  }
  my $allowed = allowed_section($sname) && allowed_func($fname);
- return undef if ( !$allowed );
- my $r = [ 0, 0, [], undef ];
+ my $r = [ 0, 0, [], undef, $allowed ];
  $fh->{$fname} = $r;
  return $r;
 }
@@ -579,7 +579,7 @@ sub read_s
             $fx_reg = $dreg;
           }
 # printf("%s refs to %s\n", $func_name, $fx_name);
-          put_xref($fdata, $fx_line, $fx_reg, $fx_name, $fx_pc, $line - 1);
+          put_xref($fdata, $fx_line, $fx_reg, $fx_name, $fx_pc, $line - 1) if ( $fdata->[4] );
           $res++;
         }
       }
@@ -601,6 +601,7 @@ sub apatch {
  my $res = 0;
  # iterate for all functions
  while( my ($key, $value) = each %$fh) {
+   next if ( !$value->[4] ); # skip filtered functions
    my %uniq;
    next if ( !get_uniq($value, $lh, \%uniq) );
    if ( defined($opt_v) ) {
