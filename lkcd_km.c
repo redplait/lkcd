@@ -87,6 +87,7 @@
 #endif
 #include <linux/bpf.h>
 #include <linux/filter.h>
+#include <linux/input.h>
 #include <linux/timer.h>
 #include <linux/workqueue.h>
 #include <linux/alarmtimer.h>
@@ -141,6 +142,11 @@ static spinlock_t *s_key_serial_lock = 0;
 static struct ftrace_ops *s_ftrace_end = 0;
 static void *delayed_timer = 0;
 static struct alarm_base *s_alarm = 0;
+
+#ifdef CONFIG_INPUT
+static struct list_head *s_input_handler_list = 0;
+static struct mutex *s_input_mutex = 0;
+#endif
 
 typedef int (*my_mprotect_pkey)(unsigned long start, size_t len, unsigned long prot, int pkey);
 static my_mprotect_pkey s_mprotect = 0;
@@ -5572,12 +5578,55 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
         }
       }
       break; /* IOCTL_GET_LSM_HOOKS */
-#endif
+#endif // lsm hooks where introduced since 4.2
+
+#ifdef CONFIG_INPUT
+    case IOCTL_INPUT_HANDLERS:
+       if ( !s_input_handler_list || !s_input_mutex ) return -ENOCSI;
+       COPY_ARG
+       if ( !ptrbuf[0] )
+       {
+         struct input_handler *handler;
+         // calc count
+         mutex_lock(s_input_mutex);
+         list_for_each_entry(handler, s_input_handler_list, node) count++;
+         mutex_unlock(s_input_mutex);
+         goto copy_count;
+       } else {
+         struct input_handler *handler;
+         struct one_input_handler *curr;
+         kbuf_size = sizeof(unsigned long) + ptrbuf[0] * sizeof(struct one_input_handler);
+          kbuf = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL | __GFP_ZERO);
+          if ( !kbuf )
+            return -ENOMEM;
+          curr = (struct one_input_handler *)(kbuf + 1);
+          // lock
+          mutex_lock(s_input_mutex);
+          // iterate
+          list_for_each_entry(handler, s_input_handler_list, node) {
+            if ( count >= ptrbuf[0] ) break;
+            curr->addr = handler;
+            curr->event = (void *)handler->event;
+            curr->events = (void *)handler->events;
+            curr->filter = (void *)handler->filter;
+            curr->match = (void *)handler->match;
+            curr->connect = (void *)handler->connect;
+            curr->disconnect = (void *)handler->disconnect;
+            curr->start = (void *)handler->start;
+            // for next iteration
+            curr++; count++;
+          }
+          // unlock
+          mutex_unlock(s_input_mutex);
+          kbuf_size = sizeof(unsigned long) + count * sizeof(struct one_input_handler);
+          goto copy_kbuf_count;
+       } 
+      break; /* IOCTL_INPUT_HANDLERS */
+#endif /* CONFIG_INPUT */
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(4,14,0)
     case IOCTL_GET_ALARMS:
-      if ( !s_alarm )
-        return -ENOCSI;
+      if ( !s_alarm ) return -ENOCSI;
       COPY_ARGS(2)
       if ( ptrbuf[0] >= ALARM_NUMTYPE )
         return -EINVAL;
@@ -6265,6 +6314,12 @@ init_module (void)
       fsnotify_next_mark_ptr = my_fsnotify_next_mark;
   }
 #endif /* CONFIG_FSNOTIFY */
+#ifdef CONFIG_INPUT
+  s_input_handler_list = (struct list_head *)lkcd_lookup_name("input_handler_list");
+  REPORT(s_input_handler_list, "input_handler_list");
+  s_input_mutex = (struct mutex *)lkcd_lookup_name("input_mutex");
+  REPORT(s_input_mutex, "input_mutex");
+#endif /* CONFIG_INPUT */
 #ifdef CONFIG_KPROBES
   kprobe_aggr = (unsigned long)lkcd_lookup_name("aggr_pre_handler");
 #endif

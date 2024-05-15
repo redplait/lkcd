@@ -1528,4 +1528,16 @@ struct one_slab
 //  2 - injected stub address (if state was 2)
 #define IOCTL_INJECT                        _IOR(IOCTL_NUM, 0x68, int*)
 
+struct one_input_handler
+{
+  void *addr;
+  void *event, *events, *filter, *match, *connect, *disconnect, *start;
+};
+
+// enum input handlers
+// in params - size
+// out params
+//  N + N * one_input_handler
+#define IOCTL_INPUT_HANDLERS                _IOR(IOCTL_NUM, 0x69, int*)
+
 #endif /* LKCD_SHARED_H */
