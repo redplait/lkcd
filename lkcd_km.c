@@ -409,6 +409,11 @@ static inline int is_dbgfs(const struct file_operations *in)
 // css_next_child is not exported so css_for_each_child not compiling. as usually
 typedef struct cgroup_subsys_state *(*kcss_next_child)(struct cgroup_subsys_state *pos, struct cgroup_subsys_state *parent);
 static kcss_next_child css_next_child_ptr = 0;
+#ifdef CONFIG_BPF
+// bpf_prog_put was not exported till 4.1
+typedef void (*my_bpf_prog_put)(struct bpf_prog *prog);
+my_bpf_prog_put s_bpf_prog_put = 0;
+#endif
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(4,15,0)
 typedef int (*kcgroup_bpf_detach)(struct cgroup *cgrp, struct bpf_prog *prog, enum bpf_attach_type type);
 static kcgroup_bpf_detach cgroup_bpf_detach_ptr = 0;
@@ -649,6 +654,7 @@ struct super_inodes_args
 };
 
 #if LINUX_VERSION_CODE < KERNEL_VERSION(4,2,0)
+// used in fill_super_block_inodes & fill_super_blocks
 static spinlock_t *s_inode_sb_list_lock = 0;
 #endif
 
@@ -1850,6 +1856,8 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
         }
         // yes, this is real inject request
         if ( !task ) err = -ESRCH;
+        // check that tab offset + content lesser length 
+        else if ( ptrbuf[3] + s_dtab_size >= ptrbuf[2] ) err = -EINVAL;
         else {
           // alloc and copy
           kbuf = kmalloc(ptrbuf[1], GFP_KERNEL);
@@ -2562,8 +2570,10 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
 #endif /* CONFIG_FSNOTIFY */
 
      case IOCTL_GET_SUPERBLOCK_INODES:
-       if ( !iterate_supers_ptr )
-         return -ENOCSI;
+       if ( !iterate_supers_ptr ) return -ENOCSI;
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4,2,0)
+       if ( !s_inode_sb_list_lock ) return -ENOCSI;
+#endif
        COPY_ARGS(2)
        // check size
        if ( !ptrbuf[1] )
@@ -2632,8 +2642,10 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
       break; /* IOCTL_GET_SUPERBLOCK_MOUNTS */
 
      case IOCTL_GET_SUPERBLOCKS:
-       if ( !iterate_supers_ptr )
-         return -EFAULT;
+       if ( !iterate_supers_ptr ) return -EFAULT;
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4,2,0)
+       if ( !s_inode_sb_list_lock ) return -ENOCSI;
+#endif
        COPY_ARG 
        if ( !ptrbuf[0] )
        {
@@ -4746,6 +4758,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
     case IOCTL_GET_BPF_OPCODES:
     case IOCTL_GET_BPF_PROG_BODY:
        COPY_ARGS(4)
+       if ( !s_bpf_prog_put ) return -ENOCSI;
        else if ( !ptrbuf[3] )
          return -EINVAL;
        else {
@@ -4782,10 +4795,10 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
          // copy to user
          if (copy_to_user((void*)ioctl_param, (void*)body, ptrbuf[3]) > 0)
          {
-           bpf_prog_put(prog);
+           s_bpf_prog_put(prog);
            return -EFAULT;
          }
-         bpf_prog_put(prog);
+         s_bpf_prog_put(prog);
        }
      break; /* IOCTL_GET_BPF_PROG_BODY */
 
@@ -6222,6 +6235,9 @@ init_module (void)
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(4,15,0)  
   SYM_LOAD("bpf_prog_array_length", und_bpf_prog_array_length, bpf_prog_array_length_ptr)
   SYM_LOAD("cgroup_bpf_detach", kcgroup_bpf_detach, cgroup_bpf_detach_ptr)
+#endif
+#ifdef CONFIG_BPF
+  SYM_LOAD("bpf_prog_put", my_bpf_prog_put, s_bpf_prog_put)
 #endif
   css_next_child_ptr = (kcss_next_child)lkcd_lookup_name("css_next_child");
   REPORT(css_next_child_ptr, "css_next_child")
