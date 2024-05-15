@@ -1549,6 +1549,7 @@ struct one_input_dev
   void *close;
   void *flush;
   void *event;
+  unsigned long l_name, l_phys, l_uniq;
   void *ff; // next 6 methods from ff_device
   void *ff_upload, *ff_erase, *ff_playback, *ff_set_gain, *ff_set_autocenter, *ff_destroy;
 };
@@ -1558,5 +1559,14 @@ struct one_input_dev
 // out params
 //  N + N * one_input_dev
 #define IOCTL_INPUT_DEVS                    _IOR(IOCTL_NUM, 0x6A, int*)
+
+// get name of input dev
+// in params:
+//  0 - add of input dev
+//  1 - length of buffer
+//  2 - 0 for name, 1 for phys, 2 for uniq
+// out params:
+// just string
+#define IOCTL_INPUT_DEV_NAME                _IOR(IOCTL_NUM, 0x6B, int*)
 
 #endif /* LKCD_SHARED_H */

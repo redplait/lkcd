@@ -5582,6 +5582,45 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
 #endif // lsm hooks where introduced since 4.2
 
 #ifdef CONFIG_INPUT
+    case IOCTL_INPUT_DEV_NAME:
+      if ( !s_input_dev_list || !s_input_mutex ) return -ENOCSI;
+       COPY_ARGS(3)
+       if ( !ptrbuf[0] || !ptrbuf[1] || ptrbuf[2] > 2 ) return -EINVAL;
+       else {
+        int found = 0;
+        struct input_dev *dev;
+        const char *sbuf = NULL;
+        kbuf = kmalloc(ptrbuf[1], GFP_KERNEL);
+        if ( !kbuf ) return -ENOMEM;
+        // lock
+        mutex_lock(s_input_mutex);
+        list_for_each_entry(dev, s_input_dev_list, node)
+        {
+          if ( ptrbuf[0] != (unsigned long)dev ) continue;
+          found = 1;
+          switch(ptrbuf[2])
+          {
+            case 0: sbuf = dev->name; break;
+            case 1: sbuf = dev->phys; break;
+            case 2: sbuf = dev->uniq; break;
+          }
+          if ( sbuf )
+          {
+            kbuf_size = 1 + strlen(sbuf);
+            if ( kbuf_size > ptrbuf[1] ) kbuf_size = ptrbuf[1];
+            strlcpy((char *)kbuf, sbuf, kbuf_size);
+            kbuf[ptrbuf[1] - 1] = 0;
+          }
+          break;
+        }
+        // unlock
+        mutex_unlock(s_input_mutex);
+        if ( !found ) return -ENOENT;
+        if ( !kbuf_size ) return -ENOTNAM;
+        goto copy_kbuf;
+       }
+     break; /* IOCTL_INPUT_DEV_NAME */
+
     case IOCTL_INPUT_DEVS:
       if ( !s_input_dev_list || !s_input_mutex ) return -ENOCSI;
        COPY_ARG
@@ -5608,6 +5647,9 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
           {
             if ( count >= ptrbuf[0] ) break;
             curr->addr = dev;
+            if ( dev->name ) curr->l_name = 1 + strlen(dev->name);
+            if ( dev->phys ) curr->l_phys = 1 + strlen(dev->phys);
+            if ( dev->uniq ) curr->l_uniq = 1 + strlen(dev->uniq);
             curr->setkeycode = (void *)dev->setkeycode;
             curr->getkeycode = (void *)dev->getkeycode;
             curr->open = (void *)dev->open;
