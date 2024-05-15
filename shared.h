@@ -1540,4 +1540,23 @@ struct one_input_handler
 //  N + N * one_input_handler
 #define IOCTL_INPUT_HANDLERS                _IOR(IOCTL_NUM, 0x69, int*)
 
+struct one_input_dev
+{
+  void *addr;
+  void *setkeycode;
+  void *getkeycode;
+  void *open;
+  void *close;
+  void *flush;
+  void *event;
+  void *ff; // next 6 methods from ff_device
+  void *ff_upload, *ff_erase, *ff_playback, *ff_set_gain, *ff_set_autocenter, *ff_destroy;
+};
+
+// enum input devs
+// in params - size
+// out params
+//  N + N * one_input_dev
+#define IOCTL_INPUT_DEVS                    _IOR(IOCTL_NUM, 0x6A, int*)
+
 #endif /* LKCD_SHARED_H */

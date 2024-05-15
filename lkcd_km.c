@@ -145,6 +145,7 @@ static struct alarm_base *s_alarm = 0;
 
 #ifdef CONFIG_INPUT
 static struct list_head *s_input_handler_list = 0;
+static struct list_head *s_input_dev_list = 0;
 static struct mutex *s_input_mutex = 0;
 #endif
 
@@ -5581,6 +5582,57 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
 #endif // lsm hooks where introduced since 4.2
 
 #ifdef CONFIG_INPUT
+    case IOCTL_INPUT_DEVS:
+      if ( !s_input_dev_list || !s_input_mutex ) return -ENOCSI;
+       COPY_ARG
+       if ( !ptrbuf[0] )
+       {
+         struct input_dev *dev;
+         // calc count
+         mutex_lock(s_input_mutex);
+         list_for_each_entry(dev, s_input_dev_list, node) count++;
+         mutex_unlock(s_input_mutex);
+         goto copy_count;
+       } else {
+         struct input_dev *dev;
+         struct one_input_dev *curr;
+         kbuf_size = sizeof(unsigned long) + ptrbuf[0] * sizeof(struct one_input_dev);
+          kbuf = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL | __GFP_ZERO);
+          if ( !kbuf )
+            return -ENOMEM;
+          curr = (struct one_input_dev *)(kbuf + 1);
+          // lock
+          mutex_lock(s_input_mutex);
+          // iterate
+          list_for_each_entry(dev, s_input_dev_list, node)
+          {
+            if ( count >= ptrbuf[0] ) break;
+            curr->addr = dev;
+            curr->setkeycode = (void *)dev->setkeycode;
+            curr->getkeycode = (void *)dev->getkeycode;
+            curr->open = (void *)dev->open;
+            curr->close = (void *)dev->close;
+            curr->flush = (void *)dev->flush;
+            curr->event = (void *)dev->event;
+            curr->ff = dev->ff;
+            if ( dev->ff ) {
+              curr->ff_upload = (void *)dev->ff->upload;
+              curr->ff_erase = (void *)dev->ff->erase;
+              curr->ff_playback = (void *)dev->ff->playback;
+              curr->ff_set_gain = (void *)dev->ff->set_gain;
+              curr->ff_set_autocenter = (void *)dev->ff->set_autocenter;
+              curr->ff_destroy = (void *)dev->ff->destroy;
+            }
+            // for next iteration
+            curr++; count++;
+          }
+          // unlock
+          mutex_unlock(s_input_mutex);
+          kbuf_size = sizeof(unsigned long) + count * sizeof(struct one_input_dev);
+          goto copy_kbuf_count;
+       }
+     break; /* IOCTL_INPUT_DEVS */
+
     case IOCTL_INPUT_HANDLERS:
        if ( !s_input_handler_list || !s_input_mutex ) return -ENOCSI;
        COPY_ARG
@@ -6317,6 +6369,8 @@ init_module (void)
 #ifdef CONFIG_INPUT
   s_input_handler_list = (struct list_head *)lkcd_lookup_name("input_handler_list");
   REPORT(s_input_handler_list, "input_handler_list");
+  s_input_dev_list = (struct list_head *)lkcd_lookup_name("input_dev_list");
+  REPORT(s_input_dev_list, "input_dev_list");
   s_input_mutex = (struct mutex *)lkcd_lookup_name("input_mutex");
   REPORT(s_input_mutex, "input_mutex");
 #endif /* CONFIG_INPUT */
