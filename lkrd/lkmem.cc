@@ -2032,6 +2032,56 @@ void dump_bpf_maps(a64 list, a64 lock, sa64 delta, std::map<void *, std::string>
   );
 }
 
+void dump_input_handlers(sa64 delta)
+{
+  unsigned long args = 0;
+  int err = ioctl(g_fd, IOCTL_INPUT_HANDLERS, (int *)&args);
+  if ( err )
+  {
+    printf("IOCTL_INPUT_HANDLERS count failed, error %d (%s)\n", errno, strerror(errno));
+    return;
+  }
+  printf("\nregistered input handlers: %ld\n", args);
+  if ( !args )
+    return;
+  size_t size = calc_data_size<one_input_handler>(args);
+  unsigned long *buf = (unsigned long *)malloc(size);
+  if ( !buf )
+  {
+    printf("cannot alloc buffer for input handlers, len %lX\n", size);
+    return;
+  }
+  dumb_free<unsigned long> tmp(buf);
+  buf[0] = args;
+  err = ioctl(g_fd, IOCTL_INPUT_HANDLERS, (int *)buf);
+  if ( err )
+  {
+    printf("IOCTL_INPUT_HANDLERS failed, error %d (%s)\n", errno, strerror(errno));
+    return;
+  }
+  size = buf[0];
+  one_input_handler *curr = (one_input_handler *)(buf + 1);
+  for ( size_t idx = 0; idx < size; idx++, curr++ )
+  {
+    printf(" [%ld] input_handler at", idx);
+    dump_kptr2((unsigned long)curr->addr, "addr", delta);
+    if ( curr->event )
+      dump_kptr2((unsigned long)curr->event, "  event", delta);
+    if ( curr->events )
+      dump_kptr2((unsigned long)curr->events, "  events", delta);
+    if ( curr->filter )
+      dump_kptr2((unsigned long)curr->filter, "  filter", delta);
+    if ( curr->match )
+      dump_kptr2((unsigned long)curr->match, "  match", delta);
+    if ( curr->connect )
+      dump_kptr2((unsigned long)curr->connect, "  connect", delta);
+    if ( curr->disconnect )
+      dump_kptr2((unsigned long)curr->disconnect, "  disconnect", delta);
+    if ( curr->start )
+      dump_kptr2((unsigned long)curr->start, "  start", delta);
+  }
+}
+
 void dump_ckalgos(a64 list, a64 lock, sa64 delta)
 {
   if ( !list )
@@ -5049,14 +5099,13 @@ end:
        // dump or check collected addresses
        if ( g_opt_v || opt_c )
          dump_and_check(opt_c, delta, has_syms, filled);
-#ifndef _MSC_VER
        if ( opt_c )
        {
          dump_freq_ntfy(delta);
          dump_clk_ntfy(get_addr("clk_notifier_list"), get_addr("prepare_lock"), delta);
          dump_devfreq_ntfy(get_addr("devfreq_list"), get_addr("devfreq_list_lock"), delta);
        }
-#endif
+       if ( opt_S ) dump_input_handlers(delta);
        if ( opt_d )
        {
           dis_base *bd = NULL;
