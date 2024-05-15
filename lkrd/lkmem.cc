@@ -2032,37 +2032,47 @@ void dump_bpf_maps(a64 list, a64 lock, sa64 delta, std::map<void *, std::string>
   );
 }
 
+void dump_input_devs(sa64 delta)
+{
+  dump_data_noarg<one_input_dev>(delta, IOCTL_INPUT_DEVS, "IOCTL_INPUT_DEVS", "input devs",
+   [=](size_t idx, const one_input_dev *id) {
+    printf(" [%ld] input_dev at", idx);
+    dump_kptr2((unsigned long)id->addr, "addr", delta);
+    if ( id->setkeycode )
+      dump_kptr2((unsigned long)id->setkeycode, "  setkeycode", delta);
+    if ( id->getkeycode )
+      dump_kptr2((unsigned long)id->getkeycode, "  getkeycode", delta);
+    if ( id->open )
+      dump_kptr2((unsigned long)id->open, "  open", delta);
+    if ( id->close )
+      dump_kptr2((unsigned long)id->close, "  close", delta);
+    if ( id->flush )
+      dump_kptr2((unsigned long)id->flush, "  flush", delta);
+    if ( id->event )
+      dump_kptr2((unsigned long)id->event, "  event", delta);
+    if ( id->ff )
+    {
+      dump_kptr2((unsigned long)id->ff, "  ff", delta);
+      if ( id->ff_upload )
+        dump_kptr2((unsigned long)id->ff_upload, "  ff.upload", delta);
+      if ( id->ff_erase )
+        dump_kptr2((unsigned long)id->ff_erase, "  ff.erase", delta);
+      if ( id->ff_playback )
+        dump_kptr2((unsigned long)id->ff_playback, "  ff.playback", delta);
+      if ( id->ff_set_gain )
+        dump_kptr2((unsigned long)id->ff_set_gain, "  ff.set_gain", delta);
+      if ( id->ff_set_autocenter )
+        dump_kptr2((unsigned long)id->ff_set_autocenter, "  ff.set_autocenter", delta);
+      if ( id->ff_destroy )
+        dump_kptr2((unsigned long)id->ff_destroy, "  ff.destroy", delta);
+    }
+   });
+}
+
 void dump_input_handlers(sa64 delta)
 {
-  unsigned long args = 0;
-  int err = ioctl(g_fd, IOCTL_INPUT_HANDLERS, (int *)&args);
-  if ( err )
-  {
-    printf("IOCTL_INPUT_HANDLERS count failed, error %d (%s)\n", errno, strerror(errno));
-    return;
-  }
-  printf("\nregistered input handlers: %ld\n", args);
-  if ( !args )
-    return;
-  size_t size = calc_data_size<one_input_handler>(args);
-  unsigned long *buf = (unsigned long *)malloc(size);
-  if ( !buf )
-  {
-    printf("cannot alloc buffer for input handlers, len %lX\n", size);
-    return;
-  }
-  dumb_free<unsigned long> tmp(buf);
-  buf[0] = args;
-  err = ioctl(g_fd, IOCTL_INPUT_HANDLERS, (int *)buf);
-  if ( err )
-  {
-    printf("IOCTL_INPUT_HANDLERS failed, error %d (%s)\n", errno, strerror(errno));
-    return;
-  }
-  size = buf[0];
-  one_input_handler *curr = (one_input_handler *)(buf + 1);
-  for ( size_t idx = 0; idx < size; idx++, curr++ )
-  {
+  dump_data_noarg<one_input_handler>(delta, IOCTL_INPUT_HANDLERS, "IOCTL_INPUT_HANDLERS", "input handlers",
+   [=](size_t idx, const one_input_handler *curr) {
     printf(" [%ld] input_handler at", idx);
     dump_kptr2((unsigned long)curr->addr, "addr", delta);
     if ( curr->event )
@@ -2079,7 +2089,7 @@ void dump_input_handlers(sa64 delta)
       dump_kptr2((unsigned long)curr->disconnect, "  disconnect", delta);
     if ( curr->start )
       dump_kptr2((unsigned long)curr->start, "  start", delta);
-  }
+  });
 }
 
 void dump_ckalgos(a64 list, a64 lock, sa64 delta)
@@ -5105,7 +5115,10 @@ end:
          dump_clk_ntfy(get_addr("clk_notifier_list"), get_addr("prepare_lock"), delta);
          dump_devfreq_ntfy(get_addr("devfreq_list"), get_addr("devfreq_list_lock"), delta);
        }
-       if ( opt_S ) dump_input_handlers(delta);
+       if ( opt_S ) {
+         dump_input_handlers(delta);
+         dump_input_devs(delta);
+       }
        if ( opt_d )
        {
           dis_base *bd = NULL;
