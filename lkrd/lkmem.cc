@@ -2032,12 +2032,40 @@ void dump_bpf_maps(a64 list, a64 lock, sa64 delta, std::map<void *, std::string>
   );
 }
 
+int read_input_dev_name(void *addr, unsigned long len, unsigned long what, char *buf)
+{
+  unsigned long *args = (unsigned long *)buf;
+  args[0] = (unsigned long)addr;
+  args[1] = len;
+  args[2] = what;
+  int err = ioctl(g_fd, IOCTL_INPUT_DEV_NAME, (int *)args);
+  return err ? 0 : 1;
+}
+
 void dump_input_devs(sa64 delta)
 {
+  const unsigned long args_len = 3 * sizeof(unsigned long);
+  char *name_buf = nullptr;
+  size_t name_len = 0;
   dump_data_noarg<one_input_dev>(delta, IOCTL_INPUT_DEVS, "IOCTL_INPUT_DEVS", "input devs",
-   [=](size_t idx, const one_input_dev *id) {
+   [&](size_t idx, const one_input_dev *id) {
     printf(" [%ld] input_dev at", idx);
     dump_kptr2((unsigned long)id->addr, "addr", delta);
+    auto cl = std::max(id->l_name, std::max(id->l_phys, id->l_uniq));
+    if ( cl ) {
+      cl = std::max(cl, args_len);
+      if ( cl > name_len ) {
+        if ( name_buf ) free(name_buf);
+        name_buf = (char *)malloc(cl);
+        if (name_buf) name_len = cl; else cl = name_len = 0;
+      }
+    }
+    if ( cl && id->l_name && read_input_dev_name(id->addr, cl, 0, name_buf) )
+      printf(" name: %s\n", name_buf);
+    if ( cl && id->l_phys && read_input_dev_name(id->addr, cl, 1, name_buf) )
+      printf(" phys: %s\n", name_buf);
+    if ( cl && id->l_uniq && read_input_dev_name(id->addr, cl, 2, name_buf) )
+      printf(" uniq: %s\n", name_buf);
     if ( id->setkeycode )
       dump_kptr2((unsigned long)id->setkeycode, "  setkeycode", delta);
     if ( id->getkeycode )
@@ -2067,6 +2095,7 @@ void dump_input_devs(sa64 delta)
         dump_kptr2((unsigned long)id->ff_destroy, "  ff.destroy", delta);
     }
    });
+   if ( name_buf ) free(name_buf);
 }
 
 void dump_input_handlers(sa64 delta)
