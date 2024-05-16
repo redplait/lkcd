@@ -2032,6 +2032,15 @@ void dump_bpf_maps(a64 list, a64 lock, sa64 delta, std::map<void *, std::string>
   );
 }
 
+int read_input_handler_name(void *addr, unsigned long len, char *buf)
+{
+  unsigned long *args = (unsigned long *)buf;
+  args[0] = (unsigned long)addr;
+  args[1] = len;
+  int err = ioctl(g_fd, IOCTL_INPUT_HANDLER_NAME, (int *)args);
+  return err ? 0 : 1;
+}
+
 int read_input_dev_name(void *addr, unsigned long len, unsigned long what, char *buf)
 {
   unsigned long *args = (unsigned long *)buf;
@@ -2042,7 +2051,31 @@ int read_input_dev_name(void *addr, unsigned long len, unsigned long what, char 
   return err ? 0 : 1;
 }
 
-void dump_input_devs(sa64 delta)
+int read_dev_handlers(void *addr, unsigned long len, sa64 delta, std::map<void *, std::string> &hmap)
+{
+  // args 3 longs at least
+  auto alen = std::max(3UL, 1 + len);
+  alen *= sizeof(unsigned long);
+  unsigned long *args = (unsigned long *)malloc(alen);
+  if ( !args ) return 0;
+  dumb_free<unsigned long> tmp(args);
+  args[0] = (unsigned long)addr;
+  args[1] = len;
+  args[2] = 3;
+  int err = ioctl(g_fd, IOCTL_INPUT_DEV_NAME, (int *)args);
+  if ( err ) return 0;
+  for ( unsigned long i = 0; i < args[0]; ++i )
+  {
+    addr = (void *)args[i+1];
+    auto known = hmap.find(addr);
+    printf("  [%ld]", i);
+    if ( known != hmap.end() ) printf(" %p %s\n", addr, known->second.c_str());
+    else { printf(" UNREGGED"); dump_unnamed_kptr(args[i+1], delta, true); }
+  }
+  return 1;
+}
+
+void dump_input_devs(sa64 delta, std::map<void *, std::string> &hmap)
 {
   const unsigned long args_len = 3 * sizeof(unsigned long);
   char *name_buf = nullptr;
@@ -2066,6 +2099,10 @@ void dump_input_devs(sa64 delta)
       printf(" phys: %s\n", name_buf);
     if ( cl && id->l_uniq && read_input_dev_name(id->addr, cl, 2, name_buf) )
       printf(" uniq: %s\n", name_buf);
+    printf(" handlers: %ld\n", id->h_cnt);
+    if ( id->h_cnt ) {
+      read_dev_handlers(id->addr, id->h_cnt, delta, hmap);
+    }
     if ( id->setkeycode )
       dump_kptr2((unsigned long)id->setkeycode, "  setkeycode", delta);
     if ( id->getkeycode )
@@ -2098,12 +2135,32 @@ void dump_input_devs(sa64 delta)
    if ( name_buf ) free(name_buf);
 }
 
-void dump_input_handlers(sa64 delta)
+void dump_input_handlers(sa64 delta, std::map<void *, std::string> &hmap)
 {
+  const unsigned long args_len = 2 * sizeof(unsigned long);
+  char *name_buf = nullptr;
+  size_t name_len = 0;
   dump_data_noarg<one_input_handler>(delta, IOCTL_INPUT_HANDLERS, "IOCTL_INPUT_HANDLERS", "input handlers",
-   [=](size_t idx, const one_input_handler *curr) {
+   [&](size_t idx, const one_input_handler *curr) {
     printf(" [%ld] input_handler at", idx);
     dump_kptr2((unsigned long)curr->addr, "addr", delta);
+    const char *curr_name = nullptr;
+    if ( curr->l_name )
+    {
+      auto cl = std::max(curr->l_name, args_len);
+      if ( cl > name_len ) {
+        if ( name_buf ) free(name_buf);
+        name_buf = (char *)malloc(cl);
+        if (name_buf) name_len = cl; else cl = name_len = 0;
+      }
+      if ( cl && read_input_handler_name(curr->addr, cl, name_buf) ) {
+       printf("  Name: %s\n", name_buf);
+       curr_name = name_buf;
+      }
+    }
+    // insert into hmap
+    if ( !curr_name ) hmap[curr->addr] = "";
+    else hmap[curr->addr] = curr_name;
     if ( curr->event )
       dump_kptr2((unsigned long)curr->event, "  event", delta);
     if ( curr->events )
@@ -2119,6 +2176,7 @@ void dump_input_handlers(sa64 delta)
     if ( curr->start )
       dump_kptr2((unsigned long)curr->start, "  start", delta);
   });
+  if ( name_buf ) free(name_buf);
 }
 
 void dump_ckalgos(a64 list, a64 lock, sa64 delta)
@@ -5145,8 +5203,9 @@ end:
          dump_devfreq_ntfy(get_addr("devfreq_list"), get_addr("devfreq_list_lock"), delta);
        }
        if ( opt_S ) {
-         dump_input_handlers(delta);
-         dump_input_devs(delta);
+         std::map<void *, std::string> hmap;
+         dump_input_handlers(delta, hmap);
+         dump_input_devs(delta, hmap);
        }
        if ( opt_d )
        {
