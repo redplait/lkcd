@@ -459,7 +459,13 @@ static und_bpf_prog_array_length bpf_prog_array_length_ptr = 0;
 // x86 only
 // on arm64 there is aarch64_insn_write but it accepts whole instruction with len 4 bytes
 // on arm there is __patch_text and it also accepts whole instruction with len 4 bytes
+#ifdef CONFIG_ARM64
+typedef int (*t_patch_text)(void *addr, u32 insn);
+static const char *s_patch_name = "aarch64_insn_patch_text_nosync";
+#else
 typedef void *(*t_patch_text)(void *addr, const void *opcode, size_t len);
+static const char *s_patch_name = "text_poke_kgdb";
+#endif
 static t_patch_text s_patch_text = 0;
 
 #if CONFIG_FSNOTIFY && LINUX_VERSION_CODE >= KERNEL_VERSION(4,15,0)
@@ -1218,6 +1224,7 @@ static unsigned long count_mprog_count(struct bpf_mprog_entry *entry)
 }
 #endif
 
+#include "rn.h"
 #include "inject.inc"
 
 static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long ioctl_param)
@@ -6079,7 +6086,11 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
       if ( !s_patch_text ) return -ENOCSI;
       COPY_ARGS(2)
       else {
+#ifdef CONFIG_ARM64
+        s_patch_text((void*)ptrbuf[0], (u32)ptrbuf[1]);
+#else
         s_patch_text((void*)ptrbuf[0], ptrbuf + 1, 1);
+#endif
       }
       break; /* IOCTL_PATCH_KTEXT1 */
 
@@ -6266,7 +6277,6 @@ static struct miscdevice lkcd_dev = {
     .mode = 0444
 };
 
-#include "rn.h"
 const char report_fmt[] RDSection = "cannot find %s\n";
 static const char no_reg[] RDSection = "Unable to register the lkcd device, err %d\n";
 _RN(init_cred, init_cred)
@@ -6384,7 +6394,7 @@ init_module (void)
 #endif
   css_next_child_ptr = (kcss_next_child)lkcd_lookup_name("css_next_child");
   REPORT(css_next_child_ptr, "css_next_child")
-  SYM_LOAD("text_poke_kgdb", t_patch_text, s_patch_text)
+  SYM_LOAD(s_patch_name, t_patch_text, s_patch_text)
   delayed_timer = (void *)lkcd_lookup_name("delayed_work_timer_fn");
   REPORT(delayed_timer, "delayed_work_timer_fn")
   s_alarm = (struct alarm_base *)lkcd_lookup_name("alarm_bases");

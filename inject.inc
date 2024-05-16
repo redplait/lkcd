@@ -390,6 +390,7 @@ static int submit_inject(struct task_struct *victim, unsigned long ksize, unsign
   return 0;
 }
 
+RSection
 static void init_inject(void)
 {
   mutex_init(&exit_hook_mutex);
