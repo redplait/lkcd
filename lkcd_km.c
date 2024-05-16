@@ -2098,7 +2098,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
         for ( iter = begin; count < ptrbuf[1] && iter < end; count++, curr++, iter++ )
         {
            struct tracepoint_func *func;
-           struct tracepoint *tp = 
+           struct tracepoint *tp =
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(4,19,0)
              tracepoint_ptr_deref(iter);
 #else
@@ -2120,7 +2120,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
            if ( func )
            do {
              curr->f_count++;
-           } while((++func)->func);  
+           } while((++func)->func);
            // unlock
            if ( s_tracepoints_mutex )
              mutex_unlock(s_tracepoints_mutex);
@@ -2275,7 +2275,6 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
        struct file *file;
        struct subsys_private *sp;
        int err;
-       
        read_user_string(u.name, ioctl_param);
        // open file
        file = file_open(u.name, 0, 0, &err);
@@ -3346,7 +3345,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
             spin_lock(lock);
             list_for_each(p, list)
               count++;
-	    // unlock
+            // unlock
             spin_unlock(lock);
             goto copy_count;
           } else {
@@ -3397,7 +3396,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
             mutex_lock(m);
             list_for_each(p, list)
               count++;
-	    // unlock
+            // unlock
             mutex_unlock(m);
             goto copy_count;
           } else {
@@ -3414,7 +3413,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
               kbuf[count+1] = (unsigned long)prot;
               count++;
             }
-	    // unlock
+            // unlock
             mutex_unlock(m);
             // copy to user
             kbuf_size = sizeof(unsigned long) * (kbuf[0] + 1);
@@ -4037,7 +4036,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
             count++;
           up_read(s_net);
           goto copy_count;
-  	} else {
+        } else {
           struct net *net;
           struct one_net *curr;
           kbuf_size = sizeof(unsigned long) + ptrbuf[0] * sizeof(struct one_net);
@@ -4183,9 +4182,9 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
           for (;;) {
             struct netlink_sock *ns = rhashtable_walk_next(&iter);
             if (IS_ERR(ns)) {
-	       if (PTR_ERR(ns) == -EAGAIN) continue;
-	       err = PTR_ERR(ns);
-	       break;
+              if (PTR_ERR(ns) == -EAGAIN) continue;
+              err = PTR_ERR(ns);
+              break;
             } else if (!ns)
               break;
             res.sk_count++;
@@ -4232,8 +4231,8 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
              for (child = css_next_descendant_pre(NULL, &item->cgrp.self); child; child = css_next_descendant_pre(child, &item->cgrp.self) )
              {
                if ( (void *)child != cgrp ) continue;
-	       found = (struct cgroup *)child;
-	       break;
+               found = (struct cgroup *)child;
+               break;
              }
              rcu_read_unlock();
              break;
@@ -4245,7 +4244,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
           return cgroup_bpf_detach_ptr(found, prog, (enum bpf_attach_type)ptrbuf[4]);
         }
       break; /* IOCTL_DEL_CGROUP_BPF */
-#endif
+#endif // cgroup ebpf since 4.15
 
     case IOCTL_GET_PMUS:
         COPY_ARGS(3)
@@ -4437,9 +4436,8 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
              for (child = css_next_descendant_pre(NULL, &item->cgrp.self); child; child = css_next_descendant_pre(child, &item->cgrp.self) )
              {
                struct cgroup *cg = (struct cgroup *)child;
-               if ( (void *)child != cgrp )
-	         continue;
-	       found |= 3;
+               if ( (void *)child != cgrp ) continue;
+               found |= 3;
                if ( cg->bpf.effective[ptrbuf[4]] )
                {
                  int total = bpf_prog_array_length_ptr(cg->bpf.effective[ptrbuf[4]]);
@@ -4502,9 +4500,8 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
              {
                int i;
                struct cgroup *cg = (struct cgroup *)child;
-               if ( (void *)child != cgrp )
-	               continue;
-	             found |= 3;
+               if ( (void *)child != cgrp ) continue;
+               found |= 3;
                // fill kbuf
                for ( i = 0; i < CGROUP_SUBSYS_COUNT; i++ )
                {
@@ -4619,11 +4616,10 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
               if ( css_next_child_ptr )
               {
                 struct cgroup_subsys_state *child;
-	        rcu_read_lock();
-	        for (child = css_next_descendant_pre(NULL, &item->cgrp.self); child; child = css_next_descendant_pre(child, &item->cgrp.self))
-	        {
-	          if ( child == &item->cgrp.self )
-	            continue;
+                rcu_read_lock();
+                for (child = css_next_descendant_pre(NULL, &item->cgrp.self); child; child = css_next_descendant_pre(child, &item->cgrp.self))
+                {
+                  if ( child == &item->cgrp.self ) continue;
                   curr->real_cnt++;
                 }
                 rcu_read_unlock();
@@ -4725,9 +4721,9 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
           for (;;) {
             struct netlink_sock *ns = rhashtable_walk_next(&iter);
             if (IS_ERR(ns)) {
-	       if (PTR_ERR(ns) == -EAGAIN) continue;
-	       err = PTR_ERR(ns);
-	       break;
+              if (PTR_ERR(ns) == -EAGAIN) continue;
+              err = PTR_ERR(ns);
+              break;
             } else if (!ns)
               break;
             if ( count >= ptrbuf[3] )
@@ -5592,12 +5588,36 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
     case IOCTL_INPUT_DEV_NAME:
       if ( !s_input_dev_list || !s_input_mutex ) return -ENOCSI;
        COPY_ARGS(3)
-       if ( !ptrbuf[0] || !ptrbuf[1] || ptrbuf[2] > 2 ) return -EINVAL;
-       else {
+       if ( !ptrbuf[0] || !ptrbuf[1] || ptrbuf[2] > 3 ) return -EINVAL;
+       if ( ptrbuf[2] == 3 ) {
+        int found = 0;
+        struct input_dev *dev;
+        kbuf = kmalloc((1 + ptrbuf[1]) * sizeof(unsigned long), GFP_KERNEL);
+        if ( !kbuf ) return -ENOMEM;
+        // lock
+        mutex_lock(s_input_mutex);
+        list_for_each_entry(dev, s_input_dev_list, node)
+        {
+          struct input_handle *handle, *next;
+          if ( ptrbuf[0] != (unsigned long)dev ) continue;
+          found = 1;
+          list_for_each_entry_safe(handle, next, &dev->h_list, d_node) {
+            if ( count >= ptrbuf[1] ) break;
+            kbuf[count + 1] = (unsigned long)handle;
+            count++;
+          }
+          break;
+        }
+        // unlock
+        mutex_unlock(s_input_mutex);
+        if ( !found ) { kfree(kbuf); return -ENOENT; }
+        kbuf_size = (1 + count) * sizeof(unsigned long);
+        goto copy_kbuf_count;
+       } else {
         int found = 0;
         struct input_dev *dev;
         const char *sbuf = NULL;
-        kbuf = kmalloc(ptrbuf[1], GFP_KERNEL);
+        kbuf = kmalloc(ptrbuf[1], GFP_KERNEL | __GFP_ZERO);
         if ( !kbuf ) return -ENOMEM;
         // lock
         mutex_lock(s_input_mutex);
@@ -5616,7 +5636,6 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
             kbuf_size = 1 + strlen(sbuf);
             if ( kbuf_size > ptrbuf[1] ) kbuf_size = ptrbuf[1];
             strlcpy((char *)kbuf, sbuf, kbuf_size);
-            kbuf[ptrbuf[1] - 1] = 0;
           }
           break;
         }
@@ -5701,10 +5720,9 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
            found = 1;
            if ( handler->name )
            {
-            kbuf_size = 1 + strlen(handler->name);
-            if ( kbuf_size > ptrbuf[1] ) kbuf_size = ptrbuf[1];
-            strlcpy((char *)kbuf, handler->name, kbuf_size);
-            kbuf[ptrbuf[1] - 1] = 0;
+             kbuf_size = 1 + strlen(handler->name);
+             if ( kbuf_size > ptrbuf[1] ) kbuf_size = ptrbuf[1];
+             strlcpy((char *)kbuf, handler->name, kbuf_size);
            }
            break;
          }
