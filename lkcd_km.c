@@ -5622,8 +5622,8 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
         }
         // unlock
         mutex_unlock(s_input_mutex);
-        if ( !found ) return -ENOENT;
-        if ( !kbuf_size ) return -ENOTNAM;
+        if ( !found ) { kfree(kbuf); return -ENOENT; }
+        if ( !kbuf_size ) { kfree(kbuf); return -ENOTNAM; }
         goto copy_kbuf;
        }
      break; /* IOCTL_INPUT_DEV_NAME */
@@ -5652,6 +5652,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
           // iterate
           list_for_each_entry(dev, s_input_dev_list, node)
           {
+            struct input_handle *handle, *next;
             if ( count >= ptrbuf[0] ) break;
             curr->addr = dev;
             if ( dev->name ) curr->l_name = 1 + strlen(dev->name);
@@ -5672,6 +5673,8 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
               curr->ff_set_autocenter = (void *)dev->ff->set_autocenter;
               curr->ff_destroy = (void *)dev->ff->destroy;
             }
+            // count handlers
+            list_for_each_entry_safe(handle, next, &dev->h_list, d_node) curr->h_cnt++;
             // for next iteration
             curr++; count++;
           }
@@ -5681,6 +5684,36 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
           goto copy_kbuf_count;
        }
      break; /* IOCTL_INPUT_DEVS */
+
+    case IOCTL_INPUT_HANDLER_NAME:
+       if ( !s_input_handler_list || !s_input_mutex ) return -ENOCSI;
+       COPY_ARGS(2)
+       if ( !ptrbuf[0] || !ptrbuf[1] ) return -EINVAL;
+       else {
+         struct input_handler *handler;
+         int found = 0;
+         kbuf = kmalloc(ptrbuf[1], GFP_KERNEL | __GFP_ZERO);
+         if ( !kbuf )
+          return -ENOMEM;
+         mutex_lock(s_input_mutex);
+         list_for_each_entry(handler, s_input_handler_list, node) {
+           if ( ptrbuf[0] != (unsigned long)handler ) continue;
+           found = 1;
+           if ( handler->name )
+           {
+            kbuf_size = 1 + strlen(handler->name);
+            if ( kbuf_size > ptrbuf[1] ) kbuf_size = ptrbuf[1];
+            strlcpy((char *)kbuf, handler->name, kbuf_size);
+            kbuf[ptrbuf[1] - 1] = 0;
+           }
+           break;
+         }
+         mutex_unlock(s_input_mutex);
+         if ( !found ) { kfree(kbuf); return -ENOENT; }
+         if ( !kbuf_size ) { kfree(kbuf); return -ENOTNAM; }
+         goto copy_kbuf;
+       }
+     break; /* IOCTL_INPUT_HANDLER_NAME */
 
     case IOCTL_INPUT_HANDLERS:
        if ( !s_input_handler_list || !s_input_mutex ) return -ENOCSI;
@@ -5714,6 +5747,8 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
             curr->connect = (void *)handler->connect;
             curr->disconnect = (void *)handler->disconnect;
             curr->start = (void *)handler->start;
+            if ( handler->name )
+              curr->l_name = 1 + strlen(handler->name);
             // for next iteration
             curr++; count++;
           }

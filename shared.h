@@ -1532,6 +1532,7 @@ struct one_input_handler
 {
   void *addr;
   void *event, *events, *filter, *match, *connect, *disconnect, *start;
+  unsigned long l_name;
 };
 
 // enum input handlers
@@ -1539,6 +1540,12 @@ struct one_input_handler
 // out params
 //  N + N * one_input_handler
 #define IOCTL_INPUT_HANDLERS                _IOR(IOCTL_NUM, 0x69, int*)
+
+// get name of input_handler
+// in params:
+//  0 - addr of input_handler
+//  1 - size
+#define IOCTL_INPUT_HANDLER_NAME            _IOR(IOCTL_NUM, 0x6A, int*)
 
 struct one_input_dev
 {
@@ -1549,6 +1556,7 @@ struct one_input_dev
   void *close;
   void *flush;
   void *event;
+  unsigned long h_cnt; // count of handlers on this input-dev
   unsigned long l_name, l_phys, l_uniq;
   void *ff; // next 6 methods from ff_device
   void *ff_upload, *ff_erase, *ff_playback, *ff_set_gain, *ff_set_autocenter, *ff_destroy;
@@ -1558,7 +1566,7 @@ struct one_input_dev
 // in params - size
 // out params
 //  N + N * one_input_dev
-#define IOCTL_INPUT_DEVS                    _IOR(IOCTL_NUM, 0x6A, int*)
+#define IOCTL_INPUT_DEVS                    _IOR(IOCTL_NUM, 0x6B, int*)
 
 // get name of input dev
 // in params:
@@ -1567,6 +1575,6 @@ struct one_input_dev
 //  2 - 0 for name, 1 for phys, 2 for uniq
 // out params:
 // just string
-#define IOCTL_INPUT_DEV_NAME                _IOR(IOCTL_NUM, 0x6B, int*)
+#define IOCTL_INPUT_DEV_NAME                _IOR(IOCTL_NUM, 0x6C, int*)
 
 #endif /* LKCD_SHARED_H */
