@@ -5603,7 +5603,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
           found = 1;
           list_for_each_entry_safe(handle, next, &dev->h_list, d_node) {
             if ( count >= ptrbuf[1] ) break;
-            kbuf[count + 1] = (unsigned long)handle;
+            kbuf[count + 1] = (unsigned long)handle->handler;
             count++;
           }
           break;
