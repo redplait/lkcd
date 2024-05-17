@@ -1007,7 +1007,7 @@ void dump_pools(sa64 delta)
 
 void dump_slabs(sa64 delta)
 {
-  dump_data_noarg<one_slab>(delta, IOCTL_GET_SLABS, "IOCTL_GET_SLABS", "knen_caches",
+  dump_data_noarg<one_slab>(delta, IOCTL_GET_SLABS, "IOCTL_GET_SLABS", "kmem_caches",
    [=](size_t idx, const one_slab *sl) {
      printf("[%ld] at ", idx);
      dump_unnamed_kptr((unsigned long)sl->addr, delta, true);
@@ -4489,6 +4489,32 @@ void dump_bus(one_priv &p, sa64 delta, const char *fname)
   }
 }
 
+int dump_srcus(void *addr, unsigned long n, sa64 delta)
+{
+  const unsigned long args_size = 3 * sizeof(unsigned long);
+  unsigned long size = std::max(args_size, n * sizeof(one_srcu));
+  unsigned long *buf = (unsigned long *)malloc(size);
+  if ( !buf ) return 0;
+  dumb_free<unsigned long> tmp(buf);
+  buf[0] = (unsigned long)addr;
+  buf[1] = n;
+  buf[2] = 0;
+  int err = ioctl(g_fd, IOCTL_MODULE1_GUTS, (int *)buf);
+  if ( err )
+  {
+    printf("IOCTL_MODULE1_GUTS failed, errno %d (%s)\n", errno, strerror(errno));
+    return 0;
+  }
+  one_srcu *curr = (one_srcu *)(buf + 1);
+  for ( unsigned long i = 0; i < buf[0]; ++i, curr++ )
+  {
+    printf("  [%ld]", i);
+    dump_unnamed_kptr((unsigned long)curr->addr, delta);
+    printf("    per_cpu offset %lX\n", curr->per_cpu_off);
+  }
+  return 1;
+}
+
 void dump_mods(sa64 delta, int opt_t)
 {
   unsigned long args[2] = { 0, 0 };
@@ -4522,10 +4548,14 @@ void dump_mods(sa64 delta, int opt_t)
     auto name = find_kmod((unsigned long)curr->base);
     if ( name ) printf(" %s\n", name);
     else printf("\n");
+    if ( curr->module_init ) printf(" module_init %p\n", curr->module_init);
     if ( curr->init ) dump_kptr2((unsigned long)curr->init, "init", 0);
     if ( curr->exit ) dump_kptr((unsigned long)curr->exit, "exit", 0);
     if ( curr->percpu_size ) printf(" percpu_size: %lX\n", curr->percpu_size);
-    if ( curr->num_srcu_structs ) printf(" num_srcu_structs: %ld\n", curr->num_srcu_structs);
+    if ( curr->num_srcu_structs ) {
+      printf(" num_srcu_structs: %ld\n", curr->num_srcu_structs);
+      dump_srcus(curr->addr, curr->num_srcu_structs, delta);
+    }
     if ( curr->num_tracepoints ) {
       dump_kptr(curr->tracepoints_ptrs, "tracepoints", 0);
       printf(" num_tracepoints: %ld\n", curr->num_tracepoints);
@@ -4541,6 +4571,10 @@ void dump_mods(sa64 delta, int opt_t)
     if ( curr->num_trace_events ) {
       dump_kptr(curr->trace_events, "trace_events", 0);
       printf(" num_trace_events: %ld\n", curr->num_trace_events);
+    }
+    if ( curr->num_trace_evals ) {
+      dump_kptr(curr->trace_evals, "trace_evals", 0);
+      printf(" num_trace_evals: %ld\n", curr->num_trace_evals);
     }
   }
 }
