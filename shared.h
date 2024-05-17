@@ -1522,7 +1522,7 @@ struct one_slab
 {
   void *addr;
   unsigned int size;
-  unsigned int object_size;
+  unsigned int object_size, l_name;
   unsigned long ctor;
 };
 
@@ -1530,6 +1530,12 @@ struct one_slab
 // in param - size
 // out params: unsigned long + N * one_slab
 #define IOCTL_GET_SLABS                     _IOR(IOCTL_NUM, 0x66, int*)
+
+// read slab name
+// in params:
+// 0 - slab addr from one_slab
+// 1 - len
+#define IOCTL_SLAB_NAME                     _IOR(IOCTL_NUM, 0x6E, int*)
 
 // inject
 // in params

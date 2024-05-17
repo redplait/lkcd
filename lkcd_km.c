@@ -5491,6 +5491,37 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
 #if LINUX_VERSION_CODE < KERNEL_VERSION(6,0,0)
 // for some unknown reason in this case kmem_cache defined in non-includeable mm/slab.h file
 #ifndef CONFIG_SLOB
+    case IOCTL_SLAB_NAME:
+      if ( !s_slab_caches || !s_slab_mutex ) return -ENOCSI;
+      COPY_ARGS(2)
+      if ( !ptrbuf[0] || !ptrbuf[1] ) return -EINVAL;
+      else {
+        struct kmem_cache *cachep;
+        int found = 0;
+        kbuf = kmalloc(ptrbuf[1], GFP_KERNEL | __GFP_ZERO);
+        if ( !kbuf ) return -ENOMEM;
+        // lock
+        mutex_lock(s_slab_mutex);
+        list_for_each_entry(cachep, s_slab_caches, list)
+        {
+          if ( (unsigned long)cachep != ptrbuf[0] ) continue;
+          found = 1;
+          if ( cachep->name )
+           {
+             kbuf_size = 1 + strlen(cachep->name);
+             if ( kbuf_size > ptrbuf[1] ) kbuf_size = ptrbuf[1];
+             strlcpy((char *)kbuf, cachep->name, kbuf_size);
+           }
+           break;
+        }
+        // unlock
+        mutex_unlock(s_slab_mutex);
+        if ( !found ) { kfree(kbuf); return -ENOENT; }
+        if ( !kbuf_size ) { kfree(kbuf); return -ENOTNAM; }
+        goto copy_kbuf;
+      }
+     break; /* IOCTL_SLAB_NAME */
+
     case IOCTL_GET_SLABS:
       if ( !s_slab_caches || !s_slab_mutex ) return -ENOCSI;
       COPY_ARG
@@ -5515,6 +5546,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
           if ( count >= ptrbuf[0] ) break;
           curr->addr = (void *)cachep;
           curr->size = cachep->size;
+          if ( cachep->name ) curr->l_name = 1 + strlen(cachep->name);
           curr->ctor = (unsigned long)cachep->ctor;
 #ifdef CONFIG_SLUB
           curr->object_size = cachep->object_size;
