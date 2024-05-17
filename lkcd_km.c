@@ -1276,6 +1276,43 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
        }
       break; /* IOCTL_LOOKUP_SYM */
 
+#ifdef CONFIG_MODULES
+    case IOCTL_MODULE1_GUTS:
+       if ( !s_modules || !s_module_mutex ) return -ENOCSI;
+       COPY_ARGS(3)
+       else {
+#ifdef CONFIG_TREE_SRCU
+        unsigned int i = 0;
+        int found = 0;
+        struct one_srcu *curr;
+        struct module *mod;
+        kbuf_size = sizeof(unsigned long) + ptrbuf[1] * sizeof(struct one_srcu);
+        kbuf = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL | __GFP_ZERO);
+        if ( !kbuf ) return -ENOMEM;
+        curr = (struct one_srcu *)(kbuf + 1);
+        mutex_lock(s_module_mutex);
+        list_for_each_entry(mod, s_modules, list)
+        {
+          if ( (unsigned long)mod != ptrbuf[0] ) continue;
+          found = 1;
+          for ( i = 0; i < mod->num_srcu_structs; i++ )
+          {
+            if ( count >= ptrbuf[1] ) break;
+            curr->addr = mod->srcu_struct_ptrs[i];
+            curr->per_cpu_off = (unsigned long)mod->srcu_struct_ptrs[i]->sda;
+            // for next iter
+            count++; curr++;
+          }
+          break;
+        }
+        mutex_unlock(s_module_mutex);
+        if ( !found ) { kfree(kbuf); return -ENOENT; }
+        kbuf_size = sizeof(unsigned long) + count * sizeof(struct one_srcu);
+        goto copy_kbuf_count;
+#endif
+       }
+      break; /* IOCTL_MODULE1_GUTS */
+
     case IOCTL_READ_MODULES:
        if ( !s_modules || !s_module_mutex ) return -ENOCSI;
        COPY_ARGS(2)
@@ -1339,10 +1376,16 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
             curr->addr = mod;
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(6,4,0)
             curr->base = mod->mem[MOD_TEXT].base;
+            curr->module_init = mod->mem[MOD_INIT_TEXT].base;
+            curr->init_size = mod->mem[MOD_INIT_TEXT].size;
 #elif LINUX_VERSION_CODE < KERNEL_VERSION(4,5,0)
             curr->base = mod->module_core;
+            curr->module_init = mod->module_init;
+            curr->init_size = mod->init_size;
 #else
             curr->base = mod->core_layout.base;
+            curr->module_init = mod->init_layout.base;
+            curr->init_size = mod->init_layout.size;
 #endif
             curr->init = mod->init;
 #ifdef CONFIG_MODULE_UNLOAD
@@ -1362,6 +1405,10 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
 #ifdef CONFIG_EVENT_TRACING
             curr->num_trace_events = mod->num_trace_events;
             curr->trace_events = (unsigned long)mod->trace_events;
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4,13,0)
+            curr->num_trace_evals = mod->num_trace_evals;
+            curr->trace_evals = (unsigned long)mod->trace_evals;
+#endif
 #endif
 #ifdef CONFIG_TREE_SRCU
             curr->num_srcu_structs = mod->num_srcu_structs;
@@ -1377,6 +1424,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
         }
        }
       break; /* IOCTL_READ_MODULES */
+#endif /* CONFIG_MODULES */
 
     case IOCTL_GET_NETDEV_CHAIN:
        COPY_ARGS(2)

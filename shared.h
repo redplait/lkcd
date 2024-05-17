@@ -1404,14 +1404,18 @@ struct one_module1
   void *base;
   void *init;
   void *exit;
+  void *module_init;
+  unsigned long init_size;
   unsigned int percpu_size;
   unsigned int num_tracepoints;
   unsigned int num_bpf_raw_events;
   unsigned int num_trace_events;
+  unsigned int num_trace_evals;
   unsigned int num_srcu_structs;
   unsigned long tracepoints_ptrs;
   unsigned long bpf_raw_events;
   unsigned long trace_events;
+  unsigned long trace_evals;
   unsigned long srcu_struct_ptrs;
 };
 
@@ -1422,6 +1426,17 @@ struct one_module1
 // out params:
 //  N + N * one_module or one_module1
 #define IOCTL_READ_MODULES                 _IOR(IOCTL_NUM, 0x5F, int*)
+
+struct one_srcu {
+  void *addr;
+  unsigned long per_cpu_off;
+};
+// extract additional info for some lkm
+// in params:
+//  0 address of module - from one_module1
+//  1 - size
+//  2 - type, currently only one_srcu
+#define IOCTL_MODULE1_GUTS                 _IOR(IOCTL_NUM, 0x6D, int*)
 
 struct one_priv
 {
@@ -1571,10 +1586,10 @@ struct one_input_dev
 // get name of input dev
 // in params:
 //  0 - add of input dev
-//  1 - length of buffer
-//  2 - 0 for name, 1 for phys, 2 for uniq
+//  1 - length of buffer (for type 3 - in items)
+//  2 - 0 for name, 1 for phys, 2 for uniq, 3 - special case to collect handlers
 // out params:
-// just string
+// just string, for type 3 - N + N * handlers ptrs
 #define IOCTL_INPUT_DEV_NAME                _IOR(IOCTL_NUM, 0x6C, int*)
 
 #endif /* LKCD_SHARED_H */
