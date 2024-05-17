@@ -1005,17 +1005,41 @@ void dump_pools(sa64 delta)
   );
 }
 
+int read_ioctled_name(void *addr, unsigned long len, char *buf, int _ctl)
+{
+  unsigned long *args = (unsigned long *)buf;
+  args[0] = (unsigned long)addr;
+  args[1] = len;
+  int err = ioctl(g_fd, _ctl, (int *)args);
+  return err ? 0 : 1;
+}
+
 void dump_slabs(sa64 delta)
 {
+  unsigned int args_size = 2 * sizeof(unsigned long);
+  char *name_buf = nullptr;
+  size_t name_len = 0;
   dump_data_noarg<one_slab>(delta, IOCTL_GET_SLABS, "IOCTL_GET_SLABS", "kmem_caches",
-   [=](size_t idx, const one_slab *sl) {
-     printf("[%ld] at ", idx);
+   [&](size_t idx, const one_slab *sl) {
+     printf("[%ld] at", idx);
      dump_unnamed_kptr((unsigned long)sl->addr, delta, true);
+     if ( sl->l_name ) {
+      auto cl = std::max(sl->l_name, args_size);
+      if ( cl > name_len ) {
+        if ( name_buf ) free(name_buf);
+        name_buf = (char *)malloc(cl);
+        if (name_buf) name_len = cl; else cl = name_len = 0;
+      }
+      if ( cl && read_ioctled_name(sl->addr, cl, name_buf, IOCTL_SLAB_NAME) ) {
+       printf(" Name: %s\n", name_buf);
+      }
+     }
      if ( sl->size ) printf(" size %d\n", sl->size);
      if ( sl->object_size ) printf(" object_size %d\n", sl->size);
      if ( sl->ctor ) dump_kptr(sl->ctor, "ctor", delta);
    }
   );
+  if ( name_buf ) free(name_buf);
 }
 
 template <typename T, typename F>
@@ -2032,15 +2056,6 @@ void dump_bpf_maps(a64 list, a64 lock, sa64 delta, std::map<void *, std::string>
   );
 }
 
-int read_input_handler_name(void *addr, unsigned long len, char *buf)
-{
-  unsigned long *args = (unsigned long *)buf;
-  args[0] = (unsigned long)addr;
-  args[1] = len;
-  int err = ioctl(g_fd, IOCTL_INPUT_HANDLER_NAME, (int *)args);
-  return err ? 0 : 1;
-}
-
 int read_input_dev_name(void *addr, unsigned long len, unsigned long what, char *buf)
 {
   unsigned long *args = (unsigned long *)buf;
@@ -2153,7 +2168,7 @@ void dump_input_handlers(sa64 delta, std::map<void *, std::string> &hmap)
         name_buf = (char *)malloc(cl);
         if (name_buf) name_len = cl; else cl = name_len = 0;
       }
-      if ( cl && read_input_handler_name(curr->addr, cl, name_buf) ) {
+      if ( cl && read_ioctled_name(curr->addr, cl, name_buf, IOCTL_INPUT_HANDLER_NAME) ) {
        printf("  Name: %s\n", name_buf);
        curr_name = name_buf;
       }
