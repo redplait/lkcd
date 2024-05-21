@@ -2,9 +2,13 @@
 #include <stdio.h>
 #include <getopt.h>
 #include <map>
+#include <list>
 #include "elfio/elfio.hpp"
 
 using namespace ELFIO;
+
+// from hd.cc
+extern void HexDump(unsigned char *From, int Len);
 
 // globals
 int g_hexdump = 0,
@@ -19,7 +23,8 @@ struct asymbol
   Elf_Half section;
   unsigned char bind = 0,
                 type = 0,
-                other = 0;
+                other = 0,
+                art = 0;  // is symbol artificial - no name, only addr - offset in section
   unsigned long xref = 0, // number of refs from ordinary sections
                 rref = 0; // number of refs from discardable sections
 };
@@ -57,6 +62,8 @@ class kotest
    int open(const char *);
    void process_relocs();
   protected:
+   void hdump(asymbol *sym);
+   asymbol *add_art(asection *, Elf_Sxword add);
    void process_relocs(int, section *);
 #define SNAME(i) reader.sections[i]->get_name().c_str()
    inline asection *by_sym(asymbol *sym)
@@ -66,6 +73,9 @@ class kotest
    }
    std::vector<asymbol *> syms;
    std::vector<asection *> sects;
+   // pls don't changle container type for artificial symbols
+   // std::list don't move objects so address will remain the same and can be used as value in asection::syms
+   std::list<asymbol> m_arts;
    Elf_Half n_sec;
    elfio reader;
 };
@@ -85,6 +95,48 @@ static int is_allowed(const char *sname)
   // it's legal to have ref from .gnu.linkonce.this_module to init_module function
   if ( !strcmp(sname, ".gnu.linkonce.this_module") ) return 1;
   return 0;
+}
+
+void kotest::hdump(asymbol *sym)
+{
+  // check section
+  if ( !sects[sym->section] ) return;
+  section *s = reader.sections[sym->section];
+  if ( !(s->get_flags() && 4) ) return; // bss?
+  auto ssize = s->get_size();
+  if ( !ssize ) return; // empty
+  if ( sym->addr >= ssize ) return; // out of content
+  int len = sym->size;
+  // check real symbol size
+  if ( !len )
+  {
+    // try next symbol
+    auto niter = sects[sym->section]->syms.upper_bound(sym->addr);
+    if ( niter != sects[sym->section]->syms.end() )
+      len = niter->second->addr - sym->addr;
+    else // till end of section
+      len = ssize - sym->addr;
+  }
+  // dump header
+  if ( !sym->art && !sym->name.empty() )
+    printf("%s size %X:\n", sym->name.c_str(), len);
+  else
+    printf("%s+%lX size %X\n", s->get_name().c_str(), sym->addr, len);
+  HexDump( (unsigned char *)(s->get_data() + sym->addr), len );
+}
+
+asymbol *kotest::add_art(asection *as, Elf_Sxword add)
+{
+  // check that section is not discardable
+  if ( as->discard ) return nullptr;
+  asymbol sym;
+  sym.art = 1;
+  sym.section = as->s;
+  sym.addr = add;
+  m_arts.push_back(sym);
+  auto res = &m_arts.back();
+  as->syms[add] = res;
+  return res;
 }
 
 kotest::~kotest()
@@ -158,6 +210,7 @@ void kotest::process_relocs(int sidx, section *s)
       }
       continue;
     }
+    printf("no symbol for reloc %d, offset %lX\n", i, offset);
   }
 }
 
