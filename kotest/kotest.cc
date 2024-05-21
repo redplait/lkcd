@@ -12,6 +12,7 @@ extern void HexDump(unsigned char *From, int Len);
 
 // globals
 int g_hexdump = 0,
+    g_with_bss = 0,
     g_debug = 0,
     g_verbose = 0;
 
@@ -65,6 +66,7 @@ class kotest
    void hdump(asymbol *sym);
    asymbol *add_art(asection *, Elf_Sxword add);
    int fix_art(asection *);
+   size_t calc_loss(asection *);
    void process_relocs(int, section *);
 #define SNAME(i) reader.sections[i]->get_name().c_str()
    inline asection *by_sym(asymbol *sym)
@@ -119,11 +121,28 @@ void kotest::hdump(asymbol *sym)
       len = ssize - sym->addr;
   }
   // dump header
+  auto data = s->get_data();
   if ( !sym->art && !sym->name.empty() )
-    printf("%s size %X:\n", sym->name.c_str(), len);
+    printf("%s!%s size %X:\n", s->get_name().c_str(), sym->name.c_str(), len);
   else
-    printf("%s+%lX size %X\n", s->get_name().c_str(), sym->addr, len);
-  HexDump( (unsigned char *)(s->get_data() + sym->addr), len );
+    printf("%s+%ld size %X\n", s->get_name().c_str(), sym->addr, len);
+  if ( data )
+    HexDump( (unsigned char *)(data + sym->addr), len );
+}
+
+size_t kotest::calc_loss(asection *as)
+{
+  size_t res = 0;
+  for ( auto si = as->syms.begin(); si != as->syms.end(); ++si )
+  {
+    if ( !si->second->rref ) continue;
+    if ( si->second->xref ) continue;
+    // we have symbol with refs only from discardable sections
+    if ( g_hexdump )
+     hdump(si->second);
+    res += si->second->size;
+  }
+  return res;
 }
 
 int kotest::fix_art(asection *as)
@@ -274,7 +293,7 @@ void kotest::process_relocs(int sidx, section *s)
     // check add
     if ( add < 0 )
     {
-      printf("Reloc %d type %d in section %s + %lX has negative offset %ld to section %s\n", i, rtype, SNAME(dest->s), offset, 
+      printf("Reloc %d type %d in section %s + %lX has negative offset %ld to section %s\n", i, rtype, SNAME(dest->s), offset,
         add, SNAME(dest->s));
       continue;
     }
@@ -317,6 +336,18 @@ void kotest::process_relocs()
     if ( !s || s->syms.empty() ) continue;
     fix_art(s);
   }
+  // and calculate size of symbols reffered from discardable sections only
+  size_t gain = 0;
+  for ( int i = 0; i < n_sec; ++i )
+  {
+    asection *s = sects[i];
+    if ( !s || s->syms.empty() || s->discard ) continue;
+    auto sec = reader.sections[s->s];
+    // skip bss
+    if ( sec->get_type() == SHT_NOBITS && !g_with_bss ) continue;
+    gain += calc_loss(s);
+  }
+  if ( gain ) printf("Total possibly gain %lX bytes\n", gain);
 }
 
 int kotest::open(const char *fname)
@@ -377,7 +408,9 @@ int kotest::open(const char *fname)
       asection *ds = sects[i];
       if ( ds )
       {
-        printf("Section %d (%s) discard %d\n", i, SNAME(i), ds->discard);
+        section* sec = reader.sections[ds->s];
+        printf("Section %d (%s) type %X flags %lX discard %d\n", i, SNAME(i), 
+         sec->get_type(), sec->get_flags(), ds->discard);
       }
     }
   }
@@ -449,6 +482,7 @@ void usage(const char *prog)
 {
   printf("%s usage: [options] lkm ...\n", prog);
   printf("Options:\n");
+  printf("-b - with .bss section (NOBITS)\n");
   printf("-d - debug moder\n");
   printf("-h - hexdump\n");
   printf("-v - verbose node\n");
@@ -460,10 +494,12 @@ int main(int argc, char **argv)
   int c;
   while(1)
   {
-    c = getopt(argc, argv, "dhv");
+    c = getopt(argc, argv, "bdhv");
     if ( c == -1 ) break;
     switch(c)
     {
+      case 'b': g_with_bss = 1;
+        break;
       case 'd': g_debug = 1;
         break;
       case 'h': g_hexdump = 1;
