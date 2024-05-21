@@ -64,6 +64,7 @@ class kotest
   protected:
    void hdump(asymbol *sym);
    asymbol *add_art(asection *, Elf_Sxword add);
+   int fix_art(asection *);
    void process_relocs(int, section *);
 #define SNAME(i) reader.sections[i]->get_name().c_str()
    inline asection *by_sym(asymbol *sym)
@@ -123,6 +124,41 @@ void kotest::hdump(asymbol *sym)
   else
     printf("%s+%lX size %X\n", s->get_name().c_str(), sym->addr, len);
   HexDump( (unsigned char *)(s->get_data() + sym->addr), len );
+}
+
+int kotest::fix_art(asection *as)
+{
+  int res = 0;
+  section *s = reader.sections[as->s];
+  auto iter = as->syms.begin();
+  asymbol *prev = iter->second;
+  auto debug = [=](const asymbol *prev, int res) {
+    if ( !res ) printf("Artificial symbols in %s:\n", s->get_name().c_str());
+    printf(" %lX size %ld xref %ld rref %ld\n", prev->addr, prev->size, prev->xref, prev->rref);
+  };
+  for ( ++iter; iter != as->syms.end(); ++iter )
+  {
+    if ( prev->art )
+    {
+      prev->size = iter->second->addr - prev->addr;
+      if ( g_debug ) debug(prev, res);
+      res++;
+    }
+    prev = iter->second;
+  }
+  // last one
+  if ( prev->art )
+  {
+    // find size of section
+    auto end = s->get_size();
+    if ( end > prev->addr )
+    {
+      prev->size = end - prev->addr;
+      if ( g_debug ) debug(prev, res);
+      res++;
+    }
+  }
+  return res;
 }
 
 asymbol *kotest::add_art(asection *as, Elf_Sxword add)
@@ -190,27 +226,72 @@ void kotest::process_relocs(int sidx, section *s)
       } else
         printf(" [%d] off %lX sym_idx %d add %ld\n", i, offset, sym_idx, add);
     }
-    // for just symbol refs just inc ref count
-    if ( sym )
-    {
+    if ( !sym ) {
+      printf("no symbol for reloc %d, sym_idx %d offset %lX\n", i, sym_idx, offset);
+      continue;
+    }
+    auto process = [=](asymbol *sym, asection *src) {
       if ( dest->discard ) sym->rref++;
       else {
         sym->xref++;
-        auto src = by_sym(sym);
         if ( src && src->discard && !dest->allowed )
         {
           auto pretty = dest->nearest(offset);
           if ( pretty )
-            printf("Warning: %s!%s refs tp symbol %s in discardable section %s\n", SNAME(dest->s), pretty->name.c_str(),
+            printf("Warning: %s!%s refs to symbol %s in discardable section %s\n", SNAME(dest->s), pretty->name.c_str(),
               sym->name.c_str(), SNAME(src->s));
           else
             printf("Warning: %s+%lX refs to symbol %s in discardable section %s\n", SNAME(dest->s), offset,
               sym->name.c_str(), SNAME(src->s));
         }
       }
+    };
+    // for just symbol refs just inc ref count
+    if ( sym->type != STT_SECTION )
+    {
+      process(sym, by_sym(sym));
       continue;
     }
-    printf("no symbol for reloc %d, offset %lX\n", i, offset);
+    // we have ref to section + add
+    auto src = by_sym(sym);
+    if ( !src ) {
+      printf("cannot find section with index %d for reloc %d, sym_idx %d offset %lX\n", sym->section, i, sym_idx, offset);
+      continue;
+    }
+    // try prev
+    auto prev = src->nearest(add);
+    if ( prev && !prev->art ) {
+      process(prev, src);
+      continue;
+    }
+    if ( prev && prev->addr == add ) {
+      // some already inserted artificial symbol
+      if ( dest->discard ) prev->rref++;
+      else prev->xref++;
+      continue; // no sense to report about ref to each artificial symbol - report will be dumped below on inserting
+    }
+    // printf("need add art to section %s + %lX\n", SNAME(src->s), add);
+    auto art = add_art(src, add);
+    if ( dest->discard ) {
+      if ( art ) art->rref++;
+      continue;
+    }
+    if ( art ) {
+      if ( dest->discard ) art->rref++;
+      else art->xref++;
+      continue;
+    }
+    // we here bcs art was not added - src is discardable
+    // check it's refered from normal section
+    if ( !dest->discard && !dest->allowed) {
+      auto pretty = dest->nearest(offset);
+      if ( pretty )
+        printf("Warning: %s!%s refs to symbol in discardable section %s + %lX\n", SNAME(dest->s), pretty->name.c_str(),
+          SNAME(src->s), add);
+      else
+        printf("Warning: %s+%lX refs to symbol in discardable section %s + %lX\n", SNAME(dest->s), offset,
+          SNAME(src->s), add);
+    }
   }
 }
 
@@ -221,6 +302,13 @@ void kotest::process_relocs()
     section *s = reader.sections[i];
     if ( s->get_type() == SHT_RELA || s->get_type() == SHT_REL )
      process_relocs(i, s);
+  }
+  // fix sizes of artificial symbols
+  for ( int i = 0; i < n_sec; ++i )
+  {
+    asection *s = sects[i];
+    if ( !s || s->syms.empty() ) continue;
+    fix_art(s);
   }
 }
 
