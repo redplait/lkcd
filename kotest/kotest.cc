@@ -132,7 +132,7 @@ int kotest::fix_art(asection *as)
   section *s = reader.sections[as->s];
   auto iter = as->syms.begin();
   asymbol *prev = iter->second;
-  auto debug = [=](const asymbol *prev, int res) {
+  auto debug = [s](const asymbol *prev, int res) {
     if ( !res ) printf("Artificial symbols in %s:\n", s->get_name().c_str());
     printf(" %lX size %ld xref %ld rref %ld\n", prev->addr, prev->size, prev->xref, prev->rref);
   };
@@ -271,6 +271,13 @@ void kotest::process_relocs(int sidx, section *s)
       continue; // no sense to report about ref to each artificial symbol - report will be dumped below on inserting
     }
     // printf("need add art to section %s + %lX\n", SNAME(src->s), add);
+    // check add
+    if ( add < 0 )
+    {
+      printf("Reloc %d type %d in section %s + %lX has negative offset %ld to section %s\n", i, rtype, SNAME(dest->s), offset, 
+        add, SNAME(dest->s));
+      continue;
+    }
     auto art = add_art(src, add);
     if ( dest->discard ) {
       if ( art ) art->rref++;
@@ -471,6 +478,7 @@ int main(int argc, char **argv)
   {
     kotest kt;
     if ( !kt.open(argv[i]) ) continue;
+    printf("%s:\n", argv[i]);
     kt.process_relocs();
   }
 }
