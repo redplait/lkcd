@@ -20,6 +20,7 @@ struct asymbol
 {
   std::string name;
   Elf64_Addr addr;
+  Elf_Xword idx = 0;
   Elf_Xword size = 0;
   Elf_Half section;
   unsigned char bind = 0,
@@ -62,7 +63,8 @@ class kotest
   public:
    ~kotest();
    int open(const char *);
-   void process_relocs();
+   void process_relocs(int);
+   void dump_symbols(int show_refs = 0) const;
   protected:
    void hdump(asymbol *sym);
    asymbol *add_art(asection *, Elf_Sxword add);
@@ -238,6 +240,8 @@ void kotest::process_relocs(int sidx, section *s)
     if ( sym_idx < syms.size() ) sym = syms[sym_idx];
     // skip refs to external (PLT?)
     if ( sym && sym->section == SHN_UNDEF ) continue;
+    // skip refs to absolute symbols
+    if ( sym && sym->section == SHN_ABS ) continue;
     // try to find symbol in dest section
     if ( g_debug ) {
       if ( sym )
@@ -250,7 +254,7 @@ void kotest::process_relocs(int sidx, section *s)
         printf(" [%d] off %lX sym_idx %d add %ld\n", i, offset, sym_idx, add);
     }
     if ( !sym ) {
-      printf("no symbol for reloc %d, sym_idx %d offset %lX\n", i, sym_idx, offset);
+      printf("no symbol for reloc %d in %s, sym_idx %d offset %lX\n", i, SNAME(dest->s), sym_idx, offset);
       continue;
     }
     auto process = [=](asymbol *sym, asection *src) {
@@ -279,6 +283,12 @@ void kotest::process_relocs(int sidx, section *s)
     auto src = by_sym(sym);
     if ( !src ) {
       printf("cannot find section with index %d for reloc %d, sym_idx %d offset %lX\n", sym->section, i, sym_idx, offset);
+      continue;
+    }
+    auto fiter = src->syms.find(add);
+    if ( fiter != src->syms.end() )
+    {
+      process(fiter->second, src);
       continue;
     }
     // try prev
@@ -325,7 +335,7 @@ void kotest::process_relocs(int sidx, section *s)
   }
 }
 
-void kotest::process_relocs()
+void kotest::process_relocs(int ds)
 {
   for ( int i = 0; i < n_sec; ++i )
   {
@@ -342,6 +352,7 @@ void kotest::process_relocs()
     if ( s->is_bss && !g_with_bss ) continue;
     fix_art(s);
   }
+  if ( ds ) dump_symbols(1);
   // and calculate size of symbols reffered from discardable sections only
   size_t gain = 0;
   for ( int i = 0; i < n_sec; ++i )
@@ -353,6 +364,29 @@ void kotest::process_relocs()
     gain += calc_loss(s);
   }
   if ( gain ) printf("Total possibly gain %ld bytes\n", gain);
+}
+
+void kotest::dump_symbols(int show_refs) const
+{
+  for ( auto s: sects )
+  {
+    if ( !s ) continue;
+    if ( s->syms.empty() ) continue;
+    if ( s->is_bss && !g_with_bss ) continue;
+    printf("Symbols in %s:\n", SNAME(s->s));
+    for ( auto sym: s->syms )
+    {
+      if ( sym.second->art )
+        printf(" Off %lX art size %ld", sym.first, sym.second->size);
+      else
+        printf(" Off %lX %s (idx %ld) type %d size %ld", sym.first, sym.second->name.c_str(), sym.second->idx,
+          sym.second->type, sym.second->size);
+      if ( show_refs )
+        printf(" rref %ld xref %ld\n", sym.second->rref, sym.second->xref);
+      else
+        putc('\n', stdout);
+    }
+  }
 }
 
 int kotest::open(const char *fname)
@@ -437,15 +471,15 @@ int kotest::open(const char *fname)
     Elf_Half      _section = 0;
     unsigned char other   = 0;
     symbols.get_symbol( i, name, value, size, bind, type, _section, other );
-    if ( type == STT_FILE ) continue;
-    if ( _section >= sects.size() )
+    if ( type == STT_FILE ) continue; // ignore file symbols
+    if ( _section != SHN_ABS && _section >= sects.size() )
     {
       printf("warning: symbol %ld (%s) has too big section index %d\n", i, name.c_str(), _section);
       continue;
     }
     asection *ss = nullptr;
     // https://docs.oracle.com/cd/E23824_01/html/819-0690/chapter6-79797.html#scrolltoc
-    if ( _section != SHN_UNDEF )
+    if ( _section != SHN_UNDEF && _section != SHN_ABS )
     {
       if ( !sects[ _section ] ) continue;
       ss = sects[ _section ];
@@ -469,12 +503,13 @@ int kotest::open(const char *fname)
     asymbol *as = new asymbol;
     as->name = name;
     as->addr = value;
+    as->idx = sym_no;
     as->size = size;
     as->section = _section;
     as->bind = bind;
     as->type = type;
     syms[i] = as;
-    if ( ss && type != STT_SECTION )
+    if ( ss && type != STT_SECTION && _section != SHN_ABS )
     {
       auto added = ss->syms.find(value);
       if ( added == ss->syms.end() )
@@ -497,13 +532,15 @@ void usage(const char *prog)
 
 int main(int argc, char **argv)
 {
-  int c;
+  int ds = 0, c;
   while(1)
   {
-    c = getopt(argc, argv, "bdhv");
+    c = getopt(argc, argv, "Sbdhv");
     if ( c == -1 ) break;
     switch(c)
     {
+      case 'S': ds = 1;
+        break;
       case 'b': g_with_bss = 1;
         break;
       case 'd': g_debug = 1;
@@ -521,6 +558,7 @@ int main(int argc, char **argv)
     kotest kt;
     if ( !kt.open(argv[i]) ) continue;
     printf("%s:\n", argv[i]);
-    kt.process_relocs();
+    if ( ds ) kt.dump_symbols();
+    kt.process_relocs(ds);
   }
 }
