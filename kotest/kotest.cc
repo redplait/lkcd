@@ -490,6 +490,8 @@ int kotest::open(const char *fname)
     {
       if ( _section == SHN_UNDEF )
        printf("[%ld] %s UND\n", i, name.c_str());
+      else if ( _section == SHN_ABS )
+       printf("[%ld] %s ABS\n", i, name.c_str());
       else {
         if ( size )
           printf("[%ld] %s type %d sec %d (%s) addr %lX, size %lX\n", i, name.c_str(), type,
