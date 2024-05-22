@@ -53,7 +53,7 @@ struct asection
     if ( fiter == syms.begin() ) return nullptr; // addr < most left known symbol in section
     fiter--;
     if ( fiter == syms.end() ) return nullptr; // no previous symbol
-    if ( fiter->second->addr >= addr && (fiter->second->addr + fiter->second->size) < addr ) return fiter->second;
+    if ( addr >= fiter->second->addr && (fiter->second->addr + fiter->second->size) > addr ) return fiter->second;
     return nullptr;
   }
 };
