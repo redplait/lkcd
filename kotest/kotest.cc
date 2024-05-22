@@ -20,7 +20,7 @@ struct asymbol
 {
   std::string name;
   Elf64_Addr addr;
-  Elf_Xword size;
+  Elf_Xword size = 0;
   Elf_Half section;
   unsigned char bind = 0,
                 type = 0,
@@ -141,6 +141,9 @@ size_t kotest::calc_loss(asection *as)
     // we have symbol with refs only from discardable sections
     if ( g_hexdump )
      hdump(si->second);
+    if ( g_verbose )
+      printf("%s + %lX (%s) rref %ld xref %ld add size %ld\n", SNAME(si->second->section), si->first, si->second->name.c_str(),
+        si->second->rref, si->second->xref, si->second->size);
     res += si->second->size;
   }
   return res;
@@ -412,8 +415,8 @@ int kotest::open(const char *fname)
       if ( ds )
       {
         section* sec = reader.sections[ds->s];
-        printf("Section %d (%s) type %X flags %lX discard %d\n", i, SNAME(i), 
-         sec->get_type(), sec->get_flags(), ds->discard);
+        printf("Section %d (%s) type %X flags %lX size %ld discard %d\n", i, SNAME(i),
+         sec->get_type(), sec->get_flags(), sec->get_size(), ds->discard ? 1 : 0);
       }
     }
   }
@@ -471,7 +474,7 @@ int kotest::open(const char *fname)
     as->bind = bind;
     as->type = type;
     syms[i] = as;
-    if ( ss )
+    if ( ss && type != STT_SECTION )
     {
       auto added = ss->syms.find(value);
       if ( added == ss->syms.end() )
