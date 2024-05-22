@@ -40,8 +40,9 @@ struct areloc
 
 struct asection
 {
-  char discard = 0;
-  char allowed = 0;
+  short discard:1,
+        allowed:1,
+        is_bss:1;
   Elf_Half s; // section index
   std::map<Elf64_Addr, asymbol *> syms;
   asymbol *nearest(Elf64_Addr addr)
@@ -334,6 +335,8 @@ void kotest::process_relocs()
   {
     asection *s = sects[i];
     if ( !s || s->syms.empty() ) continue;
+    // skip bss
+    if ( s->is_bss && !g_with_bss ) continue;
     fix_art(s);
   }
   // and calculate size of symbols reffered from discardable sections only
@@ -342,12 +345,11 @@ void kotest::process_relocs()
   {
     asection *s = sects[i];
     if ( !s || s->syms.empty() || s->discard ) continue;
-    auto sec = reader.sections[s->s];
     // skip bss
-    if ( sec->get_type() == SHT_NOBITS && !g_with_bss ) continue;
+    if ( s->is_bss && !g_with_bss ) continue;
     gain += calc_loss(s);
   }
-  if ( gain ) printf("Total possibly gain %lX bytes\n", gain);
+  if ( gain ) printf("Total possibly gain %ld bytes\n", gain);
 }
 
 int kotest::open(const char *fname)
@@ -385,6 +387,7 @@ int kotest::open(const char *fname)
       sects[i]->s = i;
       sects[i]->discard = is_discardable(sec->get_name().c_str());
       sects[i]->allowed = is_allowed(sec->get_name().c_str());
+      sects[i]->is_bss = (sec->get_type() == SHT_NOBITS);
       if ( sects[i]->discard ) num_disc++;
     }
   }
