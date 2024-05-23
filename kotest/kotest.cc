@@ -133,7 +133,7 @@ void kotest::hdump(asymbol *sym)
   if ( !sym->art && !sym->name.empty() )
     printf("%s!%s size %X:\n", s->get_name().c_str(), sym->name.c_str(), len);
   else
-    printf("%s+%ld size %X\n", s->get_name().c_str(), sym->addr, len);
+    printf("%s+%lX size %X\n", s->get_name().c_str(), sym->addr, len);
   if ( data )
     HexDump( (unsigned char *)(data + sym->addr), len );
 }
@@ -266,11 +266,11 @@ void kotest::process_relocs(int sidx, section *s)
       if ( sym )
       {
         if ( sym->type == STT_SECTION )
-         printf(" [%d] off %lX section %s + %ld\n", i, offset, sym->name.c_str(), add);
+         printf(" [%d] off %lX section %s + %lX\n", i, offset, sym->name.c_str(), add);
         else
-          printf(" [%d] off %lX sym %s + %ld\n", i, offset, sym->name.c_str(), add);
+          printf(" [%d] off %lX sym %s + %lX\n", i, offset, sym->name.c_str(), add);
       } else
-        printf(" [%d] off %lX sym_idx %d add %ld\n", i, offset, sym_idx, add);
+        printf(" [%d] off %lX sym_idx %d add %lX\n", i, offset, sym_idx, add);
     }
     if ( !sym ) {
       printf("no symbol for reloc %d in %s, sym_idx %d offset %lX\n", i, SNAME(dest->s), sym_idx, offset);
@@ -328,6 +328,10 @@ void kotest::process_relocs(int sidx, section *s)
     {
       printf("Reloc %d type %d in section %s + %lX has negative offset %ld to section %s\n", i, rtype, SNAME(inf), offset,
         add, SNAME(src->s));
+      // check symbol at section + 0
+      fiter = src->syms.find(0);
+      if ( fiter != src->syms.end() )
+        process(fiter->second, src);
       continue;
     }
     art_symbol *art = add_art(src, add);
