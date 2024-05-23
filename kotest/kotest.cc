@@ -35,8 +35,13 @@ struct areloc
 {
   int sec_idx;
   Elf64_Addr addr;
-  struct asymbol *sym;
+  struct asymbol *sym = nullptr;
   unsigned type;
+};
+
+struct art_symbol {
+  asymbol sym;
+  areloc track;
 };
 
 struct asection
@@ -67,7 +72,7 @@ class kotest
    void dump_symbols(int show_refs = 0) const;
   protected:
    void hdump(asymbol *sym);
-   asymbol *add_art(asection *, Elf_Sxword add);
+   art_symbol *add_art(asection *, Elf_Sxword add);
    int fix_art(asection *);
    size_t calc_loss(asection *);
    void process_relocs(int, section *);
@@ -81,7 +86,7 @@ class kotest
    std::vector<asection *> sects;
    // pls don't changle container type for artificial symbols
    // std::list don't move objects so address will remain the same and can be used as value in asection::syms
-   std::list<asymbol> m_arts;
+   std::list<art_symbol> m_arts;
    Elf_Half n_sec;
    elfio reader;
 };
@@ -144,8 +149,22 @@ size_t kotest::calc_loss(asection *as)
     if ( g_hexdump )
      hdump(si->second);
     if ( g_verbose )
-      printf("%s + %lX (%s) rref %ld xref %ld add size %ld\n", SNAME(si->second->section), si->first, si->second->name.c_str(),
+    {
+      printf("%s + %lX", SNAME(si->second->section), si->first);
+      if ( si->second->art )
+      {
+        art_symbol *ars = (art_symbol *)si->second;
+        printf(" rref %ld xref %ld add size %ld", si->second->rref, si->second->xref, si->second->size);
+        // we have track where this artificail symbol was reffered - it can be symbol or section + offset
+        if ( ars->track.sym )
+          printf(" <- %s", ars->track.sym->name.c_str());
+        else
+          printf(" <- %s + %lX", SNAME(ars->track.sec_idx), ars->track.addr);
+        putc('\n', stdout);
+      } else
+      printf(" (%s) rref %ld xref %ld add size %ld\n", si->second->name.c_str(),
         si->second->rref, si->second->xref, si->second->size);
+    }
     res += si->second->size;
   }
   return res;
@@ -186,17 +205,17 @@ int kotest::fix_art(asection *as)
   return res;
 }
 
-asymbol *kotest::add_art(asection *as, Elf_Sxword add)
+art_symbol *kotest::add_art(asection *as, Elf_Sxword add)
 {
   // check that section is not discardable
   if ( as->discard ) return nullptr;
-  asymbol sym;
-  sym.art = 1;
-  sym.section = as->s;
-  sym.addr = add;
+  art_symbol sym, *res;
+  sym.sym.art = 1;
+  sym.sym.section = as->s;
+  sym.sym.addr = add;
   m_arts.push_back(sym);
-  auto res = &m_arts.back();
-  as->syms[add] = res;
+  res = &m_arts.back();
+  as->syms[add] = &res->sym;
   return res;
 }
 
@@ -307,22 +326,29 @@ void kotest::process_relocs(int sidx, section *s)
     // check add
     if ( add < 0 )
     {
-      printf("Reloc %d type %d in section %s + %lX has negative offset %ld to section %s\n", i, rtype, SNAME(dest->s), offset,
-        add, SNAME(dest->s));
+      printf("Reloc %d type %d in section %s + %lX has negative offset %ld to section %s\n", i, rtype, SNAME(inf), offset,
+        add, SNAME(src->s));
       continue;
     }
-    auto art = add_art(src, add);
+    art_symbol *art = add_art(src, add);
+    if ( art && g_verbose )
+    { // for verbose mode store track where it referred to for first time
+      art->track.sec_idx = inf;
+      art->track.addr = offset;
+      art->track.type = rtype;
+      art->track.sym = dest->nearest(offset);
+    }
     if ( dest->discard ) {
-      if ( art ) art->rref++;
+      if ( art ) art->sym.rref++;
       continue;
     }
     if ( art ) {
-      if ( dest->discard ) art->rref++;
-      else art->xref++;
+      if ( dest->discard ) art->sym.rref++;
+      else art->sym.xref++;
       continue;
     }
     // we here bcs art was not added - src is discardable
-    // check it's refered from normal section
+    // check it's referred from normal section
     if ( !dest->discard && !dest->allowed) {
       auto pretty = dest->nearest(offset);
       if ( pretty )
@@ -382,8 +408,10 @@ void kotest::dump_symbols(int show_refs) const
         printf(" Off %lX %s (idx %ld) type %d size %ld", sym.first, sym.second->name.c_str(), sym.second->idx,
           sym.second->type, sym.second->size);
       if ( show_refs )
+      {
+        if ( sym.second->art ) printf(" %p", sym.second);
         printf(" rref %ld xref %ld\n", sym.second->rref, sym.second->xref);
-      else
+      } else
         putc('\n', stdout);
     }
   }
