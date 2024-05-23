@@ -105,6 +105,12 @@ static int is_allowed(const char *sname)
 {
   // it's legal to have ref from .gnu.linkonce.this_module to init_module function
   if ( !strcmp(sname, ".gnu.linkonce.this_module") ) return 1;
+  // apply_alternatives called from module_finalize <- post_relocation <- load_module before do_init_module
+  if ( !strcmp(sname, ".altinstructions") ) return 1;
+  // apply_retpolines called from the same module_finalize
+  if ( !strcmp(sname, ".retpoline_sites") ) return 1;
+  // apply_returns called from the same module_finalize
+  if ( !strcmp(sname, ".return_sites") ) return 1;
   return 0;
 }
 
