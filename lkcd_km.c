@@ -3058,7 +3058,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
        }
       break; /* IOCTL_CNT_KPROBE_BUCKET */
 
-     case IOCTL_KPROES_BLACKLIST:
+     case IOCTL_KPROBES_BLACKLIST:
        if ( !s_kprobe_blacklist ) return -ENOCSI;
        COPY_ARGS(2)
        if ( !ptrbuf[0] ) return -EINVAL;

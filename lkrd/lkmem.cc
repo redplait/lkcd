@@ -3690,7 +3690,7 @@ void dump_kprobes(sa64 delta)
     printf("cannot find kprobe_mutex\n");
     return;
   }
-  dump_data1arg<one_bl_kprobe>(a2, delta, IOCTL_KPROES_BLACKLIST, nullptr, "IOCTL_KPROES_BLACKLIST", "kprobes blacklist",
+  dump_data1arg<one_bl_kprobe>(a2, delta, IOCTL_KPROBES_BLACKLIST, nullptr, "IOCTL_KPROBES_BLACKLIST", "kprobes blacklist",
    [delta](int idx, const one_bl_kprobe *bl) {
      printf(" [%d] size %lX", idx, bl->end - bl->start);
      dump_unnamed_kptr(bl->start, delta, true);
