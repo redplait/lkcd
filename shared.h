@@ -128,6 +128,19 @@ struct one_tracepoint_func
 // in param 0 - 1 to install, 0 to remove
 #define IOCTL_TEST_KPROBE              _IOR(IOCTL_NUM, 0x11, int*)
 
+struct one_bl_kprobe
+{
+  unsigned long start, end;
+};
+
+// get kprobe blacklist
+// in params:
+//  0 - kprobe_mutex address
+//  1 - cnt
+// out params:
+// N + N * one_bl_kprobe
+#define IOCTL_KPROES_BLACKLIST         _IOR(IOCTL_NUM, 0x6F, int*)
+
 // get cnt of kprobes for kprobe_table[index]
 // in params:
 //  0 - kprobe_table address

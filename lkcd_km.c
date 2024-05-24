@@ -3058,6 +3058,43 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
        }
       break; /* IOCTL_CNT_KPROBE_BUCKET */
 
+     case IOCTL_KPROES_BLACKLIST:
+       if ( !s_kprobe_blacklist ) return -ENOCSI;
+       COPY_ARGS(2)
+       if ( !ptrbuf[0] ) return -EINVAL;
+       else if ( !ptrbuf[1] )
+       { // calc count
+         struct mutex *m = (struct mutex *)ptrbuf[0];
+         struct kprobe_blacklist_entry *ent;
+         mutex_lock(m);
+         list_for_each_entry(ent, s_kprobe_blacklist, list)
+           count++;
+         mutex_unlock(m);
+         goto copy_count;
+       } else {
+         struct mutex *m = (struct mutex *)ptrbuf[0];
+         struct kprobe_blacklist_entry *ent;
+         struct one_bl_kprobe *curr;
+         kbuf_size = sizeof(unsigned long) + ptrbuf[1] * sizeof(struct one_bl_kprobe);
+         kbuf = (unsigned long *)kzalloc(kbuf_size, GFP_KERNEL);
+         if ( !kbuf ) return -ENOMEM;
+         curr = (struct one_bl_kprobe *)(kbuf + 1);
+         // lock
+         mutex_lock(m);
+         list_for_each_entry(ent, s_kprobe_blacklist, list)
+         {
+           if ( count >= ptrbuf[1] ) break;
+           curr->start = ent->start_addr;
+           curr->end = ent->end_addr;
+           count++; curr++;
+         }
+         // unlock
+         mutex_unlock(m);
+         kbuf_size = sizeof(unsigned long) + count * sizeof(struct one_bl_kprobe);
+         goto copy_kbuf_count;
+       }
+      break;
+
      case IOCTL_GET_AGGR_KPROBE:
        COPY_ARGS(5)
        else {
@@ -3210,8 +3247,6 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
            // copy to user
            goto copy_kbuf;
          }
-         if ( kbuf )
-           kfree(kbuf);
        }
       break; /* IOCTL_GET_KPROBE_BUCKET */
 #endif /* CONFIG_KPROBES */
