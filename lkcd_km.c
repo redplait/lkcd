@@ -951,6 +951,7 @@ static struct kprobe test_kp = {
 };
 
 static unsigned long kprobe_aggr = 0;
+static struct list_head *s_kprobe_blacklist = 0;
 
 // ripped from kernel/kprobes.c
 static int is_krpobe_aggregated(struct kprobe *p)
@@ -1413,6 +1414,12 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
 #ifdef CONFIG_TREE_SRCU
             curr->num_srcu_structs = mod->num_srcu_structs;
             curr->srcu_struct_ptrs = (unsigned long)mod->srcu_struct_ptrs;
+#endif
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5,8,0) && defined(CONFIG_KPROBES)
+            curr->kprobes_text_start = (unsigned long)mod->kprobes_text_start;
+            curr->kprobes_text_size = mod->kprobes_text_size;
+            curr->kprobe_blacklist = (unsigned long)mod->kprobe_blacklist;
+            curr->num_kprobe_blacklist = mod->num_kprobe_blacklist;
 #endif
             // for next module
             count++;
@@ -6561,6 +6568,8 @@ init_module (void)
 #endif /* CONFIG_INPUT */
 #ifdef CONFIG_KPROBES
   kprobe_aggr = (unsigned long)lkcd_lookup_name("aggr_pre_handler");
+  s_kprobe_blacklist = (struct list_head *)lkcd_lookup_name("kprobe_blacklist");
+  REPORT(s_kprobe_blacklist, "kprobe_blacklist");
 #endif
 #ifdef CONFIG_UPROBES
   find_uprobe_ptr = (find_uprobe)lkcd_lookup_name("find_uprobe");

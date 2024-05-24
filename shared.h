@@ -1412,11 +1412,16 @@ struct one_module1
   unsigned int num_trace_events;
   unsigned int num_trace_evals;
   unsigned int num_srcu_structs;
+  unsigned int kprobes_text_size;
+  unsigned int num_kprobe_blacklist;
   unsigned long tracepoints_ptrs;
   unsigned long bpf_raw_events;
   unsigned long trace_events;
   unsigned long trace_evals;
   unsigned long srcu_struct_ptrs;
+  // since 5.8.0
+  unsigned long kprobes_text_start;
+  unsigned long kprobe_blacklist;
 };
 
 // wrapper to read /proc/modules from non-root
