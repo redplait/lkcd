@@ -1052,7 +1052,10 @@ void dump_data1arg(a64 list, sa64 delta, int code, const char *header, const cha
     printf("%s count failed, error %d (%s)\n", ioctl_name, errno, strerror(errno));
     return;
   }
-  printf("\n%s at %p: %ld\n", header, (void *)(list + delta), args[0]);
+  if ( header )
+    printf("\n%s at %p: %ld\n", header, (void *)(list + delta), args[0]);
+  else
+    printf("\n%ld %s\n", args[0], bname);
   if ( !args[0] )
     return;
   size_t size = calc_data_size<T>(args[0]);
@@ -3687,6 +3690,12 @@ void dump_kprobes(sa64 delta)
     printf("cannot find kprobe_mutex\n");
     return;
   }
+  dump_data1arg<one_bl_kprobe>(a2, delta, IOCTL_KPROES_BLACKLIST, nullptr, "IOCTL_KPROES_BLACKLIST", "kprobes blacklist",
+   [delta](int idx, const one_bl_kprobe *bl) {
+     printf(" [%d] size %lX", idx, bl->end - bl->start);
+     dump_unnamed_kptr(bl->start, delta, true);
+   }
+  );
   size_t curr_n = 3;
   size_t ksize = calc_data_size<one_kprobe>(curr_n);
   unsigned long *buf = (unsigned long *)malloc(ksize);
@@ -4590,6 +4599,14 @@ void dump_mods(sa64 delta, int opt_t)
     if ( curr->num_trace_evals ) {
       dump_kptr(curr->trace_evals, "trace_evals", 0);
       printf(" num_trace_evals: %ld\n", curr->num_trace_evals);
+    }
+    if ( curr->num_kprobe_blacklist ) {
+      dump_kptr(curr->kprobe_blacklist, "kprobe_blacklist", 0);
+      printf(" num_kprobe_blacklist: %ld\n", curr->num_kprobe_blacklist);
+    }
+    if ( curr->kprobes_text_start ) {
+      dump_kptr(curr->kprobes_text_start, "kprobes_text_start", 0);
+      printf(" kprobes_text_size: %lX\n", curr->kprobes_text_size);
     }
   }
 }
