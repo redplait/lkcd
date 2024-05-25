@@ -1,3 +1,4 @@
 #!awk -f
-$0 ~ /Total possibly gain / { total += $4 }
-END { print total }
+/Total possibly gain / { total += $4 }
+/Size of moveable sections/ { smove += $5 }
+END { print total; print smove }

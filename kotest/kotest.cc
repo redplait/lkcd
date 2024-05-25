@@ -3,6 +3,7 @@
 #include <getopt.h>
 #include <map>
 #include <list>
+#include <set>
 #include "elfio/elfio.hpp"
 
 using namespace ELFIO;
@@ -70,6 +71,7 @@ class kotest
    int open(const char *);
    void process_relocs(int);
    void dump_symbols(int show_refs = 0) const;
+   size_t s_moved_size = 0;
   protected:
    void hdump(asymbol *sym);
    art_symbol *add_art(asection *, Elf_Sxword add);
@@ -98,6 +100,10 @@ static int is_discardable(const char *sname)
   if ( !strcmp(sname, ".init.text") ) return 1;
   if ( !strcmp(sname, ".init.data") ) return 1;
   if ( !strcmp(sname, ".init.rodata") ) return 1;
+  // from https://elixir.bootlin.com/linux/v6.8.10/source/kernel/module/main.c#L2118
+  if ( !strcmp(sname, ".init_array") ) return 1;
+  // aarch64 specific - processing in scs_patch <- module_finalize
+  if ( !strcmp(sname, ".init.eh_frame") ) return 1;
   return 0;
 }
 
@@ -107,11 +113,41 @@ static int is_allowed(const char *sname)
   if ( !strcmp(sname, ".gnu.linkonce.this_module") ) return 1;
   // apply_alternatives called from module_finalize <- post_relocation <- load_module before do_init_module
   if ( !strcmp(sname, ".altinstructions") ) return 1;
+  // under risc-v this section called .alternative and processing in apply_module_alternatives <- module_finalize
+  if ( !strcmp(sname, ".alternative") ) return 1;
   // apply_retpolines called from the same module_finalize
   if ( !strcmp(sname, ".retpoline_sites") ) return 1;
   // apply_returns called from the same module_finalize
   if ( !strcmp(sname, ".return_sites") ) return 1;
+  // powerpc specific sections - do_feature_fixups & do_lwsync_fixups called from module_finalize
+  if ( !strcmp(sname, "__ftr_fixup" ) ||
+       !strcmp(sname, "__mmu_ftr_fixup") ||
+       !strcmp(sname, "__fw_ftr_fixup") ||
+       !strcmp(sname, "__lwsync_fixup") )
+    return 1;
+  // s390 specific sections - processing in nospec_revert <- from module_finalize
+  if ( !strcmp(sname, ".s390_indirect") ||
+       !strcmp(sname, ".s390_return") )
+    return 1;
   return 0;
+}
+
+// set of sections which could well be in discardable memory
+static std::set<std::string> s_can_move = {
+ ".ctors",
+ ".altinstructions",
+ ".alternative",
+ ".retpoline_sites", ".return_sites",
+ // powerpc specific
+ "__ftr_fixup", "__mmu_ftr_fixup", "__fw_ftr_fixup", "__lwsync_fixup",
+ // s390 specific
+ ".s390_indirect", ".s390_return"
+};
+
+int can_move(const std::string &name)
+{
+ auto si = s_can_move.find(name);
+ return si != s_can_move.end();
 }
 
 void kotest::hdump(asymbol *sym)
@@ -322,6 +358,8 @@ void kotest::process_relocs(int sidx, section *s)
       process(prev, src);
       continue;
     }
+    // gcc gives here stupid warning: comparison of integer expressions of different signedness
+    // you can ignore it bcs if we found prev - both prev->addr & add must be > 0
     if ( prev && prev->addr == add ) {
       // some already inserted artificial symbol
       if ( dest->discard ) prev->rref++;
@@ -464,6 +502,11 @@ int kotest::open(const char *fname)
       sects[i]->allowed = is_allowed(sec->get_name().c_str());
       sects[i]->is_bss = (sec->get_type() == SHT_NOBITS);
       if ( sects[i]->discard ) num_disc++;
+      if ( can_move(sec->get_name()) ) {
+        if ( g_verbose )
+          printf("Section %s can be placed in discardable memory, size %lX\n", sec->get_name().c_str(), sec->get_size());
+        s_moved_size += sec->get_size();
+      }
     }
   }
   if ( !sym_sec )
@@ -600,5 +643,6 @@ int main(int argc, char **argv)
     printf("%s:\n", argv[i]);
     if ( ds ) kt.dump_symbols();
     kt.process_relocs(ds);
+    if ( kt.s_moved_size ) printf("Size of moveable sections %ld\n", kt.s_moved_size);
   }
 }
