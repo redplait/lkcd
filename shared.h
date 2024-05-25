@@ -1427,6 +1427,7 @@ struct one_module1
   unsigned int num_srcu_structs;
   unsigned int kprobes_text_size;
   unsigned int num_kprobe_blacklist;
+  unsigned int num_ei_funcs;
   unsigned long tracepoints_ptrs;
   unsigned long bpf_raw_events;
   unsigned long trace_events;
@@ -1435,6 +1436,8 @@ struct one_module1
   // since 5.8.0
   unsigned long kprobes_text_start;
   unsigned long kprobe_blacklist;
+  // CONFIG_FUNCTION_ERROR_INJECTION, since 4.16
+  unsigned long ei_funcs;
 };
 
 // wrapper to read /proc/modules from non-root

@@ -149,6 +149,11 @@ static struct list_head *s_input_dev_list = 0;
 static struct mutex *s_input_mutex = 0;
 #endif
 
+#ifdef CONFIG_DYNAMIC_DEBUG
+static struct list_head *s_ddebug_tables = 0;
+static struct mutex *s_ddebug_lock = 0;
+#endif
+
 typedef int (*my_mprotect_pkey)(unsigned long start, size_t len, unsigned long prot, int pkey);
 static my_mprotect_pkey s_mprotect = 0;
 
@@ -1420,6 +1425,10 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
             curr->kprobes_text_size = mod->kprobes_text_size;
             curr->kprobe_blacklist = (unsigned long)mod->kprobe_blacklist;
             curr->num_kprobe_blacklist = mod->num_kprobe_blacklist;
+#endif
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4,16,0) && defined(CONFIG_FUNCTION_ERROR_INJECTION)
+            curr->ei_funcs = (unsigned long)mod->ei_funcs;
+            curr->num_ei_funcs = mod->num_ei_funcs;
 #endif
             // for next module
             count++;
@@ -6605,14 +6614,20 @@ init_module (void)
   kprobe_aggr = (unsigned long)lkcd_lookup_name("aggr_pre_handler");
   s_kprobe_blacklist = (struct list_head *)lkcd_lookup_name("kprobe_blacklist");
   REPORT(s_kprobe_blacklist, "kprobe_blacklist");
-#endif
+#endif /* CONFIG_KPROBES */
 #ifdef CONFIG_UPROBES
   find_uprobe_ptr = (find_uprobe)lkcd_lookup_name("find_uprobe");
   get_uprobe_ptr = (get_uprobe)lkcd_lookup_name("get_uprobe");
   if ( !get_uprobe_ptr ) get_uprobe_ptr = my_get_uprobe;
   put_uprobe_ptr = (put_uprobe)lkcd_lookup_name("put_uprobe");
   REPORT(put_uprobe_ptr, "put_uprobe")
-#endif
+#endif /* CONFIG_UPROBES */
+#ifdef CONFIG_DYNAMIC_DEBUG
+  s_ddebug_tables = (struct list_head *)lkcd_lookup_name("ddebug_tables");
+  REPORT(s_ddebug_tables, "ddebug_tables")
+  s_ddebug_lock = (struct mutex *)lkcd_lookup_name("ddebug_lock");
+  REPORT(s_ddebug_lock, "ddebug_lock")
+#endif /* CONFIG_DYNAMIC_DEBUG */
 #ifdef HAS_ARM64_THUNKS
   bti_thunks_lock_ro();
 #endif
