@@ -86,8 +86,8 @@ class kotest
    }
    std::vector<asymbol *> syms;
    std::vector<asection *> sects;
-   // pls don't changle container type for artificial symbols
-   // std::list don't move objects so address will remain the same and can be used as value in asection::syms
+   // pls don't change container type for artificial symbols
+   // std::list don't move objects while resizing so addresses will remain the same and can be used as value in asection::syms
    std::list<art_symbol> m_arts;
    Elf_Half n_sec;
    elfio reader;
@@ -145,7 +145,7 @@ static std::set<std::string> s_can_move = {
  ".s390_indirect", ".s390_return"
 };
 
-int can_move(const std::string &name)
+inline int can_move(const std::string &name)
 {
  auto si = s_can_move.find(name);
  return si != s_can_move.end();
