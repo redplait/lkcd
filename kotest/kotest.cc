@@ -104,7 +104,8 @@ static int is_discardable(const char *sname)
   if ( !strcmp(sname, ".init_array") ) return 1;
   // aarch64 specific - processing in scs_patch <- module_finalize
   if ( !strcmp(sname, ".init.eh_frame") ) return 1;
-  return 0;
+  // enulate module_init_section function from kernel/module/main.c
+  return 0 == strncmp(sname, ".init", 5);
 }
 
 static int is_allowed(const char *sname)
