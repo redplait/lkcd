@@ -986,6 +986,19 @@ printf("%s size %ld\n", bname, size);
   }
 }
 
+void dump_binfmt(sa64 delta)
+{
+  dump_data_noarg<one_binfmt>(delta, IOCTL_BINFMT, "IOCTL_BINFMT", "binfmts",
+   [=](size_t idx, const one_binfmt *zp) {
+    printf("[%ld] at ", idx);
+    dump_unnamed_kptr((unsigned long)zp->addr, delta, true);
+    if ( zp->mod ) printf(" owner: %p\n", zp->mod);
+    if ( zp->load_binary ) dump_kptr((unsigned long)zp->load_binary, "load_binary", delta);
+    if ( zp->load_shlib ) dump_kptr((unsigned long)zp->load_shlib, "load_shlib", delta);
+    if ( zp->core_dump ) dump_kptr((unsigned long)zp->core_dump, "core_dump", delta);
+   });
+}
+
 void dump_pools(sa64 delta)
 {
   dump_data_noarg<one_zpool>(delta, IOCTL_GET_ZPOOL_DRV, "IOCTL_GET_ZPOOL_DRV", "zpool_drivers",
@@ -4608,6 +4621,11 @@ void dump_mods(sa64 delta, int opt_t)
       dump_kptr(curr->kprobes_text_start, "kprobes_text_start", 0);
       printf(" kprobes_text_size: %lX\n", curr->kprobes_text_size);
     }
+    if ( curr->num_ei_funcs )
+    {
+      dump_kptr(curr->ei_funcs, "ei_funcs", 0);
+      printf(" num_ei_funcs: %ld\n", curr->num_ei_funcs);
+    }
   }
 }
 
@@ -4921,6 +4939,7 @@ int main(int argc, char **argv)
      if ( -1 != g_fd && opt_m )
      {
        dump_mods(delta, opt_t);
+       dump_binfmt(delta);
        dump_slabs(delta);
        dump_pools(delta);
      }
