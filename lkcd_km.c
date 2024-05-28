@@ -4,6 +4,7 @@
 #include <linux/tty.h>
 #include <linux/ptrace.h>
 #include <linux/version.h>
+#include <linux/binfmts.h> 
 #include <linux/slab.h>
 #if LINUX_VERSION_CODE < KERNEL_VERSION(6,0,0)
 #ifdef CONFIG_SLAB
@@ -161,6 +162,8 @@ typedef int (*my_lookup)(unsigned long addr, char *symname);
 my_lookup s_lookup = 0;
 static struct mutex *s_module_mutex = 0;
 static struct list_head *s_modules = 0;
+static struct list_head *s_formats = 0; // totally uniq name, yeah
+rwlock_t *s_binfmt_lock = 0;
 typedef int (*my_vmalloc_or_module_addr)(const void *);
 static my_vmalloc_or_module_addr s_vmalloc_or_module_addr = 0;
 
@@ -5614,6 +5617,41 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
 #endif /* CONFIG_SLOB */
 #endif
 
+    case IOCTL_BINFMT:
+      if ( !s_formats || !s_binfmt_lock ) return -ENOCSI;
+      COPY_ARG
+      if ( !ptrbuf[0] )
+      {
+        struct linux_binfmt *fmt;
+        read_lock(s_binfmt_lock);
+        list_for_each_entry(fmt, s_formats, lh) count++;
+        read_unlock(s_binfmt_lock);
+        goto copy_count;
+      } else {
+        struct linux_binfmt *fmt;
+        struct one_binfmt *curr;
+        kbuf_size = sizeof(unsigned long) + ptrbuf[0] * sizeof(struct one_binfmt);
+        kbuf = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL | __GFP_ZERO);
+        if ( !kbuf ) return -ENOMEM;
+        curr = (struct one_binfmt *)(kbuf + 1);
+        read_lock(s_binfmt_lock);
+        list_for_each_entry(fmt, s_formats, lh)
+        {
+          if ( count >= ptrbuf[0] ) break;
+          curr->addr = fmt;
+          curr->mod = fmt->module;
+          curr->load_binary = fmt->load_binary;
+          curr->load_shlib = fmt->load_shlib;
+          curr->core_dump = fmt->core_dump;
+          // for next iteration
+          count++; curr++;
+        }
+        read_unlock(s_binfmt_lock);
+        kbuf_size = sizeof(unsigned long) + count * sizeof(struct one_binfmt);
+        goto copy_kbuf_count;
+      }
+     break;
+
     case IOCTL_ENUM_CALGO:
      COPY_ARGS(3)
      else {
@@ -6512,6 +6550,10 @@ init_module (void)
   REPORT(s_modules, "modules")
   s_module_mutex = (struct mutex *)lkcd_lookup_name(_GN(mod_mutex));
   REPORT(s_module_mutex, _GN(mod_mutex));
+  s_formats = (struct list_head *)lkcd_lookup_name("formats");
+  REPORT(s_formats, "formats");
+  s_binfmt_lock = (rwlock_t *)lkcd_lookup_name("binfmt_lock");
+  REPORT(s_binfmt_lock, "binfmt_lock")
   mount_lock = (seqlock_t *)lkcd_lookup_name("mount_lock");
   REPORT(mount_lock, "mount_lock");
   s_net = (struct rw_semaphore *)lkcd_lookup_name("net_rwsem");

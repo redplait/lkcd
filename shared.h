@@ -1619,4 +1619,18 @@ struct one_input_dev
 // just string, for type 3 - N + N * handlers ptrs
 #define IOCTL_INPUT_DEV_NAME                _IOR(IOCTL_NUM, 0x6C, int*)
 
+struct one_binfmt
+{
+  void *addr;
+  void *mod;
+  void *load_binary;
+  void *load_shlib;
+  void *core_dump;
+};
+
+// get registered bin formats
+// in param - N (or zero)
+// out params: N + N * ine_binfmt
+#define IOCTL_BINFMT                        _IOR(IOCTL_NUM, 0x70, int*)
+
 #endif /* LKCD_SHARED_H */
