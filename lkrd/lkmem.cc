@@ -2106,6 +2106,16 @@ int read_dev_handlers(void *addr, unsigned long len, sa64 delta, std::map<void *
   return 1;
 }
 
+void dump_sysrq_keys(sa64 delta)
+{
+  dump_data_noarg<one_sysrq_key>(delta, IOCTL_SYSRQ_KEYS, "IOCTL_SYSRQ_KEYS", "sysrq key handlers",
+   [&](size_t idx, const one_sysrq_key *id) {
+    printf(" [%ld] mask %X at", id->idx, id->mask);
+    dump_kptr2((unsigned long)id->addr, "addr", delta);
+    dump_kptr2((unsigned long)id->handler, " handler", delta);
+   });
+}
+
 void dump_input_devs(sa64 delta, std::map<void *, std::string> &hmap)
 {
   const unsigned long args_len = 3 * sizeof(unsigned long);
@@ -5291,6 +5301,7 @@ end:
          std::map<void *, std::string> hmap;
          dump_input_handlers(delta, hmap);
          dump_input_devs(delta, hmap);
+         dump_sysrq_keys(delta);
        }
        if ( opt_d )
        {
