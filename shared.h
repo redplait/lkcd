@@ -1630,7 +1630,20 @@ struct one_binfmt
 
 // get registered bin formats
 // in param - N (or zero)
-// out params: N + N * ine_binfmt
+// out params: N + N * one_binfmt
 #define IOCTL_BINFMT                        _IOR(IOCTL_NUM, 0x70, int*)
+
+struct one_sysrq_key
+{
+  void *addr;
+  void *handler;
+  int mask;
+  int idx;
+};
+
+// get sysrq handlers
+// in param - N (or zero)
+// out params: N + N * one_sysrq_key
+#define IOCTL_SYSRQ_KEYS                    _IOR(IOCTL_NUM, 0x71, int*)
 
 #endif /* LKCD_SHARED_H */

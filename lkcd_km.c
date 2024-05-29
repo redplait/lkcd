@@ -4,7 +4,8 @@
 #include <linux/tty.h>
 #include <linux/ptrace.h>
 #include <linux/version.h>
-#include <linux/binfmts.h> 
+#include <linux/binfmts.h>
+#include <linux/sysrq.h>
 #include <linux/slab.h>
 #if LINUX_VERSION_CODE < KERNEL_VERSION(6,0,0)
 #ifdef CONFIG_SLAB
@@ -153,6 +154,19 @@ static struct mutex *s_input_mutex = 0;
 #ifdef CONFIG_DYNAMIC_DEBUG
 static struct list_head *s_ddebug_tables = 0;
 static struct mutex *s_ddebug_lock = 0;
+#endif
+
+#ifdef CONFIG_MAGIC_SYSRQ
+// size of sysrq_key_table is different depending on kernel version
+// on 3.x & 4.x it is 36
+// since 5.10 it is 62
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5,10,0)
+#define MAGIC_SIZE 62
+#else
+#define MAGIC_SIZE 32
+#endif
+static spinlock_t *s_sysrq_key_table_lock = 0;
+static struct sysrq_key_op **s_sysrq_key_table = 0;
 #endif
 
 typedef int (*my_mprotect_pkey)(unsigned long start, size_t len, unsigned long prot, int pkey);
@@ -1285,6 +1299,12 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
        }
       break; /* IOCTL_LOOKUP_SYM */
 
+#define ALLOC_KBUF(type, size) type *curr; \
+ kbuf_size = sizeof(unsigned long) + size * sizeof(type); \
+ kbuf = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL | __GFP_ZERO); \
+ if ( !kbuf ) return -ENOMEM; \
+ curr = (type *)(kbuf + 1);
+
 #ifdef CONFIG_MODULES
     case IOCTL_MODULE1_GUTS:
        if ( !s_modules || !s_module_mutex ) return -ENOCSI;
@@ -1293,12 +1313,8 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
 #ifdef CONFIG_TREE_SRCU
         unsigned int i = 0;
         int found = 0;
-        struct one_srcu *curr;
         struct module *mod;
-        kbuf_size = sizeof(unsigned long) + ptrbuf[1] * sizeof(struct one_srcu);
-        kbuf = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL | __GFP_ZERO);
-        if ( !kbuf ) return -ENOMEM;
-        curr = (struct one_srcu *)(kbuf + 1);
+        ALLOC_KBUF(struct one_srcu, ptrbuf[1])
         mutex_lock(s_module_mutex);
         list_for_each_entry(mod, s_modules, list)
         {
@@ -1339,11 +1355,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
         struct module *mod;
         if ( !ptrbuf[1] )
         {
-          struct one_module *curr;
-          kbuf_size = sizeof(unsigned long) + ptrbuf[0] * sizeof(struct one_module);
-          kbuf = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL | __GFP_ZERO);
-          if ( !kbuf ) return -ENOMEM;
-          curr = (struct one_module *)(kbuf + 1);
+          ALLOC_KBUF(struct one_module, ptrbuf[0])
           mutex_lock(s_module_mutex);
           list_for_each_entry(mod, s_modules, list)
           {
@@ -1372,11 +1384,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
           kbuf_size = sizeof(unsigned long) + count * sizeof(struct one_module);
           goto copy_kbuf_count;
         } else {
-          struct one_module1 *curr;
-          kbuf_size = sizeof(unsigned long) + ptrbuf[0] * sizeof(struct one_module1);
-          kbuf = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL | __GFP_ZERO);
-          if ( !kbuf ) return -ENOMEM;
-          curr = (struct one_module1 *)(kbuf + 1);
+          ALLOC_KBUF(struct one_module1, ptrbuf[0])
           mutex_lock(s_module_mutex);
           list_for_each_entry(mod, s_modules, list)
           {
@@ -1771,12 +1779,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
            mutex_unlock(m);
            goto copy_count;
          } else {
-           struct clk_ntfy *curr;
-           kbuf_size = sizeof(unsigned long) + ptrbuf[2] * sizeof(struct clk_ntfy);
-           kbuf = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL);
-           if ( !kbuf )
-             return -ENOMEM;
-           curr = (struct clk_ntfy *)(kbuf + 1);
+           ALLOC_KBUF(struct clk_ntfy, ptrbuf[2])
            mutex_lock(m);
            list_for_each_entry(cn, head, node)
            {
@@ -1822,12 +1825,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
            mutex_unlock(m);
            goto copy_count;
          } else {
-           struct clk_ntfy *curr;
-           kbuf_size = sizeof(unsigned long) + ptrbuf[2] * sizeof(struct clk_ntfy);
-           kbuf = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL);
-           if ( !kbuf )
-             return -ENOMEM;
-           curr = (struct clk_ntfy *)(kbuf + 1);
+           ALLOC_KBUF(struct clk_ntfy, ptrbuf[2])
            mutex_lock(m);
            list_for_each_entry(cn, head, node)
            {
@@ -2109,12 +2107,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
        else
        {
          struct trace_event *event;
-         struct one_trace_event *curr;
-         kbuf_size = sizeof(unsigned long) + ptrbuf[3] * sizeof(struct one_trace_event);
-         kbuf = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL | __GFP_ZERO);
-         if ( !kbuf )
-           return -ENOMEM;
-         curr = (struct one_trace_event *)(kbuf + 1);
+         ALLOC_KBUF(struct one_trace_event, ptrbuf[3])
          // lock
          down_read(sem);
          // traverse
@@ -2869,12 +2862,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
          spinlock_t *lock = (spinlock_t *)ptrbuf[1];
          struct rb_node *iter;
          int found = 0;
-         struct one_uprobe_consumer *curr;
-         kbuf_size = sizeof(unsigned long) + ptrbuf[3] * sizeof(struct one_uprobe_consumer);
-         kbuf = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL);
-         if ( !kbuf )
-           return -ENOMEM;
-         curr = (struct one_uprobe_consumer *)(kbuf + 1);
+         ALLOC_KBUF(struct one_uprobe_consumer, ptrbuf[3])
          // lock
          spin_lock(lock);
          // traverse tree
@@ -2918,12 +2906,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
          struct rb_root *root = (struct rb_root *)ptrbuf[0];
          spinlock_t *lock = (spinlock_t *)ptrbuf[1];
          struct rb_node *iter;
-         struct one_uprobe *curr;
-         kbuf_size = sizeof(unsigned long) + ptrbuf[2] * sizeof(struct one_uprobe);
-         kbuf = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL);
-         if ( !kbuf )
-           return -ENOMEM;
-         curr = (struct one_uprobe *)(kbuf + 1);
+         ALLOC_KBUF(struct one_uprobe, ptrbuf[2])
          // lock
          spin_lock(lock);
          // traverse tree
@@ -3086,11 +3069,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
        } else {
          struct mutex *m = (struct mutex *)ptrbuf[0];
          struct kprobe_blacklist_entry *ent;
-         struct one_bl_kprobe *curr;
-         kbuf_size = sizeof(unsigned long) + ptrbuf[1] * sizeof(struct one_bl_kprobe);
-         kbuf = (unsigned long *)kzalloc(kbuf_size, GFP_KERNEL);
-         if ( !kbuf ) return -ENOMEM;
-         curr = (struct one_bl_kprobe *)(kbuf + 1);
+         ALLOC_KBUF(struct one_bl_kprobe, ptrbuf[1])
          // lock
          mutex_lock(m);
          list_for_each_entry(ent, s_kprobe_blacklist, list)
@@ -3356,12 +3335,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
          goto copy_count;
        } else {
          struct console *con;
-         struct one_console *curr;
-         kbuf_size = sizeof(unsigned long) + ptrbuf[0] * sizeof(struct one_console);
-         kbuf = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL | __GFP_ZERO);
-         if ( !kbuf )
-           return -ENOMEM;
-         curr = (struct one_console *)(kbuf + 1);
+         ALLOC_KBUF(struct one_console, ptrbuf[0])
          console_lock();
          // achtung! don`t try to use printk or something like this until console_unlock call
          for_each_console(con)
@@ -3451,12 +3425,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
             spin_unlock(lock);
             goto copy_count;
           } else {
-            struct one_tcp_ulp_ops *curr;
-            kbuf_size = sizeof(unsigned long) + ptrbuf[2] * sizeof(struct one_tcp_ulp_ops);
-            kbuf = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL);
-            if ( !kbuf )
-              return -ENOMEM;
-            curr = (struct one_tcp_ulp_ops *)(kbuf + 1);
+            ALLOC_KBUF(struct one_tcp_ulp_ops, ptrbuf[2])
             spin_lock(lock);
             list_for_each(p, list)
             {
@@ -3542,12 +3511,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
             spin_unlock_bh(lock);
             goto copy_count;
           } else {
-            struct one_protosw *curr;
-            kbuf_size = sizeof(unsigned long) + ptrbuf[3] * sizeof(struct one_protosw);
-            kbuf = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL);
-            if ( !kbuf )
-              return -ENOMEM;
-            curr = (struct one_protosw *)(kbuf + 1);
+            ALLOC_KBUF(struct one_protosw, ptrbuf[3])
             spin_lock_bh(lock);
             list_for_each(lh, isw_list)
             {
@@ -3723,11 +3687,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
           int i, j;
 #endif
           struct net *net;
-          struct one_nf_logger *curr;
-          kbuf_size = sizeof(unsigned long) + ptrbuf[1] * sizeof(struct one_nf_logger);
-          kbuf = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL | __GFP_ZERO);
-          if ( !kbuf )
-            return -ENOMEM;
+          ALLOC_KBUF(struct one_nf_logger, ptrbuf[1])
           net = peek_net(ptrbuf[0]);
           if ( !net )
           {
@@ -3735,7 +3695,6 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
             kfree(kbuf);
             return -ENOENT;
           }
-          curr = (struct one_nf_logger *)(kbuf + 1);
           mutex_lock(s_nf_log_mutex);
 #if LINUX_VERSION_CODE <= KERNEL_VERSION(4,15,0)
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(4,3,0)
@@ -3811,13 +3770,9 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
           up_read(s_net);
           goto copy_count;
         } else {
-          struct one_nf_logger *curr;
           struct net *net; 
           int i;
-          kbuf_size = sizeof(unsigned long) + ptrbuf[1] * sizeof(struct one_nf_logger);
-          kbuf = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL | __GFP_ZERO);
-          if ( !kbuf )
-            return -ENOMEM;
+          ALLOC_KBUF(struct one_nf_logger, ptrbuf[1])
           net = peek_net(ptrbuf[0]);
           if ( !net )
           {
@@ -3825,7 +3780,6 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
             kfree(kbuf);
             return -ENOENT;
           }
-          curr = (struct one_nf_logger *)(kbuf + 1);
           mutex_lock(s_nf_log_mutex);
           for ( i = 0; i < ARRAY_SIZE(net->nf.nf_loggers) && count < ptrbuf[1]; i++ )
           {
@@ -3869,14 +3823,8 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
 #endif
           struct net *net;
           struct net_device *dev;
-          struct one_net_dev *curr;
           int found = 0;
-          kbuf_size = sizeof(unsigned long) + ptrbuf[1] * sizeof(struct one_net_dev);
-          kbuf = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL | __GFP_ZERO);
-          if ( !kbuf )
-            return -ENOMEM;
-          curr = (struct one_net_dev *)(kbuf + 1);
-          kbuf[0] = 0;
+          ALLOC_KBUF(struct one_net_dev, ptrbuf[1])
           down_read(s_net);
           for_each_net(net)
           {
@@ -4038,14 +3986,8 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
         } else {
           struct list_head *l = (struct list_head *)ptrbuf[0];
           struct rw_semaphore *lock = (struct rw_semaphore *)ptrbuf[1];
-          struct one_pernet_ops *curr;
           struct pernet_operations *ops;
-          kbuf_size = sizeof(unsigned long) + ptrbuf[2] * sizeof(struct one_pernet_ops);
-          kbuf = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL);
-          if ( !kbuf )
-            return -ENOMEM;
-          curr = (struct one_pernet_ops *)(kbuf + 1);
-          kbuf[0] = 0;
+          ALLOC_KBUF(struct one_pernet_ops, ptrbuf[2])
           down_read(lock);
           list_for_each_entry(ops, l, list)
           {
@@ -4089,12 +4031,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
             up_read(s_net);
             goto copy_count;
           } else {
-            struct one_nft_af *curr;
-            kbuf_size = sizeof(unsigned long) + ptrbuf[1] * sizeof(struct one_nft_af);
-            kbuf = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL | __GFP_ZERO);
-            if ( !kbuf )
-              return -ENOMEM;
-            curr = (struct one_nft_af *)(kbuf + 1);
+            ALLOC_KBUF(struct one_nft_af, ptrbuf[1])
             net = peek_net(ptrbuf[0]);
             if ( !net )
             {
@@ -4140,12 +4077,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
           goto copy_count;
         } else {
           struct net *net;
-          struct one_net *curr;
-          kbuf_size = sizeof(unsigned long) + ptrbuf[0] * sizeof(struct one_net);
-          kbuf = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL | __GFP_ZERO);
-          if ( !kbuf )
-            return -ENOMEM;
-          curr = (struct one_net *)(kbuf + 1);
+          ALLOC_KBUF(struct one_net, ptrbuf[0])
           down_read(s_net);
           for_each_net(net)
           {
@@ -4369,12 +4301,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
             mutex_unlock(m);
             goto copy_ptrbuf;
           } else {
-            struct one_pmu *curr;
-            kbuf_size = sizeof(unsigned long) + ptrbuf[2] * sizeof(struct one_pmu);
-            kbuf = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL  | __GFP_ZERO);
-            if ( !kbuf )
-              return -ENOMEM;
-            curr = (struct one_pmu *)(kbuf + 1);
+            ALLOC_KBUF(struct one_pmu, ptrbuf[2])
             // lock
             mutex_lock(m);
             // iterate
@@ -4458,12 +4385,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
           idr_preload_end();
           goto copy_ptrbuf;
         } else {
-          struct one_bpf_map *curr;
-          kbuf_size = sizeof(unsigned long) + ptrbuf[2] * sizeof(struct one_bpf_map);
-          kbuf = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL  | __GFP_ZERO);
-          if ( !kbuf )
-             return -ENOMEM;
-          curr = (struct one_bpf_map *)(kbuf + 1);
+          ALLOC_KBUF(struct one_bpf_map, ptrbuf[2])
           idr_preload(GFP_KERNEL);
           // lock
           spin_lock_bh(lock);
@@ -4517,13 +4439,8 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
           void *cgrp = (void *)ptrbuf[3];
           unsigned int hierarchy_id;
           struct cgroup_root *item;
-          struct one_bpf_prog *curr;
           int found = 0;
-          kbuf_size = sizeof(unsigned long) + ptrbuf[5] * sizeof(struct one_bpf_prog);
-          kbuf = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL  | __GFP_ZERO);
-          if ( !kbuf )
-            return -ENOMEM;
-          curr = (struct one_bpf_prog *)(kbuf + 1);
+          ALLOC_KBUF(struct one_bpf_prog, ptrbuf[5])
           // lock
           mutex_lock(m);
           // iterate on roots
@@ -4641,13 +4558,8 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
           void *root = (void *)ptrbuf[2];
           unsigned int hierarchy_id;
           struct cgroup_root *item;
-          struct one_cgroup *curr;
           int found = 0;
-          kbuf_size = sizeof(unsigned long) + ptrbuf[3] * sizeof(struct one_cgroup);
-          kbuf = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL  | __GFP_ZERO);
-          if ( !kbuf )
-            return -ENOMEM;
-          curr = (struct one_cgroup *)(kbuf + 1);
+          ALLOC_KBUF(struct one_cgroup, ptrbuf[3])
           // lock
           mutex_lock(m);
           // iterate on roots
@@ -4696,12 +4608,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
             mutex_unlock(m);
             goto copy_count;
           } else {
-            struct one_group_root *curr;
-            kbuf_size = sizeof(unsigned long) + ptrbuf[2] * sizeof(struct one_group_root);
-            kbuf = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL  | __GFP_ZERO);
-            if ( !kbuf )
-              return -ENOMEM;
-            curr = (struct one_group_root *)(kbuf + 1);
+            ALLOC_KBUF(struct one_group_root, ptrbuf[2])
             mutex_lock(m);
             // iterate
             idr_for_each_entry(genl, item, hierarchy_id)
@@ -4757,12 +4664,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
             genl_unlock();
             goto copy_count;
           } else {
-            struct one_genl_family *curr;
-            kbuf_size = sizeof(unsigned long) + ptrbuf[1] * sizeof(struct one_genl_family);
-            kbuf = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL | __GFP_ZERO);
-            if ( !kbuf )
-              return -ENOMEM;
-            curr = (struct one_genl_family *)(kbuf + 1);
+            ALLOC_KBUF(struct one_genl_family, ptrbuf[1])
             genl_lock();
             idr_for_each_entry(genl, family, id)
             {
@@ -4809,12 +4711,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
           rwlock_t *lock = (rwlock_t *)ptrbuf[1];
           int err = 0;
           struct rhashtable_iter iter;
-          struct one_nl_socket *curr;
-          kbuf_size = sizeof(unsigned long) + ptrbuf[3] * sizeof(struct one_nl_socket);
-          kbuf = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL | __GFP_ZERO);
-          if ( !kbuf )
-            return -ENOMEM;
-          curr = (struct one_nl_socket *)(kbuf + 1);
+          ALLOC_KBUF(struct one_nl_socket, ptrbuf[3])
           // lock
           read_lock(lock);
           // iterate
@@ -4929,12 +4826,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
             spin_unlock_bh(lock);
             goto copy_count;
          } else {
-            struct one_bpf_prog *curr;
-            kbuf_size = sizeof(unsigned long) + ptrbuf[2] * sizeof(struct one_bpf_prog);
-            kbuf = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL | __GFP_ZERO);
-            if ( !kbuf )
-              return -ENOMEM;
-            curr = (struct one_bpf_prog *)(kbuf + 1);
+            ALLOC_KBUF(struct one_bpf_prog, ptrbuf[2])
             spin_lock_bh(lock);
             idr_for_each_entry(links, prog, id)
             {
@@ -4969,12 +4861,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
             spin_unlock_bh(lock);
             goto copy_count;
          } else {
-            struct one_bpf_links *curr;
-            kbuf_size = sizeof(unsigned long) + ptrbuf[2] * sizeof(struct one_bpf_links);
-            kbuf = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL | __GFP_ZERO);
-            if ( !kbuf )
-              return -ENOMEM;
-            curr = (struct one_bpf_links *)(kbuf + 1);
+            ALLOC_KBUF(struct one_bpf_links, ptrbuf[2])
             spin_lock_bh(lock);
             idr_for_each_entry(links, link, id)
             {
@@ -5036,12 +4923,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
             mutex_unlock(m);
             goto copy_count;
           } else {
-            struct one_trace_export *curr;
-            kbuf_size = sizeof(unsigned long) + sizeof(struct one_trace_export) * ptrbuf[2];
-            kbuf = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL);
-            if ( !kbuf )
-              return -ENOMEM;
-            curr = (struct one_trace_export *)(kbuf + 1);
+            ALLOC_KBUF(struct one_trace_export, ptrbuf[2])
             mutex_lock(m);
             while( te )
             {
@@ -5076,12 +4958,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
             count = end - start;
             goto copy_count;
           } else {
-            struct one_bpf_raw_event *curr;
-            kbuf_size = sizeof(unsigned long) + sizeof(struct one_bpf_raw_event) * ptrbuf[2];
-            kbuf = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL);
-            if ( !kbuf )
-              return -ENOMEM;
-            curr = (struct one_bpf_raw_event *)(kbuf + 1);
+            ALLOC_KBUF(struct one_bpf_raw_event, ptrbuf[2])
             for ( ; start < end; start++ )
             {
               if ( count >= ptrbuf[2] )
@@ -5120,12 +4997,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
             mutex_unlock(m);
             goto copy_count;
           } else {
-            struct one_ftrace_ops *curr;
-            kbuf_size = sizeof(unsigned long) + sizeof(struct one_ftrace_ops) * ptrbuf[2];
-            kbuf = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL);
-            if ( !kbuf )
-              return -ENOMEM;
-            curr = (struct one_ftrace_ops *)(kbuf + 1);
+            ALLOC_KBUF(struct one_ftrace_ops, ptrbuf[2])
             // lock
             mutex_lock(m);
             // iterate
@@ -5165,12 +5037,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
             mutex_unlock(m);
             goto copy_count;
           } else {
-            struct one_tracefunc_cmd *curr;
-            kbuf_size = sizeof(unsigned long) + sizeof(struct one_tracefunc_cmd) * ptrbuf[2];
-            kbuf = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL);
-            if ( !kbuf )
-              return -ENOMEM;
-            curr = (struct one_tracefunc_cmd *)(kbuf + 1);
+            ALLOC_KBUF(struct one_tracefunc_cmd, ptrbuf[2])
             mutex_lock(m);
             list_for_each_entry(ti, head, list)
             {
@@ -5207,13 +5074,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
 #endif /* _DEBUG */
             goto copy_count;
           } else {
-            struct one_tracepoint_func *curr;
-            kbuf_size = sizeof(unsigned long) + sizeof(struct one_tracepoint_func) * ptrbuf[2];
-            kbuf = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL);
-            if ( !kbuf )
-              return -ENOMEM;
-            curr = (struct one_tracepoint_func *)(kbuf + 1);
-            kbuf[0] = 0;
+            ALLOC_KBUF(struct one_tracepoint_func, ptrbuf[2])
             mutex_lock(m);
             list_for_each_entry(pos, head, list)
             {
@@ -5225,6 +5086,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
               kbuf[0]++;
             }
             mutex_unlock(m);
+            kbuf_size = sizeof(unsigned long) + kbuf[0] * sizeof(struct one_tracepoint_func);
             goto copy_kbuf;
           }
         }
@@ -5244,12 +5106,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
             mutex_unlock(m);
             goto copy_count;
           } else {
-            struct one_dyn_event_op *curr;
-            kbuf_size = sizeof(unsigned long) + sizeof(struct one_dyn_event_op) * ptrbuf[2];
-            kbuf = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL);
-            if ( !kbuf )
-              return -ENOMEM;
-            curr = (struct one_dyn_event_op *)(kbuf + 1);
+            ALLOC_KBUF(struct one_dyn_event_op, ptrbuf[2])
             mutex_lock(m);
             list_for_each_entry(ti, head, list)
             {
@@ -5289,12 +5146,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
             up_read(s_trace_event_sem);
             goto copy_count;
           } else {
-            struct one_trace_event_call *curr;
-            kbuf_size = sizeof(unsigned long) + sizeof(struct one_trace_event_call) * ptrbuf[1];
-            kbuf = (unsigned long *)kzalloc(kbuf_size, GFP_KERNEL | __GFP_ZERO);
-            if ( !kbuf )
-              return -ENOMEM;
-            curr = (struct one_trace_event_call *)(kbuf + 1);
+            ALLOC_KBUF(struct one_trace_event_call, ptrbuf[1])
             down_read(s_trace_event_sem);
             list_for_each_entry_safe(call, p, s_ftrace_events, list)
             {
@@ -5311,14 +5163,9 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
           }
         } else {
           // copy bpf_progs for some event
-          struct one_bpf_prog *curr;
           int found = 0;
           struct trace_event_call *call, *p;
-          kbuf_size = sizeof(unsigned long) + sizeof(struct one_bpf_prog) * ptrbuf[1];
-          kbuf = (unsigned long *)kzalloc(kbuf_size, GFP_KERNEL | __GFP_ZERO);
-          if ( !kbuf )
-            return -ENOMEM;
-          curr = (struct one_bpf_prog *)(kbuf + 1);
+          ALLOC_KBUF(struct one_bpf_prog, ptrbuf[1])
           down_read(s_trace_event_sem);
           list_for_each_entry_safe(call, p, s_ftrace_events, list)
           {
@@ -5366,12 +5213,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
             mutex_unlock(m);
             goto copy_count;
           } else {
-            struct one_event_command *curr;
-            kbuf_size = sizeof(unsigned long) + sizeof(struct one_event_command) * ptrbuf[2];
-            kbuf = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL);
-            if ( !kbuf )
-              return -ENOMEM;
-            curr = (struct one_event_command *)(kbuf + 1);
+            ALLOC_KBUF(struct one_event_command, ptrbuf[2])
             mutex_lock(m);
             list_for_each_entry(ti, head, list)
             {
@@ -5412,12 +5254,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
             mutex_unlock(m);
             goto copy_count;
           } else {
-            struct one_bpf_reg *curr;
-            kbuf_size = sizeof(unsigned long) + sizeof(struct one_bpf_reg) * ptrbuf[2];
-            kbuf = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL | __GFP_ZERO);
-            if ( !kbuf )
-              return -ENOMEM;
-            curr = (struct one_bpf_reg *)(kbuf + 1);
+            ALLOC_KBUF(struct one_bpf_reg, ptrbuf[2])
             mutex_lock(m);
             list_for_each_entry(ti, head, list)
             {
@@ -5466,12 +5303,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
             spin_unlock_bh(lock);
             goto copy_count;
           } else {
-            struct one_bpf_ksym *curr;
-            kbuf_size = sizeof(unsigned long) + sizeof(struct one_bpf_ksym) * ptrbuf[2];
-            kbuf = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL);
-            if ( !kbuf )
-              return -ENOMEM;
-            curr = (struct one_bpf_ksym *)(kbuf + 1);
+            ALLOC_KBUF(struct one_bpf_ksym, ptrbuf[2])
             spin_lock_bh(lock);
             list_for_each_entry(ti, head, lnode)
             {
@@ -5507,11 +5339,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
         goto copy_count;
       } else {
         struct zpool_driver *driver;
-        struct one_zpool *curr;
-        kbuf_size = sizeof(unsigned long) + ptrbuf[0] * sizeof(struct one_zpool);
-        kbuf = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL | __GFP_ZERO);
-        if ( !kbuf ) return -ENOMEM;
-        curr = (struct one_zpool *)(kbuf + 1);
+        ALLOC_KBUF(struct one_zpool, ptrbuf[0])
         // lock
         spin_lock(z_drivers_lock);
         // iterate
@@ -5588,11 +5416,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
         goto copy_count;
       } else {
         struct kmem_cache *cachep;
-        struct one_slab *curr;
-        kbuf_size = sizeof(unsigned long) + ptrbuf[0] * sizeof(struct one_slab);
-        kbuf = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL | __GFP_ZERO);
-        if ( !kbuf ) return -ENOMEM;
-        curr = (struct one_slab *)(kbuf + 1);
+        ALLOC_KBUF(struct one_slab, ptrbuf[0])
         // lock
         mutex_lock(s_slab_mutex);
         list_for_each_entry(cachep, s_slab_caches, list)
@@ -5617,6 +5441,40 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
 #endif /* CONFIG_SLOB */
 #endif
 
+#ifdef CONFIG_MAGIC_SYSRQ
+    case IOCTL_SYSRQ_KEYS:
+     if ( !s_sysrq_key_table_lock || !s_sysrq_key_table ) return -ENOCSI;
+     COPY_ARG
+      if ( !ptrbuf[0] )
+      {
+        int i;
+        spin_lock(s_sysrq_key_table_lock);
+        for ( i = 0; i < MAGIC_SIZE; ++i )
+          if ( s_sysrq_key_table[i] ) count++;
+        spin_unlock(s_sysrq_key_table_lock);
+        goto copy_count;
+      } else {
+        int i;
+        ALLOC_KBUF(struct one_sysrq_key, ptrbuf[0])
+        spin_lock(s_sysrq_key_table_lock);
+        for ( i = 0; i < MAGIC_SIZE; ++i )
+        {
+          if ( count >= ptrbuf[0] ) break;
+          if ( !s_sysrq_key_table[i] ) continue;
+          curr->addr = s_sysrq_key_table[i];
+          curr->handler = s_sysrq_key_table[i]->handler;
+          curr->mask = s_sysrq_key_table[i]->enable_mask;
+          curr->idx = i;
+          // for next iteration
+          curr++; count++;
+        }
+        spin_unlock(s_sysrq_key_table_lock);
+        kbuf_size = sizeof(unsigned long) + count * sizeof(struct one_sysrq_key);
+        goto copy_kbuf_count;
+      }
+     break; /* IOCTL_SYSRQ_KEYS */
+#endif
+
     case IOCTL_BINFMT:
       if ( !s_formats || !s_binfmt_lock ) return -ENOCSI;
       COPY_ARG
@@ -5629,11 +5487,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
         goto copy_count;
       } else {
         struct linux_binfmt *fmt;
-        struct one_binfmt *curr;
-        kbuf_size = sizeof(unsigned long) + ptrbuf[0] * sizeof(struct one_binfmt);
-        kbuf = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL | __GFP_ZERO);
-        if ( !kbuf ) return -ENOMEM;
-        curr = (struct one_binfmt *)(kbuf + 1);
+        ALLOC_KBUF(struct one_binfmt, ptrbuf[0])
         read_lock(s_binfmt_lock);
         list_for_each_entry(fmt, s_formats, lh)
         {
@@ -5665,12 +5519,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
          up_read(cs);
          goto copy_count;
        } else {
-          struct one_kcalgo *curr;
-          kbuf_size = sizeof(unsigned long) + sizeof(struct one_kcalgo) * ptrbuf[2];
-          kbuf = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL | __GFP_ZERO);
-          if ( !kbuf )
-            return -ENOMEM;
-          curr = (struct one_kcalgo *)(kbuf + 1);
+          ALLOC_KBUF(struct one_kcalgo, ptrbuf[2])
           down_read(cs);
           list_for_each_entry(q, head, cra_list)
           {
@@ -5828,13 +5677,8 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
          mutex_unlock(s_input_mutex);
          goto copy_count;
        } else {
-         struct input_dev *dev;
-         struct one_input_dev *curr;
-         kbuf_size = sizeof(unsigned long) + ptrbuf[0] * sizeof(struct one_input_dev);
-          kbuf = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL | __GFP_ZERO);
-          if ( !kbuf )
-            return -ENOMEM;
-          curr = (struct one_input_dev *)(kbuf + 1);
+          struct input_dev *dev;
+          ALLOC_KBUF(struct one_input_dev, ptrbuf[0])
           // lock
           mutex_lock(s_input_mutex);
           // iterate
@@ -5914,13 +5758,8 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
          mutex_unlock(s_input_mutex);
          goto copy_count;
        } else {
-         struct input_handler *handler;
-         struct one_input_handler *curr;
-         kbuf_size = sizeof(unsigned long) + ptrbuf[0] * sizeof(struct one_input_handler);
-          kbuf = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL | __GFP_ZERO);
-          if ( !kbuf )
-            return -ENOMEM;
-          curr = (struct one_input_handler *)(kbuf + 1);
+          struct input_handler *handler;
+          ALLOC_KBUF(struct one_input_handler, ptrbuf[0])
           // lock
           mutex_lock(s_input_mutex);
           // iterate
@@ -5974,12 +5813,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
           if (copy_to_user((void*)ioctl_param, (void*)ptrbuf, sizeof(ptrbuf[0]) * 3) > 0)
             return -EFAULT;
         } else {
-          struct one_alarm *curr;
-          kbuf_size = sizeof(unsigned long) + ptrbuf[1] * sizeof(struct one_alarm);
-          kbuf = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL);
-          if ( !kbuf )
-            return -ENOMEM;
-          curr = (struct one_alarm *)(kbuf + 1);
+          ALLOC_KBUF(struct one_alarm, ptrbuf[1])
           // lock
           spin_lock_irqsave(&ca->lock, flags);
           for ( iter = rb_first(&ca->timerqueue.rb_root.rb_root); iter != NULL && count < ptrbuf[1]; iter = rb_next(iter) )
@@ -6034,12 +5868,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
 #endif
         goto copy_count;
       } else {
-         struct ktimer *curr;
-         kbuf_size = sizeof(unsigned long) + ptrbuf[1] * sizeof(struct ktimer);
-         kbuf = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL | __GFP_ZERO);
-         if ( !kbuf )
-          return -ENOMEM;
-         curr = (struct ktimer *)(kbuf + 1);
+         ALLOC_KBUF(struct ktimer, ptrbuf[1])
          // lock
          raw_spin_lock_irqsave(&tb->lock, flags);
          for ( idx = 0; idx < WHEEL_SIZE && count < ptrbuf[1]; idx++ )
@@ -6203,12 +6032,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
           goto copy_count;
         } else {
           struct key *xkey;
-          struct one_key *curr;
-          kbuf_size = sizeof(unsigned long) + ptrbuf[0] * sizeof(struct one_key);
-          kbuf = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL | __GFP_ZERO);
-          if ( !kbuf )
-            return -ENOMEM;
-          curr = (struct one_key *)(kbuf + 1);
+          ALLOC_KBUF(struct one_key, ptrbuf[0])
           // lock
           spin_lock(s_key_serial_lock);
           for ( iter = rb_first(s_key_serial_tree); iter != NULL; iter = rb_next(iter) )
@@ -6259,12 +6083,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
           up_read(s_key_types_sem);
           goto copy_count;
         } else {
-          struct one_key_type *curr;
-          kbuf_size = sizeof(unsigned long) + ptrbuf[0] * sizeof(struct one_key_type);
-          kbuf = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL | __GFP_ZERO);
-          if ( !kbuf )
-            return -ENOMEM;
-          curr = (struct one_key_type *)(kbuf + 1);
+          ALLOC_KBUF(struct one_key_type, ptrbuf[0])
           down_read(s_key_types_sem);
           list_for_each_entry(p, s_key_types_list, link)
           {
@@ -6670,6 +6489,12 @@ init_module (void)
   s_ddebug_lock = (struct mutex *)lkcd_lookup_name("ddebug_lock");
   REPORT(s_ddebug_lock, "ddebug_lock")
 #endif /* CONFIG_DYNAMIC_DEBUG */
+#ifdef CONFIG_MAGIC_SYSRQ
+  s_sysrq_key_table_lock = (spinlock_t *)lkcd_lookup_name("sysrq_key_table_lock");
+  REPORT(s_sysrq_key_table_lock, "sysrq_key_table_lock")
+  s_sysrq_key_table = (struct sysrq_key_op **)lkcd_lookup_name("sysrq_key_table");
+  REPORT(s_sysrq_key_table, "sysrq_key_table")
+#endif /* CONFIG_MAGIC_SYSRQ */
 #ifdef HAS_ARM64_THUNKS
   bti_thunks_lock_ro();
 #endif
