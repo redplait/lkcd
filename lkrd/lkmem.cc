@@ -986,6 +986,46 @@ printf("%s size %ld\n", bname, size);
   }
 }
 
+template <typename T, typename F>
+void dump_data_ul1(unsigned long a1, sa64 delta, int code, const char *ioctl_name, const char *bname, F func)
+{
+  unsigned long args[2] = { a1, 0 };
+  int err = ioctl(g_fd, code, (int *)args);
+  if ( err )
+  {
+    printf("%s count failed, error %d (%s)\n", ioctl_name, errno, strerror(errno));
+    return;
+  }
+  printf("\n%s count: %ld\n", bname, args[0]);
+  if ( !args[0] )
+    return;
+  size_t size = calc_data_size<T>(args[0]);
+  unsigned long *buf = (unsigned long *)malloc(size);
+  if ( !buf )
+  {
+    printf("cannot alloc buffer for %s, len %lX\n", bname, size);
+    return;
+  }
+  dumb_free<unsigned long> tmp(buf);
+  buf[0] = a1;
+  buf[1] = args[0];
+  err = ioctl(g_fd, code, (int *)buf);
+  if ( err )
+  {
+    printf("%s failed, error %d (%s)\n", ioctl_name, errno, strerror(errno));
+    return;
+  }
+  size = buf[0];
+#ifdef DEBUG
+printf("%s size %ld\n", bname, size);
+#endif
+  T *curr = (T *)(buf + 1);
+  for ( size_t idx = 0; idx < size; idx++, curr++ )
+  {
+    func(idx, curr);
+  }
+}
+
 void dump_binfmt(sa64 delta)
 {
   dump_data_noarg<one_binfmt>(delta, IOCTL_BINFMT, "IOCTL_BINFMT", "binfmts",
@@ -3253,6 +3293,94 @@ void dump_fb_rules(void *net, unsigned long cnt, unsigned long *buf, sa64 delta)
   }
 }
 
+void dump_xfrm(sa64 delta)
+{
+  dump_data_ul1<s_xfrm_mgr>(1, delta, IOCTL_XFRM_GUTS, "IOCTL_XFRM_GUTS", "xfrm_mgrs",
+   [delta](size_t idx, const s_xfrm_mgr *curr) {
+     printf(" [%ld] xfrm_mgr at", idx);
+     dump_unnamed_kptr((unsigned long)curr->addr, delta, true);
+     if ( curr->notify )
+       dump_kptr(curr->notify, " notify", delta);
+     if ( curr->acquire )
+       dump_kptr(curr->acquire, " acquire", delta);
+     if ( curr->compile_policy )
+       dump_kptr(curr->compile_policy, " compile_policy", delta);
+     if ( curr->new_mapping )
+       dump_kptr(curr->new_mapping, " new_mapping", delta);
+     if ( curr->notify_policy )
+       dump_kptr(curr->notify_policy, " notify_policy", delta);
+     if ( curr->report )
+       dump_kptr(curr->report, " report", delta);
+     if ( curr->migrate )
+       dump_kptr(curr->migrate, " migrate", delta);
+     if ( curr->is_alive )
+       dump_kptr(curr->is_alive, " is_alive", delta);
+   });
+  int latch = 0;
+  s_xfrm_policy_afinfo sp;
+  unsigned long *args = (unsigned long *)&sp;
+  for ( int i = 0; i < AF_MAX; i++ )
+  {
+    args[0] = 0;
+    args[1] = i;
+    int err = ioctl(g_fd, IOCTL_XFRM_GUTS, (int *)args);
+    if ( err ) continue;
+    if ( !sp.addr ) continue;
+    if ( !latch ) { printf("\n"); latch++; }
+    printf("xfrm_policy_afinfo[%d] at", i);
+    dump_unnamed_kptr((unsigned long)sp.addr, delta, true);
+    if ( sp.dst_ops.addr )
+    {
+      printf(" dst_ops family %d at", sp.dst_ops.family);
+      dump_unnamed_kptr((unsigned long)sp.dst_ops.addr, delta, true);
+      if ( sp.dst_ops.gc )
+        dump_kptr(sp.dst_ops.gc, "  gc", delta);
+      if ( sp.dst_ops.check )
+        dump_kptr(sp.dst_ops.check, "  check", delta);
+      if ( sp.dst_ops.default_advmss )
+        dump_kptr(sp.dst_ops.default_advmss, "  default_advmss", delta);
+      if ( sp.dst_ops.mtu )
+        dump_kptr(sp.dst_ops.mtu, "  mtu", delta);
+      if ( sp.dst_ops.cow_metrics )
+        dump_kptr(sp.dst_ops.cow_metrics, "  cow_metrics", delta);
+      if ( sp.dst_ops.destroy )
+        dump_kptr(sp.dst_ops.destroy, "  destroy", delta);
+      if ( sp.dst_ops.ifdown )
+        dump_kptr(sp.dst_ops.ifdown, "  ifdown", delta);
+      if ( sp.dst_ops.negative_advice )
+        dump_kptr(sp.dst_ops.negative_advice, "  negative_advice", delta);
+      if ( sp.dst_ops.link_failure )
+        dump_kptr(sp.dst_ops.link_failure, "  link_failure", delta);
+      if ( sp.dst_ops.update_pmtu )
+        dump_kptr(sp.dst_ops.update_pmtu, "  update_pmtu", delta);
+      if ( sp.dst_ops.redirect )
+        dump_kptr(sp.dst_ops.redirect, "  redirect", delta);
+      if ( sp.dst_ops.local_out )
+        dump_kptr(sp.dst_ops.local_out, "  local_out", delta);
+      if ( sp.dst_ops.neigh_lookup )
+        dump_kptr(sp.dst_ops.neigh_lookup, "  neigh_lookup", delta);
+    }
+    if ( sp.dst_lookup )
+      dump_kptr(sp.dst_lookup, " dst_lookup", delta);
+    if ( sp.get_saddr )
+      dump_kptr(sp.get_saddr, " get_saddr", delta);
+    if ( sp.fill_dst )
+      dump_kptr(sp.fill_dst, " fill_dst", delta);
+    if ( sp.blackhole_route )
+      dump_kptr(sp.blackhole_route, " blackhole_route", delta);
+    if ( sp.garbage_collect )
+      dump_kptr(sp.garbage_collect, " garbage_collect", delta);
+    if ( sp.init_dst )
+      dump_kptr(sp.init_dst, " init_dst", delta);
+    if ( sp.decode_session )
+      dump_kptr(sp.decode_session, " decode_session", delta);
+    if ( sp.get_tos )
+      dump_kptr(sp.get_tos, " get_tos", delta);
+    if ( sp.init_path )
+      dump_kptr(sp.init_path, " init_path", delta);
+  }
+}
+
 void dump_nets(sa64 delta)
 {
   unsigned long cnt = 0;
@@ -3296,6 +3424,8 @@ void dump_nets(sa64 delta)
     printf("Net[%ld]: %p ifindex %d rtnl %p genl_sock %p diag_nlsk %p uevent_sock %p dev_cnt %ld netdev_chain_cnt %ld\n",
       idx, sb->addr, sb->ifindex, sb->rtnl, sb->genl_sock, sb->diag_nlsk, sb->uevent_sock, sb->dev_cnt, sb->netdev_chain_cnt
     );
+    if ( sb->hop_ntfy_cnt )
+      printf(" nexthop.notifier_chain: %ld\n", sb->hop_ntfy_cnt);
     if ( sb->rtnl_proto )
       dump_kptr((unsigned long)sb->rtnl_proto, "rtnl_proto", delta);
     if ( sb->rtnl_filter )
@@ -5018,7 +5148,10 @@ int main(int argc, char **argv)
      if ( -1 != g_fd && opt_F )
        dump_super_blocks(delta);
      if ( -1 != g_fd && opt_n )
+     {
        dump_nets(delta);
+       dump_xfrm(delta);
+     }
      if ( -1 != g_fd && opt_p )
      {
        for ( int idx = optind; idx < argc; idx++ )
