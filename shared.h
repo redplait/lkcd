@@ -1697,11 +1697,18 @@ struct s_xfrm_policy_afinfo {
   dst_lookup, get_saddr, decode_session, get_tos, init_path, fill_dst, blackhole_route;
 };
 
+struct s_xfrm_mgr {
+ void *addr;
+ unsigned long notify, acquire, compile_policy, new_mapping, notify_policy, report, migrate, is_alive;
+};
+
 // read xfrm internals
 // in params - must be at least 3
 // first - kind of what to read
 //  case 0 - read xfrm_policy_afinfo, second - index, must be < AF_MAX
-//   out params - s_xfrm_policy_afinfo
+//   out param - s_xfrm_policy_afinfo
+//  case 1 - read list of xfrm_mgr, second - zero or N
+//   out params - N + N * s_xfrm_mgr
 #define IOCTL_XFRM_GUTS                     _IOR(IOCTL_NUM, 0x73, int*)
 
 #endif /* LKCD_SHARED_H */

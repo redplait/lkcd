@@ -6266,7 +6266,40 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
         }
         spin_unlock(s_xfrm_policy_afinfo_lock);
         goto copy_kbuf;
-      }
+      } else if ( 1 == ptrbuf[0] )
+      {
+        struct xfrm_mgr *km;
+        if ( !s_xfrm_km_lock || !s_xfrm_km_list ) return -ENOCSI;
+        if ( !ptrbuf[1] )
+        { // calc size of list
+          spin_lock_bh(s_xfrm_km_lock);
+          list_for_each_entry(km, s_xfrm_km_list, list) count++;
+          spin_unlock_bh(s_xfrm_km_lock);
+          goto copy_count;
+        } else {
+          ALLOC_KBUF(struct s_xfrm_mgr, ptrbuf[1])
+          spin_lock_bh(s_xfrm_km_lock);
+          list_for_each_entry(km, s_xfrm_km_list, list)
+          {
+            if ( count >= ptrbuf[1] ) break;
+            curr->addr = km;
+            curr->notify = (unsigned long)km->notify;
+            curr->acquire = (unsigned long)km->acquire;
+            curr->compile_policy = (unsigned long)km->compile_policy;
+            curr->new_mapping = (unsigned long)km->new_mapping;
+            curr->notify_policy = (unsigned long)km->notify_policy;
+            curr->report = (unsigned long)km->report;
+            curr->migrate = (unsigned long)km->migrate;
+            curr->is_alive = (unsigned long)km->is_alive;
+            // for next iteration
+            ++count; ++curr;
+          }
+          // unlock
+          spin_unlock_bh(s_xfrm_km_lock);
+          kbuf_size = sizeof(unsigned long) + count * sizeof(struct s_xfrm_mgr);
+          goto copy_kbuf_count;
+        }
+      } else return -EBADRQC;
      break; /* IOCTL_XFRM_GUTS */
 #endif /* CONFIG_XFRM */
 
