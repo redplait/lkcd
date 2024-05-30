@@ -358,6 +358,8 @@ struct one_net
   unsigned long dev_cnt;
   unsigned long netdev_chain_cnt;
   unsigned long rules_cnt;
+  // since 5.8 net->nexthop.notifier_chain count, atomic, since 5.10 - blocking
+  unsigned long hop_ntfy_cnt;
   // nf_queue_handler
   void *nf_outfn;
   void *nf_hook_drop;

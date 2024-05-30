@@ -4126,6 +4126,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
         } else {
           struct net *net;
           struct fib_rules_ops *ops;
+
           ALLOC_KBUF(struct one_net, ptrbuf[0])
           down_read(s_net);
           for_each_net(net)
@@ -4169,8 +4170,18 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
             if ( net->netdev_chain.head != NULL )
             {
               struct notifier_block *b;
-              for ( b = net->netdev_chain.head; b != NULL; b = b->next )
+              for ( b = net->netdev_chain.head; b != NULL; b = rcu_dereference_raw(b->next) )
                curr->netdev_chain_cnt++;
+            }
+#endif
+#if LINUX_VERSION_CODE > KERNEL_VERSION(5,10,0)
+            if ( net->nexthop.notifier_chain.head != NULL )
+            {
+              struct notifier_block *nb;
+              down_read(&net->nexthop.notifier_chain.rwsem);
+              for ( nb = net->nexthop.notifier_chain.head; nb != NULL; nb = nb->next )
+               curr->hop_ntfy_cnt++;
+              up_read(&net->nexthop.notifier_chain.rwsem);
             }
 #endif
             if ( s_dev_base_lock )
