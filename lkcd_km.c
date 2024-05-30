@@ -83,6 +83,9 @@
 #include <net/protocol.h>
 #include <linux/rhashtable.h>
 #include "netlink.h"
+#ifdef CONFIG_XFRM
+#include <net/xfrm.h>
+#endif
 #include <linux/crypto.h>
 #include <crypto/algapi.h>
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(4,2,0)
@@ -134,6 +137,14 @@ static struct mutex *s_sock_diag_table_mutex = 0;
 static struct mutex *s_nf_hook_mutex = 0;
 static struct mutex *s_nf_log_mutex = 0;
 #endif /* CONFIG_NETFILTER */
+#ifdef CONFIG_XFRM
+static spinlock_t *s_xfrm_state_afinfo_lock = 0;
+static struct xfrm_state_afinfo **s_xfrm_state_afinfo = 0;
+static spinlock_t *s_xfrm_km_lock = 0;
+static struct list_head *s_xfrm_km_list = 0;
+static spinlock_t *s_xfrm_policy_afinfo_lock = 0;
+static struct xfrm_policy_afinfo **s_xfrm_policy_afinfo = 0;
+#endif
 #ifdef CONFIG_KEYS
 typedef struct key *(*my_key_lookup)(key_serial_t id);
 static my_key_lookup f_key_lookup = 0;
@@ -6186,6 +6197,74 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
      break; /* IOCTL_KEY_TYPES */
 #endif /* CONFIG_KEYS */
 
+#ifdef CONFIG_XFRM
+    case IOCTL_XFRM_GUTS:
+      COPY_ARGS(3)
+      if ( !ptrbuf[0] ) // copy xfrm_policy_afinfo, index in ptrbuf[1]
+      {
+        struct s_xfrm_policy_afinfo *curr = NULL;
+        if ( !s_xfrm_policy_afinfo || !s_xfrm_policy_afinfo_lock ) return -ENOCSI;
+        if ( ptrbuf[1] >= AF_MAX ) return -EINVAL;
+        // check if it presents
+        if ( !s_xfrm_policy_afinfo[ptrbuf[1]] )
+        {
+          ptrbuf[0] = 0;
+          goto copy_ptrbuf;
+        }
+        // alloc out buffer
+        kbuf_size = sizeof(struct s_xfrm_policy_afinfo);
+        kbuf = kmalloc(kbuf_size, GFP_KERNEL | __GFP_ZERO );
+        if ( !kbuf )
+          return -ENOMEM;
+        spin_lock(s_xfrm_policy_afinfo_lock);
+        curr = (struct s_xfrm_policy_afinfo *)kbuf;
+        curr->addr = s_xfrm_policy_afinfo[ptrbuf[1]];
+        if ( curr->addr )
+        {
+          struct xfrm_policy_afinfo *xp = s_xfrm_policy_afinfo[ptrbuf[1]];
+          curr->dst_ops.addr = xp->dst_ops;
+          if ( xp->dst_ops )
+          {
+            curr->dst_ops.family = xp->dst_ops->family;
+            curr->dst_ops.gc = (unsigned long)xp->dst_ops->gc;
+            curr->dst_ops.check = (unsigned long)xp->dst_ops->check;
+            curr->dst_ops.default_advmss = (unsigned long)xp->dst_ops->default_advmss;
+            curr->dst_ops.mtu = (unsigned long)xp->dst_ops->mtu;
+            curr->dst_ops.cow_metrics = (unsigned long)xp->dst_ops->cow_metrics;
+            curr->dst_ops.destroy = (unsigned long)xp->dst_ops->destroy;
+            curr->dst_ops.ifdown = (unsigned long)xp->dst_ops->ifdown;
+            curr->dst_ops.negative_advice = (unsigned long)xp->dst_ops->negative_advice;
+            curr->dst_ops.link_failure = (unsigned long)xp->dst_ops->link_failure;
+            curr->dst_ops.update_pmtu = (unsigned long)xp->dst_ops->update_pmtu;
+            curr->dst_ops.redirect = (unsigned long)xp->dst_ops->redirect;
+            curr->dst_ops.local_out = (unsigned long)xp->dst_ops->local_out;
+            curr->dst_ops.neigh_lookup = (unsigned long)xp->dst_ops->neigh_lookup;
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4,12,0)
+            curr->dst_ops.confirm_neigh = (unsigned long)xp->dst_ops->confirm_neigh;
+#endif
+          }
+          curr->dst_lookup = (unsigned long)xp->dst_lookup;
+          curr->get_saddr = (unsigned long)xp->get_saddr;
+          curr->fill_dst = (unsigned long)xp->fill_dst;
+          curr->blackhole_route = (unsigned long)xp->blackhole_route;
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4,11,0)
+          curr->garbage_collect = (unsigned long)xp->garbage_collect;
+#endif
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4,3,0)
+          curr->init_dst = (unsigned long)xp->init_dst;
+#endif
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5,2,0)
+          curr->decode_session = (unsigned long)xp->decode_session;
+          curr->get_tos = (unsigned long)xp->get_tos;
+          curr->init_path = (unsigned long)xp->init_path;
+#endif
+        }
+        spin_unlock(s_xfrm_policy_afinfo_lock);
+        goto copy_kbuf;
+      }
+     break; /* IOCTL_XFRM_GUTS */
+#endif /* CONFIG_XFRM */
+
     case IOCTL_PATCH_KTEXT1:
       if ( !s_patch_text ) return -ENOCSI;
       COPY_ARGS(2)
@@ -6455,6 +6534,20 @@ init_module (void)
   REPORT(s_nf_hook_mutex, "nf_hook_mutex")
   s_nf_log_mutex = (struct mutex *)lkcd_lookup_name("nf_log_mutex");
   REPORT(s_nf_log_mutex, "nf_log_mutex")
+#endif
+#ifdef CONFIG_XFRM
+  s_xfrm_state_afinfo_lock = (spinlock_t *)lkcd_lookup_name("xfrm_state_afinfo_lock");
+  REPORT(s_xfrm_state_afinfo_lock, "xfrm_state_afinfo_lock")
+  s_xfrm_state_afinfo = (struct xfrm_state_afinfo **)lkcd_lookup_name("xfrm_state_afinfo");
+  REPORT(s_xfrm_state_afinfo, "xfrm_state_afinfo")
+  s_xfrm_km_lock = (spinlock_t *)lkcd_lookup_name("xfrm_km_lock");
+  REPORT(s_xfrm_km_lock, "xfrm_km_lock")
+  s_xfrm_km_list = (struct list_head *)lkcd_lookup_name("xfrm_km_list");
+  REPORT(s_xfrm_km_list, "xfrm_km_list")
+  s_xfrm_policy_afinfo_lock = (spinlock_t *)lkcd_lookup_name("xfrm_policy_afinfo_lock");
+  REPORT(s_xfrm_policy_afinfo_lock, "xfrm_policy_afinfo_lock")
+  s_xfrm_policy_afinfo = (struct xfrm_policy_afinfo **)lkcd_lookup_name("xfrm_policy_afinfo");
+  REPORT(s_xfrm_policy_afinfo, "xfrm_policy_afinfo")
 #endif
   // keys
 #ifdef CONFIG_KEYS

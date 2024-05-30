@@ -1664,4 +1664,44 @@ struct one_sysrq_key
 // out params: N + N * one_sysrq_key
 #define IOCTL_SYSRQ_KEYS                    _IOR(IOCTL_NUM, 0x71, int*)
 
+// till 5.1
+struct s_xfrm_mode {
+  void *addr;
+  unsigned long input, input2, output, output2;
+  // since 4.12
+  unsigned long gso_segment, xmit;
+};
+
+// since 4.12
+struct s_xfrm_type_offload {
+  void *addr;
+  int proto;
+  unsigned long encap, input_tail, xmit;
+};
+
+struct s_dst_ops {
+  void *addr;
+  unsigned short family;
+  unsigned long gc, check, default_advmss, mtu, cow_metrics, destroy, ifdown, negative_advice,
+   link_failure, update_pmtu, redirect, local_out, neigh_lookup,
+   // since 4.11
+   confirm_neigh;
+};
+
+struct s_xfrm_policy_afinfo {
+ void *addr;
+ struct s_dst_ops dst_ops;
+ // in 5.2+ only 4: dst_lookup get_saddr fill_dst blackhole_route
+ unsigned long garbage_collect, // < 4.11
+  init_dst, // < 4.3
+  dst_lookup, get_saddr, decode_session, get_tos, init_path, fill_dst, blackhole_route;
+};
+
+// read xfrm internals
+// in params - must be at least 3
+// first - kind of what to read
+//  case 0 - read xfrm_policy_afinfo, second - index, must be < AF_MAX
+//   out params - s_xfrm_policy_afinfo
+#define IOCTL_XFRM_GUTS                     _IOR(IOCTL_NUM, 0x73, int*)
+
 #endif /* LKCD_SHARED_H */
