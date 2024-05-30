@@ -4062,10 +4062,57 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
 #endif
       break; /* IOCTL_ENUM_NFT_AF */
 
+     case IOCTL_FIB_RULES:
+        // check pre-req
+        if ( !s_net ) return -ENOCSI;
+        // read net addr & count
+        COPY_ARGS(2)
+        if ( !ptrbuf[0] || !ptrbuf[1] ) return -EINVAL;
+        else {
+          struct net *net;
+          struct fib_rules_ops *ops;
+          ALLOC_KBUF(struct one_fib_rule, ptrbuf[1])
+          net = peek_net(ptrbuf[0]);
+          if ( !net )
+          {
+            up_read(s_net);
+            kfree(kbuf);
+            return -ENODEV;
+          }
+          rcu_read_lock();
+          list_for_each_entry_rcu(ops, &net->rules_ops, list)
+          {
+            if ( count >= ptrbuf[1] ) break;
+            curr->addr = ops;
+            curr->family = ops->family;
+            curr->rule_size = ops->rule_size;
+            curr->addr_size = ops->addr_size;
+            curr->action = (unsigned long)ops->action;
+            curr->suppress = (unsigned long)ops->suppress;
+            curr->match = (unsigned long)ops->match;
+            curr->configure = (unsigned long)ops->configure;
+            curr->del_ = (unsigned long)ops->delete;
+            curr->compare = (unsigned long)ops->compare;
+            curr->fill = (unsigned long)ops->fill;
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4,3,0)
+            curr->default_pref = (unsigned long)ops->default_pref;
+#endif
+            curr->nlmsg_payload = (unsigned long)ops->nlmsg_payload;
+            curr->flush_cache = (unsigned long)ops->flush_cache;
+            // for next iteration
+            ++count; ++curr;
+          }
+          rcu_read_unlock();
+          up_read(s_net);  
+          // copy to user
+          kbuf_size = sizeof(unsigned long) + count * sizeof(struct one_fib_rule);
+          goto copy_kbuf_count;
+        }
+      break; /* IOCTL_FIB_RULES */
+
      case IOCTL_GET_NETS:
         // check pre-req
-        if ( !s_net )
-          return -ENOCSI;
+        if ( !s_net ) return -ENOCSI;
         // read count
         COPY_ARG
         if ( !ptrbuf[0] )

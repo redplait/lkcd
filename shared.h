@@ -1265,19 +1265,34 @@ struct one_nf_logger
 
 // get nf loggers for some net->nf
 // in params:
-// 0 - address of net from IOCTL_GET_NETS
-// 1 - count
+//  0 - address of net from IOCTL_GET_NETS
+//  1 - count
 // out params:
 //  N + N * one_nf_logger
 #define IOCTL_NFLOGGERS                 _IOR(IOCTL_NUM, 0x54, int*)
 
 // read NF hooks for some net->nf
 // in params:
-// 0 - address of net from IOCTL_GET_NETS
-// 1 - count
+//  0 - address of net from IOCTL_GET_NETS
+//  1 - count
 // out params:
 //  N + N * one_nf_logger
 #define IOCTL_NFHOOKS                   _IOR(IOCTL_NUM, 0x55, int*)
+
+struct one_fib_rule
+{
+  void *addr;
+  int family, rule_size, addr_size;
+  unsigned long action, suppress, match, configure, del_, compare, fill, default_pref, nlmsg_payload, flush_cache;
+};
+
+// read fib_rules
+// in params:
+//  0 - address of net from IOCTL_GET_NETS
+//  1 - count
+// out params:
+// N + N * one_fib_rule
+#define IOCTL_FIB_RULES                 _IOR(IOCTL_NUM, 0x72, int*)
 
 /*
  * keys ioclts if CONFIG_NETFILTER presents
