@@ -3215,6 +3215,44 @@ void dump_nf_hooks(sa64 delta, const char *pfx, unsigned long *d)
   }
 }
 
+void dump_fb_rules(void *net, unsigned long cnt, unsigned long *buf, sa64 delta)
+{
+  buf[0] = (unsigned long)net;
+  buf[1] = cnt;
+  int err = ioctl(g_fd, IOCTL_FIB_RULES, (int *)buf);
+  if ( err )
+  {
+    printf("IOCTL_FIB_RULES for %p failed, error %d (%s)\n", net, errno, strerror(errno));
+    return;
+  }
+  one_fib_rule *sb = (one_fib_rule *)(buf + 1);
+  for ( size_t idx = 0; idx < buf[0]; idx++, sb++ )
+  {
+    printf(" [%ld] family %d rule_size %d addr_size %d at", idx, sb->family, sb->rule_size, sb->addr_size);
+    dump_unnamed_kptr((unsigned long)sb->addr, delta, true);
+    if ( sb->action )
+     dump_kptr(sb->action, " action", delta);
+    if ( sb->suppress )
+     dump_kptr(sb->suppress, " suppress", delta);
+    if ( sb->match )
+     dump_kptr(sb->match, " match", delta);
+    if ( sb->configure )
+     dump_kptr(sb->configure, " configure", delta);
+    if ( sb->del_ )
+     dump_kptr(sb->del_, " delete", delta);
+    if ( sb->compare )
+     dump_kptr(sb->compare, " compare", delta);
+    if ( sb->fill )
+     dump_kptr(sb->fill, " fill", delta);
+    if ( sb->default_pref )
+     dump_kptr(sb->default_pref, " default_pref", delta);
+    if ( sb->nlmsg_payload )
+     dump_kptr(sb->nlmsg_payload, " nlmsg_payload", delta);
+    if ( sb->flush_cache )
+     dump_kptr(sb->flush_cache, " flush_cache", delta);
+  }
+}
+
 void dump_nets(sa64 delta)
 {
   unsigned long cnt = 0;
@@ -3241,6 +3279,18 @@ void dump_nets(sa64 delta)
   }
   size = buf[0];
   struct one_net *sb = (struct one_net *)(buf + 1);
+  struct one_net *sr = sb;
+  // calc max rules count
+  unsigned long rsize = 0;
+  for ( size_t idx = 0; idx < size; idx++, sr++ )
+    rsize = std::max(rsize, sr->rules_cnt);
+  unsigned long *rules = nullptr;
+  if ( rsize )
+  {
+    rules = (unsigned long *)malloc( calc_data_size<one_fib_rule>(rsize) );
+    if ( !rules ) printf("cannot alloc buffer for %ld find_rules\n", rsize);
+  }
+  dumb_free<unsigned long> rtmp(rules);
   for ( size_t idx = 0; idx < size; idx++, sb++ )
   {
     printf("Net[%ld]: %p ifindex %d rtnl %p genl_sock %p diag_nlsk %p uevent_sock %p dev_cnt %ld netdev_chain_cnt %ld\n",
@@ -3275,6 +3325,11 @@ void dump_nets(sa64 delta)
       printf(" netns_bpf[1]: %p\n", sb->progs[1]);
     if ( sb->bpf_cnt[1] )
       printf(" bpf_cnt[1]: %ld\n", sb->bpf_cnt[1]);
+    // fib rules
+    if ( sb->rules_cnt ) {
+      printf(" rules_cnt: %ld\n", sb->rules_cnt);
+      if ( rules ) dump_fb_rules(sb->addr, sb->rules_cnt, rules, delta);
+    }
     if ( !sb->dev_cnt )
       continue;
     size_t dsize = calc_data_size<one_net_dev>(sb->dev_cnt);
