@@ -144,7 +144,12 @@ static spinlock_t *s_xfrm_km_lock = 0;
 static struct list_head *s_xfrm_km_list = 0;
 static spinlock_t *s_xfrm_policy_afinfo_lock = 0;
 static struct xfrm_policy_afinfo **s_xfrm_policy_afinfo = 0;
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4,11,0)
+# define XFRM_MAX (AF_INET6 + 1)
+#else
+# define XFRM_MAX AF_MAX
 #endif
+#endif /* CONFIG_XFRM */
 #ifdef CONFIG_KEYS
 typedef struct key *(*my_key_lookup)(key_serial_t id);
 static my_key_lookup f_key_lookup = 0;
@@ -6204,7 +6209,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
       {
         struct s_xfrm_policy_afinfo *curr = NULL;
         if ( !s_xfrm_policy_afinfo || !s_xfrm_policy_afinfo_lock ) return -ENOCSI;
-        if ( ptrbuf[1] >= AF_MAX ) return -EINVAL;
+        if ( ptrbuf[1] >= XFRM_MAX ) return -EINVAL;
         // check if it presents
         if ( !s_xfrm_policy_afinfo[ptrbuf[1]] )
         {
