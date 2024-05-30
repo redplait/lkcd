@@ -73,6 +73,7 @@
 #include "uprobes.h"
 #include <net/net_namespace.h>
 #include <net/sock.h>
+#include <net/fib_rules.h>
 #include <linux/netdevice.h>
 #include <linux/netfilter.h>
 #include <net/rtnetlink.h>
@@ -4077,6 +4078,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
           goto copy_count;
         } else {
           struct net *net;
+          struct fib_rules_ops *ops;
           ALLOC_KBUF(struct one_net, ptrbuf[0])
           down_read(s_net);
           for_each_net(net)
@@ -4111,8 +4113,11 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
                if ( net->diag_nlsk->sk_filter && net->diag_nlsk->sk_filter->prog )
                  curr->diag_nlsk_filter = (void *)net->diag_nlsk->sk_filter->prog->bpf_func;
             }
-            curr->netdev_chain_cnt = 0;
-            curr->dev_cnt = 0;
+            curr->dev_cnt = curr->rules_cnt = curr->netdev_chain_cnt = 0;
+            // calc rules_cnt
+            rcu_read_lock();
+            list_for_each_entry_rcu(ops, &net->rules_ops, list) curr->rules_cnt++;
+            rcu_read_unlock();
 #if LINUX_VERSION_CODE > KERNEL_VERSION(5,5,0)
             if ( net->netdev_chain.head != NULL )
             {

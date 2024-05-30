@@ -357,6 +357,7 @@ struct one_net
   int ifindex;
   unsigned long dev_cnt;
   unsigned long netdev_chain_cnt;
+  unsigned long rules_cnt;
   // nf_queue_handler
   void *nf_outfn;
   void *nf_hook_drop;
