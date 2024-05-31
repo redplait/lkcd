@@ -3945,6 +3945,25 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
 #endif
 #ifdef CONFIG_XFRM_OFFLOAD
               curr->xfrmdev_ops = (void *)dev->xfrmdev_ops;
+              if ( dev->xfrmdev_ops ) {
+                curr->xdo_dev_state_add = (unsigned long)dev->xfrmdev_ops->xdo_dev_state_add;
+                curr->xdo_dev_state_delete = (unsigned long)dev->xfrmdev_ops->xdo_dev_state_delete;
+                curr->xdo_dev_state_free = (unsigned long)dev->xfrmdev_ops->xdo_dev_state_free;
+                curr->xdo_dev_offload_ok = (unsigned long)dev->xfrmdev_ops->xdo_dev_offload_ok;
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4,16,0)
+                curr->xdo_dev_state_advance_esn = (unsigned long)dev->xfrmdev_ops->xdo_dev_state_advance_esn;
+#endif
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6,2,0)
+                curr->xdo_dev_policy_add = (unsigned long)dev->xfrmdev_ops->xdo_dev_policy_add;
+                curr->xdo_dev_policy_delete = (unsigned long)dev->xfrmdev_ops->xdo_dev_policy_delete;
+                curr->xdo_dev_policy_free = (unsigned long)dev->xfrmdev_ops->xdo_dev_policy_free;
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6,9,0)
+                curr->xdo_dev_state_update_stats = (unsigned long)dev->xfrmdev_ops->xdo_dev_state_update_stats;
+#else
+                curr->xdo_dev_state_update_stats = (unsigned long)dev->xfrmdev_ops->xdo_dev_state_update_curlft;
+#endif
+#endif
+              }
 #endif
 #ifdef CONFIG_TLS_DEVICE
               curr->tlsdev_ops = (void *)dev->tlsdev_ops;
