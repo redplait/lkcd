@@ -148,10 +148,16 @@ static struct list_head *s_xfrm_km_list = 0;
 static spinlock_t *s_xfrm_policy_afinfo_lock = 0;
 static struct xfrm_policy_afinfo **s_xfrm_policy_afinfo = 0;
 static spinlock_t *s_xfrm_input_afinfo_lock = 0;
-static struct mutex *s_xfrm6_protocol_mutex = 0;
+// xfrm protocols
 static struct mutex *s_xfrm4_protocol_mutex = 0;
+static struct xfrm4_protocol **x4p[3] = { 0, 0, 0 }; // esp4_handlers, ah4_handlers, ipcomp4_handlers
+static struct mutex *s_xfrm6_protocol_mutex = 0;
+static struct xfrm6_protocol **x6p[3] = { 0, 0, 0 }; // esp6_handlers, ah6_handlers, ipcomp6_handlers
+// xfrm tunnels
 static struct mutex *s_tunnel4_mutex = 0;
+static struct xfrm_tunnel **x4t[3] = { 0, 0, 0 }; // tunnel4_handlers, tunnel64_handlers, tunnelmpls4_handlers 
 static struct mutex *s_tunnel6_mutex = 0;
+static struct xfrm6_tunnel **x6t[3] = { 0, 0, 0 }; // tunnel6_handlers, tunnel46_handlers, tunnelmpls6_handlers
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(4,11,0)
 # define XFRM_MAX (AF_INET6 + 1)
 #else
@@ -6367,6 +6373,53 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
           kbuf_size = sizeof(unsigned long) + count * sizeof(struct s_xfrm_mgr);
           goto copy_kbuf_count;
         }
+      } else if ( 4 == ptrbuf[0] ) { // copy xfrm4_protocols
+        int idx = ptrbuf[1];
+        struct xfrm4_protocol *x4;
+        if ( !s_xfrm4_protocol_mutex ) return -ENOCSI;
+        if ( idx < 0 || idx >= ARRAY_SIZE(x4p) ) return -EINVAL;
+        if ( !x4p[idx] ) return -ENOCSI;
+        if ( !*x4p[idx] ) goto copy_count;
+        if ( !ptrbuf[2] ) { // calc count
+          mutex_lock(s_xfrm4_protocol_mutex);
+          for ( x4 = rcu_dereference(*x4p[idx]); x4 != NULL; x4 = x4->next ) count++;
+          mutex_unlock(s_xfrm4_protocol_mutex);
+          goto copy_count;
+        } else {
+          ALLOC_KBUF(struct s_xfrm_protocol, ptrbuf[2])
+          mutex_lock(s_xfrm4_protocol_mutex);
+          for ( x4 = rcu_dereference(*x4p[idx]); x4 != NULL; x4 = x4->next )
+          {
+            if ( count >= ptrbuf[2] ) break;
+            curr->addr = x4;
+            curr->handler = (unsigned long)x4->handler;
+            curr->cb_handler = (unsigned long)x4->cb_handler;
+            curr->err_handler = (unsigned long)x4->err_handler;
+            curr->input_handler = (unsigned long)x4->input_handler;
+            curr++; count++;
+          }
+          mutex_unlock(s_xfrm4_protocol_mutex);
+          kbuf_size = (unsigned long) + count * sizeof(struct s_xfrm_protocol);
+          goto copy_kbuf_count;
+        }
+      } else if ( 5 == ptrbuf[0] ) { // // copy xfrm6_protocols
+        int idx = ptrbuf[1];
+        if ( !s_xfrm6_protocol_mutex ) return -ENOCSI;
+        if ( idx < 0 || idx >= ARRAY_SIZE(x6p) ) return -EINVAL;
+        if ( !x6p[idx] ) return -ENOCSI;
+        if ( !*x6p[idx] ) goto copy_count;
+      } else if ( 6 == ptrbuf[0] ) { // copy xfrm_tunnels
+        int idx = ptrbuf[1];
+        if ( !s_tunnel4_mutex ) return -ENOCSI;
+        if ( idx < 0 || idx >= ARRAY_SIZE(x4t) ) return -EINVAL;
+        if ( !x4t[idx] ) return -ENOCSI;
+        if ( !*x4t[idx] ) goto copy_count;
+      } else if ( 6 == ptrbuf[0] ) { // copy xfrm6_tunnels
+        int idx = ptrbuf[1];
+        if ( !s_tunnel6_mutex ) return -ENOCSI;
+        if ( idx < 0 || idx >= ARRAY_SIZE(x6t) ) return -EINVAL;
+        if ( !x6t[idx] ) return -ENOCSI;
+        if ( !*x6t[idx] ) goto copy_count;
       }
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(5,10,0)
       else if ( 2 == ptrbuf[0] )
@@ -6730,10 +6783,38 @@ init_module (void)
   REPORT(s_xfrm6_protocol_mutex, "xfrm6_protocol_mutex")
   s_xfrm4_protocol_mutex = (struct mutex *)lkcd_lookup_name("xfrm4_protocol_mutex");
   REPORT(s_xfrm4_protocol_mutex, "xfrm4_protocol_mutex")
+  // fill x4p
+  if ( s_xfrm4_protocol_mutex )
+  {
+    x4p[0] = (struct xfrm4_protocol **)lkcd_lookup_name("esp4_handlers");
+    x4p[1] = (struct xfrm4_protocol **)lkcd_lookup_name("ah4_handlers");
+    x4p[2] = (struct xfrm4_protocol **)lkcd_lookup_name("ipcomp4_handlers");
+  }
   s_tunnel4_mutex = (struct mutex *)lkcd_lookup_name("tunnel4_mutex");
   REPORT(s_tunnel4_mutex, "tunnel4_mutex")
   s_tunnel6_mutex = (struct mutex *)lkcd_lookup_name("tunnel6_mutex");
   REPORT(s_tunnel6_mutex, "tunnel6_mutex")
+  // fill x6p
+  if ( s_xfrm6_protocol_mutex )
+  {
+    x6p[0] = (struct xfrm6_protocol **)lkcd_lookup_name("esp6_handlers");
+    x6p[1] = (struct xfrm6_protocol **)lkcd_lookup_name("ah6_handlers");
+    x6p[2] = (struct xfrm6_protocol **)lkcd_lookup_name("ipcomp6_handlers");
+  }
+  // fill x4t
+  if ( s_tunnel4_mutex )
+  {
+    x4t[0] = (struct xfrm_tunnel **)lkcd_lookup_name("tunnel4_handlers");
+    x4t[1] = (struct xfrm_tunnel **)lkcd_lookup_name("tunnel64_handlers");
+    x4t[2] = (struct xfrm_tunnel **)lkcd_lookup_name("tunnelmpls4_handlers");
+  }
+  // fill x6t
+  if ( s_tunnel6_mutex )
+  {
+    x6t[0] = (struct xfrm6_tunnel **)lkcd_lookup_name("tunnel6_handlers");
+    x6t[1] = (struct xfrm6_tunnel **)lkcd_lookup_name("tunnel46_handlers");
+    x6t[2] = (struct xfrm6_tunnel **)lkcd_lookup_name("tunnelmpls6_handlers");
+  }
   s_xfrm_input_afinfo_lock = (spinlock_t *)lkcd_lookup_name("xfrm_input_afinfo_lock");
   REPORT(s_xfrm_input_afinfo_lock, "xfrm_input_afinfo_lock")
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(5,10,0)
@@ -6742,8 +6823,7 @@ init_module (void)
   s_xfrm_translator = (struct xfrm_translator **)lkcd_lookup_name("xfrm_translator");
   REPORT(s_xfrm_translator, "xfrm_translator")
 #endif
-
-#endif
+#endif /* CONFIG_XFRM */
   // keys
 #ifdef CONFIG_KEYS
   SYM_LOAD("key_lookup", my_key_lookup, f_key_lookup)

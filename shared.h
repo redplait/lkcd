@@ -1733,6 +1733,20 @@ struct s_xfrm_state_afinfo {
    output_finish, extract_input, extract_output;
 };
 
+struct s_xfrm_protocol {
+  void *addr;
+  unsigned long handler, cb_handler, err_handler,
+  // since 5.8 in xfrm6
+  input_handler;
+};
+
+struct s_xfrm_tunnel {
+  void *addr;
+  unsigned long handler, err_handler,
+  // since 5.9
+   cb_handler;
+};
+
 // read xfrm internals
 // in params - must be at least 3
 // first - kind of what to read
@@ -1743,7 +1757,23 @@ struct s_xfrm_state_afinfo {
 //  case 2 (since 5.10) - read xfrm_translator
 //   out param - s_xfrm_translator
 //  case 3 - (since 5.3) read xfrm_state_afinfo, second - zero or N
-//   oit param - N + N * s_xfrm_state_afinfo
+//   out param - N + N * s_xfrm_state_afinfo
+//  case 4 - read xfrm4_protocol. mutex xfrm4_protocol_mutex. params:
+//   1 - number (0 - esp4_handlers, 1 - ah4_handlers, 2 - ipcomp4_handlers)
+//   2 - zero or N
+//   out param - N + N * s_xfrm_protocol
+//  case 5 - read xfrm6_protocol. mutex xfrm6_protocol_mutex. params:
+//   1 - number (0 - esp6_handlers, 1 - ah6_handlers, 2 - ipcomp6_handlers)
+//   2 - zero or N
+//   out param - N + N * s_xfrm_protocol
+//  case 6 - read xfrm_tunnel. mutex tunnel4_mutex. params:
+//   1 - number (0 - tunnel4_handlers, 1 - tunnel64_handlers, 2 - tunnelmpls4_handlers)
+//   2 - zero or N
+//   out param - N + N * s_xfrm_tunnel
+//  case 7 - read xfrm6_tunnel. mutex tunnel6_mutex. params:
+//   1 - number (0 - tunnel6_handlers, 1 - tunnel46_handlers, 2 - tunnelmpls6_handlers)
+//   2 - zero or N
+//   out param - N + N * s_xfrm_tunnel
 #define IOCTL_XFRM_GUTS                     _IOR(IOCTL_NUM, 0x73, int*)
 
 #endif /* LKCD_SHARED_H */
