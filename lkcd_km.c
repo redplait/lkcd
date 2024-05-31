@@ -144,10 +144,19 @@ static spinlock_t *s_xfrm_km_lock = 0;
 static struct list_head *s_xfrm_km_list = 0;
 static spinlock_t *s_xfrm_policy_afinfo_lock = 0;
 static struct xfrm_policy_afinfo **s_xfrm_policy_afinfo = 0;
+static spinlock_t *s_xfrm_input_afinfo_lock = 0;
+static struct mutex *s_xfrm6_protocol_mutex = 0;
+static struct mutex *s_xfrm4_protocol_mutex = 0;
+static struct mutex *s_tunnel4_mutex = 0;
+static struct mutex *s_tunnel6_mutex = 0;
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(4,11,0)
 # define XFRM_MAX (AF_INET6 + 1)
 #else
 # define XFRM_MAX AF_MAX
+#endif
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5,10,0)
+static spinlock_t *s_xfrm_translator_lock = 0;
+static struct xfrm_translator **s_xfrm_translator = 0;
 #endif
 #endif /* CONFIG_XFRM */
 #ifdef CONFIG_KEYS
@@ -6299,7 +6308,31 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
           kbuf_size = sizeof(unsigned long) + count * sizeof(struct s_xfrm_mgr);
           goto copy_kbuf_count;
         }
-      } else return -EBADRQC;
+      }
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5,10,0)
+      else if ( 2 == ptrbuf[0] )
+      {
+        struct s_xfrm_translator *curr = (struct s_xfrm_translator *)ptrbuf;
+        if ( !s_xfrm_translator || !s_xfrm_translator_lock ) return -ENOCSI;
+        ptrbuf[0] = (unsigned long)*s_xfrm_translator;
+        if ( !ptrbuf[0] ) goto copy_ptrbuf;
+        spin_lock_bh(s_xfrm_translator_lock);
+        curr->addr = *s_xfrm_translator;
+        kbuf_size = sizeof(curr->addr);
+        if ( curr->addr ) {
+          kbuf_size = sizeof(*curr);
+          curr->alloc_compat = (unsigned long)(*s_xfrm_translator)->alloc_compat;
+          curr->rcv_msg_compat = (unsigned long)(*s_xfrm_translator)->rcv_msg_compat;
+          curr->xlate_user_policy_sockptr = (unsigned long)(*s_xfrm_translator)->xlate_user_policy_sockptr;
+        }
+        spin_unlock_bh(s_xfrm_translator_lock);
+        // copy to user
+        if (copy_to_user((void*)ioctl_param, (void*)ptrbuf, kbuf_size) > 0)
+          return -EFAULT;
+        return 0;
+      }
+#endif
+       else return -EBADRQC;
      break; /* IOCTL_XFRM_GUTS */
 #endif /* CONFIG_XFRM */
 
@@ -6586,6 +6619,23 @@ init_module (void)
   REPORT(s_xfrm_policy_afinfo_lock, "xfrm_policy_afinfo_lock")
   s_xfrm_policy_afinfo = (struct xfrm_policy_afinfo **)lkcd_lookup_name("xfrm_policy_afinfo");
   REPORT(s_xfrm_policy_afinfo, "xfrm_policy_afinfo")
+  s_xfrm6_protocol_mutex = (struct mutex *)lkcd_lookup_name("xfrm6_protocol_mutex");
+  REPORT(s_xfrm6_protocol_mutex, "xfrm6_protocol_mutex")
+  s_xfrm4_protocol_mutex = (struct mutex *)lkcd_lookup_name("xfrm4_protocol_mutex");
+  REPORT(s_xfrm4_protocol_mutex, "xfrm4_protocol_mutex")
+  s_tunnel4_mutex = (struct mutex *)lkcd_lookup_name("tunnel4_mutex");
+  REPORT(s_tunnel4_mutex, "tunnel4_mutex")
+  s_tunnel6_mutex = (struct mutex *)lkcd_lookup_name("tunnel6_mutex");
+  REPORT(s_tunnel6_mutex, "tunnel6_mutex")
+  s_xfrm_input_afinfo_lock = (spinlock_t *)lkcd_lookup_name("xfrm_input_afinfo_lock");
+  REPORT(s_xfrm_input_afinfo_lock, "xfrm_input_afinfo_lock")
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5,10,0)
+  s_xfrm_translator_lock = (spinlock_t *)lkcd_lookup_name("xfrm_translator_lock");
+  REPORT(s_xfrm_translator_lock, "xfrm_translator_lock")
+  s_xfrm_translator = (struct xfrm_translator **)lkcd_lookup_name("xfrm_translator");
+  REPORT(s_xfrm_translator, "xfrm_translator")
+#endif
+
 #endif
   // keys
 #ifdef CONFIG_KEYS

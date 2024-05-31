@@ -1702,13 +1702,21 @@ struct s_xfrm_mgr {
  unsigned long notify, acquire, compile_policy, new_mapping, notify_policy, report, migrate, is_alive;
 };
 
+struct s_xfrm_translator {
+ void *addr;
+ unsigned long alloc_compat, rcv_msg_compat, xlate_user_policy_sockptr;
+};
+
 // read xfrm internals
 // in params - must be at least 3
 // first - kind of what to read
-//  case 0 - read xfrm_policy_afinfo, second - index, must be < AF_MAX
+//  case 0 - read xfrm_policy_afinfo, second - index, must be < XFRM_MAX
 //   out param - s_xfrm_policy_afinfo
 //  case 1 - read list of xfrm_mgr, second - zero or N
 //   out params - N + N * s_xfrm_mgr
+//  case 2 (since 5.10) - read xfrm_translator
+//   out param - s_xfrm_translator
+//  case 3 - read xfrm_state_afinfo, second - index, must be < AF_MAX
 #define IOCTL_XFRM_GUTS                     _IOR(IOCTL_NUM, 0x73, int*)
 
 #endif /* LKCD_SHARED_H */
