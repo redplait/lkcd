@@ -3291,6 +3291,21 @@ void dump_xfrm(sa64 delta)
      if ( curr->is_alive )
        dump_kptr(curr->is_alive, " is_alive", delta);
    });
+  // xfrm_translator
+  s_xfrm_translator tr;
+  tr.addr = (void *)2;
+  int err = ioctl(g_fd, IOCTL_XFRM_GUTS, (int *)&tr);
+  if ( !err && tr.addr )
+  {
+    printf("\nxfrm_translator at"); dump_unnamed_kptr((unsigned long)tr.addr, delta, true);
+    if ( tr.alloc_compat )
+     dump_kptr(tr.alloc_compat, " alloc_compat", delta);
+    if ( tr.rcv_msg_compat )
+     dump_kptr(tr.rcv_msg_compat, " alloc_compat", delta);
+    if ( tr.xlate_user_policy_sockptr )
+     dump_kptr(tr.xlate_user_policy_sockptr, " xlate_user_policy_sockptr", delta);
+  }
+  // read xfrm_policy_afinfo
   int latch = 0;
   s_xfrm_policy_afinfo sp;
   unsigned long *args = (unsigned long *)&sp;
@@ -3298,7 +3313,7 @@ void dump_xfrm(sa64 delta)
   {
     args[0] = 0;
     args[1] = i;
-    int err = ioctl(g_fd, IOCTL_XFRM_GUTS, (int *)args);
+    err = ioctl(g_fd, IOCTL_XFRM_GUTS, (int *)args);
     if ( err ) continue;
     if ( !sp.addr ) continue;
     if ( !latch ) { printf("\n"); latch++; }
@@ -3472,7 +3487,27 @@ void dump_nets(sa64 delta)
       if ( nd->ndisc_ops )
         dump_kptr((unsigned long)nd->ndisc_ops, " ndisc_ops", delta);
       if ( nd->xfrmdev_ops )
+      {
         dump_kptr((unsigned long)nd->xfrmdev_ops, " xfrmdev_ops", delta);
+        if ( nd->xdo_dev_state_add )
+          dump_kptr(nd->xdo_dev_state_add, "  xdo_dev_state_add", delta);
+        if ( nd->xdo_dev_state_delete )
+          dump_kptr(nd->xdo_dev_state_delete, "  xdo_dev_state_delete", delta);
+        if ( nd->xdo_dev_state_free )
+          dump_kptr(nd->xdo_dev_state_free, "  xdo_dev_state_free", delta);
+        if ( nd->xdo_dev_offload_ok )
+          dump_kptr(nd->xdo_dev_offload_ok, "  xdo_dev_offload_ok", delta);
+        if ( nd->xdo_dev_state_advance_esn )
+          dump_kptr(nd->xdo_dev_state_advance_esn, "  xdo_dev_state_advance_esn", delta);
+        if ( nd->xdo_dev_state_update_stats )
+          dump_kptr(nd->xdo_dev_state_update_stats, "  xdo_dev_state_update_stats", delta);
+        if ( nd->xdo_dev_policy_add )
+          dump_kptr(nd->xdo_dev_policy_add, "  xdo_dev_policy_add", delta);
+        if ( nd->xdo_dev_policy_delete )
+          dump_kptr(nd->xdo_dev_policy_delete, "  xdo_dev_policy_delete", delta);
+        if ( nd->xdo_dev_policy_free )
+          dump_kptr(nd->xdo_dev_policy_free, "  xdo_dev_policy_free", delta);
+      }
       if ( nd->tlsdev_ops )
         dump_kptr((unsigned long)nd->tlsdev_ops, " tlsdev_ops", delta);
       if ( nd->header_ops )
