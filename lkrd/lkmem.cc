@@ -948,6 +948,15 @@ void dump_consoles(sa64 delta)
 }
 
 template <typename T, typename F>
+void apply_for_each(unsigned long *buf, F func)
+{
+  size_t size = buf[0];
+  T *curr = (T *)(buf + 1);
+  for ( size_t idx = 0; idx < size; idx++, curr++ )
+    func(idx, curr);
+}
+
+template <typename T, typename F>
 void dump_data_noarg(sa64 delta, int code, const char *ioctl_name, const char *bname, F func)
 {
   unsigned long arg = 0;
@@ -971,19 +980,9 @@ void dump_data_noarg(sa64 delta, int code, const char *ioctl_name, const char *b
   buf[0] = arg;
   err = ioctl(g_fd, code, (int *)buf);
   if ( err )
-  {
     printf("%s failed, error %d (%s)\n", ioctl_name, errno, strerror(errno));
-    return;
-  }
-  size = buf[0];
-#ifdef DEBUG
-printf("%s size %ld\n", bname, size);
-#endif
-  T *curr = (T *)(buf + 1);
-  for ( size_t idx = 0; idx < size; idx++, curr++ )
-  {
-    func(idx, curr);
-  }
+  else
+    apply_for_each<T>(buf, func);
 }
 
 template <typename T, typename F>
@@ -1011,19 +1010,9 @@ void dump_data_ul1(unsigned long a1, sa64 delta, int code, const char *ioctl_nam
   buf[1] = args[0];
   err = ioctl(g_fd, code, (int *)buf);
   if ( err )
-  {
     printf("%s failed, error %d (%s)\n", ioctl_name, errno, strerror(errno));
-    return;
-  }
-  size = buf[0];
-#ifdef DEBUG
-printf("%s size %ld\n", bname, size);
-#endif
-  T *curr = (T *)(buf + 1);
-  for ( size_t idx = 0; idx < size; idx++, curr++ )
-  {
-    func(idx, curr);
-  }
+  else
+    apply_for_each<T>(buf, func);
 }
 
 void dump_binfmt(sa64 delta)
@@ -1123,16 +1112,9 @@ void dump_data1arg(a64 list, sa64 delta, int code, const char *header, const cha
   buf[1] = args[0];
   err = ioctl(g_fd, code, (int *)buf);
   if ( err )
-  {
     printf("%s failed, error %d (%s)\n", ioctl_name, errno, strerror(errno));
-    return;
-  }
-  size = buf[0];
-  T *curr = (T *)(buf + 1);
-  for ( size_t idx = 0; idx < size; idx++, curr++ )
-  {
-    func(idx, curr);
-  }
+  else
+    apply_for_each<T>(buf, func);
 }
 
 template <typename T, typename F>
@@ -1161,16 +1143,9 @@ void dump_data2arg(a64 list, a64 lock, sa64 delta, int code, const char *header,
   buf[2] = args[0];
   err = ioctl(g_fd, code, (int *)buf);
   if ( err )
-  {
     printf("%s failed, error %d (%s)\n", ioctl_name, errno, strerror(errno));
-    return;
-  }
-  size = buf[0];
-  T *curr = (T *)(buf + 1);
-  for ( size_t idx = 0; idx < size; idx++, curr++ )
-  {
-    func(idx, curr);
-  }
+  else
+    apply_for_each<T>(buf, func);
 }
 
 void check_bpf_protos(sa64 delta)
