@@ -1674,7 +1674,7 @@ struct s_xfrm_mode {
 
 // since 4.12
 struct s_xfrm_type_offload {
-  void *addr;
+  const void *addr;
   int proto;
   unsigned long encap, input_tail, xmit;
 };
@@ -1707,6 +1707,24 @@ struct s_xfrm_translator {
  unsigned long alloc_compat, rcv_msg_compat, xlate_user_policy_sockptr;
 };
 
+struct s_xfrm_type {
+  const void *addr;
+  unsigned char proto, flags;
+  unsigned long init_state, destructor, input, output, reject,
+  // < 5.14
+  hdr_offset;
+};
+
+struct s_xfrm_state_afinfo {
+  void *addr;
+  unsigned char proto;
+  struct s_xfrm_type_offload off_esp;
+  struct s_xfrm_type type_esp, type_ipip, type_ipip6, type_comp, type_ah, type_routing, type_dstopts;
+  unsigned long output, transport_finish, local_error,
+  // < 5.8
+   output_finish, extract_input, extract_output;
+};
+
 // read xfrm internals
 // in params - must be at least 3
 // first - kind of what to read
@@ -1716,7 +1734,8 @@ struct s_xfrm_translator {
 //   out params - N + N * s_xfrm_mgr
 //  case 2 (since 5.10) - read xfrm_translator
 //   out param - s_xfrm_translator
-//  case 3 - read xfrm_state_afinfo, second - index, must be < AF_MAX
+//  case 3 - (since 5.3) read xfrm_state_afinfo, second - zero or N
+//   oit param - N + N * s_xfrm_state_afinfo
 #define IOCTL_XFRM_GUTS                     _IOR(IOCTL_NUM, 0x73, int*)
 
 #endif /* LKCD_SHARED_H */

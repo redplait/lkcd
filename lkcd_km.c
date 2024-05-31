@@ -138,8 +138,10 @@ static struct mutex *s_nf_hook_mutex = 0;
 static struct mutex *s_nf_log_mutex = 0;
 #endif /* CONFIG_NETFILTER */
 #ifdef CONFIG_XFRM
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5,3,0)
 static spinlock_t *s_xfrm_state_afinfo_lock = 0;
 static struct xfrm_state_afinfo **s_xfrm_state_afinfo = 0;
+#endif
 static spinlock_t *s_xfrm_km_lock = 0;
 static struct list_head *s_xfrm_km_list = 0;
 static spinlock_t *s_xfrm_policy_afinfo_lock = 0;
@@ -1258,6 +1260,36 @@ static int extract_sp(struct file *file, struct subsys_private **sp)
   *sp = to_subsys_private(kobj);
   return 0;
 }
+
+#ifdef CONFIG_XFRM
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4,12,0)
+static void copy_xfrm_type_off(const struct xfrm_type_offload *off, struct s_xfrm_type_offload *to)
+{
+  to->addr = off;
+  if ( !off ) return;
+  to->proto = off->proto;
+  to->encap = (unsigned long)off->encap;
+  to->input_tail = (unsigned long)off->input_tail;
+  to->xmit = (unsigned long)off->xmit;
+}
+#endif
+
+static void copy_xfrm_type(const struct xfrm_type *t, struct s_xfrm_type *to)
+{
+  to->addr = t;
+  if ( !t ) return;
+  to->proto = t->proto;
+  to->flags = t->flags;
+  to->init_state = (unsigned long)t->init_state;
+  to->destructor = (unsigned long)t->destructor;
+  to->input = (unsigned long)t->input;
+  to->output = (unsigned long)t->output;
+  to->reject = (unsigned long)t->reject;
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5,14,0)
+  to->hdr_offset = (unsigned long)t->hdr_offset;
+#endif  
+}
+#endif
 
 #ifdef CONFIG_NET_XGRESS
 #include <linux/bpf_mprog.h>
@@ -6331,7 +6363,53 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
           return -EFAULT;
         return 0;
       }
+#endif /* >= 5.10 */
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5,3,0)
+      else if ( 3 == ptrbuf[0] )
+      {
+        int i;
+        if ( !s_xfrm_state_afinfo_lock || !s_xfrm_state_afinfo ) return -ENOCSI;
+        if ( !ptrbuf[1] )
+        { // calc amount
+          spin_lock_bh(s_xfrm_state_afinfo_lock);
+          for ( i = 0; i < AF_MAX; ++i )
+            if ( s_xfrm_state_afinfo[i] ) count++;
+          spin_unlock_bh(s_xfrm_state_afinfo_lock);
+          goto copy_count;
+        } else {
+          ALLOC_KBUF(struct s_xfrm_state_afinfo, ptrbuf[1])
+          spin_lock_bh(s_xfrm_state_afinfo_lock);
+          for ( i = 0; i < AF_MAX; ++i )
+          {
+            if ( count >= ptrbuf[1] ) break;
+            if ( !s_xfrm_state_afinfo[i] ) continue;
+            curr->addr = s_xfrm_state_afinfo[i];
+            curr->proto = s_xfrm_state_afinfo[i]->proto;
+            copy_xfrm_type_off(s_xfrm_state_afinfo[i]->type_offload_esp, &curr->off_esp);
+            copy_xfrm_type(s_xfrm_state_afinfo[i]->type_esp, &curr->type_esp);
+            copy_xfrm_type(s_xfrm_state_afinfo[i]->type_ipip, &curr->type_ipip);
+            copy_xfrm_type(s_xfrm_state_afinfo[i]->type_ipip6, &curr->type_ipip6);
+            copy_xfrm_type(s_xfrm_state_afinfo[i]->type_comp, &curr->type_comp);
+            copy_xfrm_type(s_xfrm_state_afinfo[i]->type_ah, &curr->type_ah);
+            copy_xfrm_type(s_xfrm_state_afinfo[i]->type_routing, &curr->type_routing);
+            copy_xfrm_type(s_xfrm_state_afinfo[i]->type_dstopts, &curr->type_dstopts);
+            curr->output = (unsigned long)s_xfrm_state_afinfo[i]->output;
+            curr->transport_finish = (unsigned long)s_xfrm_state_afinfo[i]->transport_finish;
+            curr->local_error = (unsigned long)s_xfrm_state_afinfo[i]->local_error;
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5,8,0)
+            curr->output_finish = (unsigned long)s_xfrm_state_afinfo[i]->output_finish;
+            curr->extract_input = (unsigned long)s_xfrm_state_afinfo[i]->extract_input;
+            curr->extract_output = (unsigned long)s_xfrm_state_afinfo[i]->extract_output;
 #endif
+            // for next iteration
+            count++; curr++;
+          }
+          spin_unlock_bh(s_xfrm_state_afinfo_lock);
+          kbuf_size = sizeof(unsigned long) + count * sizeof(struct s_xfrm_state_afinfo);
+          goto copy_kbuf_count;
+        }
+      }
+#endif /* >= 5.3 */
        else return -EBADRQC;
      break; /* IOCTL_XFRM_GUTS */
 #endif /* CONFIG_XFRM */
@@ -6607,10 +6685,12 @@ init_module (void)
   REPORT(s_nf_log_mutex, "nf_log_mutex")
 #endif
 #ifdef CONFIG_XFRM
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5,3,0)
   s_xfrm_state_afinfo_lock = (spinlock_t *)lkcd_lookup_name("xfrm_state_afinfo_lock");
   REPORT(s_xfrm_state_afinfo_lock, "xfrm_state_afinfo_lock")
   s_xfrm_state_afinfo = (struct xfrm_state_afinfo **)lkcd_lookup_name("xfrm_state_afinfo");
   REPORT(s_xfrm_state_afinfo, "xfrm_state_afinfo")
+#endif
   s_xfrm_km_lock = (spinlock_t *)lkcd_lookup_name("xfrm_km_lock");
   REPORT(s_xfrm_km_lock, "xfrm_km_lock")
   s_xfrm_km_list = (struct list_head *)lkcd_lookup_name("xfrm_km_list");
