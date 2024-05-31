@@ -3082,8 +3082,10 @@ void dump_protos(a64 nca, a64 lock, sa64 delta)
   size = buf[0];
   for ( size_t i = 0; i < size; i++ )
   {
-    printf(" [%ld] ", i);
-    dump_unnamed_kptr(buf[1 + i], delta);
+    if ( buf[1 + i] ) {
+      printf(" [%ld] ", i);
+      dump_unnamed_kptr(buf[1 + i], delta);
+    }
   }
 }
 
@@ -3268,6 +3270,36 @@ void dump_fb_rules(void *net, unsigned long cnt, unsigned long *buf, sa64 delta)
   }
 }
 
+void dump_xfrm_offload(const s_xfrm_type_offload *xo, sa64 delta)
+{
+  printf(" xfrm_type_offload proto %d at", xo->proto);
+  dump_unnamed_kptr((unsigned long)xo->addr, delta, true);
+  if ( xo->encap )
+    dump_kptr(xo->encap, "  encap", delta);
+  if ( xo->input_tail )
+    dump_kptr(xo->input_tail, "  input_tail", delta);
+  if ( xo->xmit )
+    dump_kptr(xo->xmit, "  xmit", delta);
+}
+
+void dump_xfrm_type(const char *pfx, const s_xfrm_type *xt, sa64 delta)
+{
+  printf("  %s proto %d flags %d at", pfx, xt->proto, xt->flags);
+  dump_unnamed_kptr((unsigned long)xt->addr, delta, true);
+  if ( xt->init_state )
+    dump_kptr(xt->init_state, "   init_state", delta);
+  if ( xt->destructor )
+    dump_kptr(xt->destructor, "   destructor", delta);
+  if ( xt->input )
+    dump_kptr(xt->input, "   input", delta);
+  if ( xt->output )
+    dump_kptr(xt->output, "   output", delta);
+  if ( xt->reject )
+    dump_kptr(xt->reject, "   reject", delta);
+  if ( xt->hdr_offset )
+    dump_kptr(xt->hdr_offset, "   hdr_offset", delta);
+}
+
 void dump_xfrm(sa64 delta)
 {
   dump_data_ul1<s_xfrm_mgr>(1, delta, IOCTL_XFRM_GUTS, "IOCTL_XFRM_GUTS", "xfrm_mgrs",
@@ -3305,6 +3337,32 @@ void dump_xfrm(sa64 delta)
     if ( tr.xlate_user_policy_sockptr )
      dump_kptr(tr.xlate_user_policy_sockptr, " xlate_user_policy_sockptr", delta);
   }
+  // dump xfrm_state_afinfo
+  dump_data_ul1<s_xfrm_state_afinfo>(3, delta, IOCTL_XFRM_GUTS, "IOCTL_XFRM_GUTS", "xfrm_state_afinfos",
+   [delta](size_t idx, const s_xfrm_state_afinfo *curr) {
+     printf(" [%ld] xfrm_state_afinfo proto %d at", idx, curr->proto);
+     dump_unnamed_kptr((unsigned long)curr->addr, delta, true);
+     if ( curr->off_esp.addr ) dump_xfrm_offload(&curr->off_esp, delta);
+     if ( curr->type_esp.addr ) dump_xfrm_type("type_esp", &curr->type_esp, delta);
+     if ( curr->type_ipip.addr ) dump_xfrm_type("type_ipip", &curr->type_ipip, delta);
+     if ( curr->type_ipip6.addr ) dump_xfrm_type("type_ipip6", &curr->type_ipip6, delta);
+     if ( curr->type_comp.addr ) dump_xfrm_type("type_comp", &curr->type_comp, delta);
+     if ( curr->type_ah.addr ) dump_xfrm_type("type_ah", &curr->type_ah, delta);
+     if ( curr->type_routing.addr ) dump_xfrm_type("type_routing", &curr->type_routing, delta);
+     if ( curr->type_dstopts.addr ) dump_xfrm_type("type_dstopts", &curr->type_dstopts, delta);
+     if ( curr->output )
+       dump_kptr(curr->output, "  output", delta);
+     if ( curr->transport_finish )
+       dump_kptr(curr->transport_finish, "  transport_finish", delta);
+     if ( curr->local_error )
+       dump_kptr(curr->local_error, "  local_error", delta);
+     if ( curr->output_finish )
+       dump_kptr(curr->output_finish, "  output_finish", delta);
+     if ( curr->extract_input )
+       dump_kptr(curr->extract_input, "  extract_input", delta);
+     if ( curr->extract_output )
+       dump_kptr(curr->extract_output, "  extract_output", delta);
+   });
   // read xfrm_policy_afinfo
   int latch = 0;
   s_xfrm_policy_afinfo sp;
@@ -3507,6 +3565,15 @@ void dump_nets(sa64 delta)
           dump_kptr(nd->xdo_dev_policy_delete, "  xdo_dev_policy_delete", delta);
         if ( nd->xdo_dev_policy_free )
           dump_kptr(nd->xdo_dev_policy_free, "  xdo_dev_policy_free", delta);
+      }
+      if ( nd->udp_tunnel_nic_info ) {
+        dump_kptr2(nd->udp_tunnel_nic_info, " udp_tunnel_nic_info", delta);
+        if ( nd->set_port )
+          dump_kptr(nd->set_port, "  set_port", delta);
+        if ( nd->unset_port )
+          dump_kptr(nd->unset_port, "  unset_port", delta);
+        if ( nd->sync_table )
+          dump_kptr(nd->sync_table, "  sync_table", delta);
       }
       if ( nd->tlsdev_ops )
         dump_kptr((unsigned long)nd->tlsdev_ops, " tlsdev_ops", delta);
