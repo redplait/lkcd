@@ -74,6 +74,7 @@
 #include <net/net_namespace.h>
 #include <net/sock.h>
 #include <net/fib_rules.h>
+#include <net/udp_tunnel.h>
 #include <linux/netdevice.h>
 #include <linux/netfilter.h>
 #include <net/rtnetlink.h>
@@ -3545,7 +3546,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
             // unlock
             mutex_unlock(m);
             // copy to user
-            kbuf_size = sizeof(unsigned long) * (kbuf[0] + 1);
+            kbuf_size = sizeof(unsigned long) * (count + 1);
             goto copy_kbuf_count;
           }
         }
@@ -3975,6 +3976,13 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
               curr->macsec_ops = (void *)dev->macsec_ops;
 #endif
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(5,9,0)
+              // copy udp_tunnel_nic_info
+              curr->udp_tunnel_nic_info = (unsigned long)dev->udp_tunnel_nic_info;
+              if ( dev->udp_tunnel_nic_info ) {
+                curr->set_port = (unsigned long)dev->udp_tunnel_nic_info->set_port;
+                curr->unset_port = (unsigned long)dev->udp_tunnel_nic_info->unset_port;
+                curr->sync_table = (unsigned long)dev->udp_tunnel_nic_info->sync_table;
+              }
               // copy xdp_state
               rtnl_lock();
               for ( xdp = 0; xdp < 3; xdp++ )

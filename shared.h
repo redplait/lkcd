@@ -407,6 +407,8 @@ struct one_net_dev
   unsigned long num_ihook_entries; // nf_hooks_ingress->num_hook_entries
   unsigned long num_ehook_entries; // nf_hooks_egress->num_hook_entries
   unsigned long netdev_chain_cnt;  // count of net_notifier_list
+  // since 5.9
+  unsigned long udp_tunnel_nic_info, set_port, unset_port, sync_table;
   // xfrmdev_ops - CONFIG_XFRM_OFFLOAD
   unsigned long xdo_dev_state_add, xdo_dev_state_delete, xdo_dev_state_free, xdo_dev_offload_ok,
   // since 4.16
