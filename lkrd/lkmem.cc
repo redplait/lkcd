@@ -896,57 +896,6 @@ void dump_keys(sa64 delta)
   if ( kt_name ) free(kt_name);
 }
 
-void dump_consoles(sa64 delta)
-{
-  unsigned long cnt = 0;
-  int err = ioctl(g_fd, IOCTL_READ_CONSOLES, (int *)&cnt);
-  if ( err )
-  {
-    printf("IOCTL_READ_CONSOLES count failed, error %d (%s)\n", errno, strerror(errno));
-    return;
-  }
-  printf("registered consoles: %ld\n", cnt);
-  if ( !cnt )
-    return;
-  // alloc enough memory
-  size_t size = calc_data_size<one_console>(cnt);
-  unsigned long *buf = (unsigned long *)malloc(size);
-  if ( !buf )
-  {
-    printf("cannot alloc buffer for consoles, len %lX\n", size);
-    return;
-  }
-  dumb_free<unsigned long> tmp(buf);
-  buf[0] = cnt;
-  err = ioctl(g_fd, IOCTL_READ_CONSOLES, (int *)buf);
-  if ( err )
-  {
-    printf("IOCTL_READ_CONSOLES failed, error %d (%s)\n", errno, strerror(errno));
-    return;
-  }
-  // dump
-  size = buf[0];
-  one_console *curr = (one_console *)(buf + 1);
-  for ( size_t idx = 0; idx < size; idx++, curr++ )
-  {
-    printf("[%ld] %s at %p flags %X index %d\n", idx, curr->name, curr->addr, curr->flags, curr->index);
-    if ( curr->write )
-      dump_kptr((unsigned long)curr->write, "  write", delta);
-    if ( curr->read )
-      dump_kptr((unsigned long)curr->read, "  read", delta);
-    if ( curr->device )
-      dump_kptr((unsigned long)curr->device, "  device", delta);
-    if ( curr->unblank )
-      dump_kptr((unsigned long)curr->unblank, "  unblank", delta);
-    if ( curr->setup )
-      dump_kptr((unsigned long)curr->setup, "  setup", delta);
-    if ( curr->exit )
-      dump_kptr((unsigned long)curr->exit, "  exit", delta);
-    if ( curr->match )
-      dump_kptr((unsigned long)curr->match, "  match", delta);
-  }
-}
-
 template <typename T, typename F>
 void apply_for_each(unsigned long *buf, F func)
 {
@@ -992,7 +941,7 @@ void dump_data_ul1(unsigned long a1, sa64 delta, int code, const char *ioctl_nam
   int err = ioctl(g_fd, code, (int *)args);
   if ( err )
   {
-    printf("%s count failed, error %d (%s)\n", ioctl_name, errno, strerror(errno));
+    printf("%s(%ld) count failed, error %d (%s)\n", ioctl_name, a1, errno, strerror(errno));
     return;
   }
   printf("\n%s count: %ld\n", bname, args[0]);
@@ -1010,9 +959,31 @@ void dump_data_ul1(unsigned long a1, sa64 delta, int code, const char *ioctl_nam
   buf[1] = args[0];
   err = ioctl(g_fd, code, (int *)buf);
   if ( err )
-    printf("%s failed, error %d (%s)\n", ioctl_name, errno, strerror(errno));
+    printf("%s(%ld) failed, error %d (%s)\n", ioctl_name, a1, errno, strerror(errno));
   else
     apply_for_each<T>(buf, func);
+}
+
+void dump_consoles(sa64 delta)
+{
+  dump_data_noarg<one_console>(delta, IOCTL_READ_CONSOLES, "IOCTL_READ_CONSOLES", "registered consoles",
+   [=](size_t idx, const one_console *curr) {
+    printf("[%ld] %s at %p flags %X index %d\n", idx, curr->name, curr->addr, curr->flags, curr->index);
+    if ( curr->write )
+      dump_kptr((unsigned long)curr->write, "  write", delta);
+    if ( curr->read )
+      dump_kptr((unsigned long)curr->read, "  read", delta);
+    if ( curr->device )
+      dump_kptr((unsigned long)curr->device, "  device", delta);
+    if ( curr->unblank )
+      dump_kptr((unsigned long)curr->unblank, "  unblank", delta);
+    if ( curr->setup )
+      dump_kptr((unsigned long)curr->setup, "  setup", delta);
+    if ( curr->exit )
+      dump_kptr((unsigned long)curr->exit, "  exit", delta);
+    if ( curr->match )
+      dump_kptr((unsigned long)curr->match, "  match", delta);
+  });
 }
 
 void dump_binfmt(sa64 delta)
@@ -1462,6 +1433,8 @@ static const char *const bpf_prog_type_names[] = {
  "BPF_PROG_TYPE_EXT",
  "BPF_PROG_TYPE_LSM",
  "BPF_PROG_TYPE_SK_LOOKUP",
+ "BPF_PROG_TYPE_SYSCALL",
+ "BPF_PROG_TYPE_NETFILTER",
 };
 
 static const char *get_bpf_prog_type_name(int idx)
