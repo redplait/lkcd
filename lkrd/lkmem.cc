@@ -964,6 +964,37 @@ void dump_data_ul1(unsigned long a1, sa64 delta, int code, const char *ioctl_nam
     apply_for_each<T>(buf, func);
 }
 
+template <typename T, typename F>
+void dump_data_ul2(unsigned long a1, unsigned long a2, sa64 delta, int code, const char *ioctl_name, const char *bname, F func)
+{
+  unsigned long args[3] = { a1, a2, 0 };
+  int err = ioctl(g_fd, code, (int *)args);
+  if ( err )
+  {
+    printf("%s(%ld, %ld) count failed, error %d (%s)\n", ioctl_name, a1, a2, errno, strerror(errno));
+    return;
+  }
+  printf("\n%s count: %ld\n", bname, args[0]);
+  if ( !args[0] )
+    return;
+  size_t size = calc_data_size<T>(args[0]);
+  unsigned long *buf = (unsigned long *)malloc(size);
+  if ( !buf )
+  {
+    printf("cannot alloc buffer for %s, len %lX\n", bname, size);
+    return;
+  }
+  dumb_free<unsigned long> tmp(buf);
+  buf[0] = a1;
+  buf[2] = a2;
+  buf[2] = args[0];
+  err = ioctl(g_fd, code, (int *)buf);
+  if ( err )
+    printf("%s(%ld, %ld) failed, error %d (%s)\n", ioctl_name, a1, a2, errno, strerror(errno));
+  else
+    apply_for_each<T>(buf, func);
+}
+
 void dump_consoles(sa64 delta)
 {
   dump_data_noarg<one_console>(delta, IOCTL_READ_CONSOLES, "IOCTL_READ_CONSOLES", "registered consoles",
@@ -3273,6 +3304,53 @@ void dump_xfrm_type(const char *pfx, const s_xfrm_type *xt, sa64 delta)
     dump_kptr(xt->hdr_offset, "   hdr_offset", delta);
 }
 
+void dump_xfrm_pt(sa64 delta)
+{
+  auto dump_proto = [delta](size_t idx, const s_xfrm_protocol *xp) {
+   printf(" [%ld] at", idx);
+   dump_unnamed_kptr((unsigned long)xp->addr, delta, true);
+   if ( xp->handler )
+      dump_kptr(xp->handler, "  handler", delta);
+   if ( xp->cb_handler )
+      dump_kptr(xp->cb_handler, "  cb_handler", delta);
+   if ( xp->err_handler )
+      dump_kptr(xp->err_handler, "  err_handler", delta);
+   if ( xp->input_handler )
+      dump_kptr(xp->input_handler, "  input_handler", delta);
+  };
+  auto dump_tunnel = [delta](size_t idx, const s_xfrm_tunnel *xt) {
+   printf(" [%ld] at", idx);
+   dump_unnamed_kptr((unsigned long)xt->addr, delta, true);
+   if ( xt->handler )
+      dump_kptr(xt->handler, "  handler", delta);
+   if ( xt->err_handler )
+      dump_kptr(xt->err_handler, "  err_handler", delta);
+   if ( xt->cb_handler )
+      dump_kptr(xt->cb_handler, "  cb_handler", delta);
+  };
+  static const char *p4[3] = {
+    "esp4_handlers", "ah4_handlers", "ipcomp4_handlers"
+  };
+  static const char *p6[3] = {
+    "esp6_handlers", "ah6_handlers", "ipcomp6_handlers"
+  };
+  static const char *t4[] = {
+    "tunnel4_handlers", "tunnel64_handlers", "tunnelmpls4_handlers"
+  };
+  static const char *t6[] = {
+    "tunnel6_handlers", "tunnel46_handlers", "tunnelmpls6_handlers"
+  };
+  unsigned long a2;
+  for ( a2 = 0; a2 < 3; a2++ )
+    dump_data_ul2<s_xfrm_protocol>(4, a2, delta, IOCTL_XFRM_GUTS, "IOCTL_XFRM_GUTS", p4[a2], dump_proto);
+  for ( a2 = 0; a2 < 3; a2++ )
+    dump_data_ul2<s_xfrm_protocol>(5, a2, delta, IOCTL_XFRM_GUTS, "IOCTL_XFRM_GUTS", p6[a2], dump_proto);
+  for ( a2 = 0; a2 < 3; a2++ )
+    dump_data_ul2<s_xfrm_tunnel>(6, a2, delta, IOCTL_XFRM_GUTS, "IOCTL_XFRM_GUTS", t4[a2], dump_tunnel);
+  for ( a2 = 0; a2 < 3; a2++ )
+    dump_data_ul2<s_xfrm_tunnel>(7, a2, delta, IOCTL_XFRM_GUTS, "IOCTL_XFRM_GUTS", t6[a2], dump_tunnel);
+}
+
 void dump_xfrm(sa64 delta)
 {
   dump_data_ul1<s_xfrm_mgr>(1, delta, IOCTL_XFRM_GUTS, "IOCTL_XFRM_GUTS", "xfrm_mgrs",
@@ -3310,6 +3388,8 @@ void dump_xfrm(sa64 delta)
     if ( tr.xlate_user_policy_sockptr )
      dump_kptr(tr.xlate_user_policy_sockptr, " xlate_user_policy_sockptr", delta);
   }
+  // protocols & tunnels
+  dump_xfrm_pt(delta);
   // dump xfrm_state_afinfo
   dump_data_ul1<s_xfrm_state_afinfo>(3, delta, IOCTL_XFRM_GUTS, "IOCTL_XFRM_GUTS", "xfrm_state_afinfos",
    [delta](size_t idx, const s_xfrm_state_afinfo *curr) {
