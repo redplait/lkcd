@@ -5700,7 +5700,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
               curr->tfmsize = q->cra_type->tfmsize;
             }
             // copy algo methods
-            if ( q->cra_flags & CRYPTO_ALG_TYPE_COMPRESS )
+            if ( (q->cra_flags & CRYPTO_ALG_TYPE_MASK) == CRYPTO_ALG_TYPE_COMPRESS )
             {
               curr->coa_compress = q->cra_u.compress.coa_compress;
               curr->coa_decompress = q->cra_u.compress.coa_decompress;
@@ -6403,23 +6403,96 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
           goto copy_kbuf_count;
         }
       } else if ( 5 == ptrbuf[0] ) { // // copy xfrm6_protocols
+        struct xfrm6_protocol *x6;
         int idx = ptrbuf[1];
         if ( !s_xfrm6_protocol_mutex ) return -ENOCSI;
         if ( idx < 0 || idx >= ARRAY_SIZE(x6p) ) return -EINVAL;
         if ( !x6p[idx] ) return -ENOCSI;
         if ( !*x6p[idx] ) goto copy_count;
+        if ( !ptrbuf[2] ) { // calc count
+          mutex_lock(s_xfrm6_protocol_mutex);
+          for ( x6 = rcu_dereference(*x6p[idx]); x6 != NULL; x6 = x6->next ) count++;
+          mutex_unlock(s_xfrm6_protocol_mutex);
+          goto copy_count;
+        } else {
+          ALLOC_KBUF(struct s_xfrm_protocol, ptrbuf[2])
+          mutex_lock(s_xfrm6_protocol_mutex);
+          for ( x6 = rcu_dereference(*x6p[idx]); x6 != NULL; x6 = x6->next )
+          {
+            if ( count >= ptrbuf[2] ) break;
+            curr->addr = x6;
+            curr->handler = (unsigned long)x6->handler;
+            curr->cb_handler = (unsigned long)x6->cb_handler;
+            curr->err_handler = (unsigned long)x6->err_handler;
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5,8,0)
+            curr->input_handler = (unsigned long)x6->input_handler;
+#endif
+            curr++; count++;
+          }
+          mutex_unlock(s_xfrm6_protocol_mutex);
+          kbuf_size = (unsigned long) + count * sizeof(struct s_xfrm_protocol);
+          goto copy_kbuf_count;
+        }
       } else if ( 6 == ptrbuf[0] ) { // copy xfrm_tunnels
+        struct xfrm_tunnel *xt;
         int idx = ptrbuf[1];
         if ( !s_tunnel4_mutex ) return -ENOCSI;
         if ( idx < 0 || idx >= ARRAY_SIZE(x4t) ) return -EINVAL;
         if ( !x4t[idx] ) return -ENOCSI;
         if ( !*x4t[idx] ) goto copy_count;
-      } else if ( 6 == ptrbuf[0] ) { // copy xfrm6_tunnels
+        if ( !ptrbuf[2] ) { // calc count
+          mutex_lock(s_tunnel4_mutex);
+          for ( xt = rcu_dereference(*x4t[idx]); xt != NULL; xt = xt->next ) count++;
+          mutex_unlock(s_tunnel4_mutex);
+          goto copy_count;
+        } else {
+          ALLOC_KBUF(struct s_xfrm_tunnel, ptrbuf[2])
+          mutex_lock(s_tunnel4_mutex);
+          for ( xt = rcu_dereference(*x4t[idx]); xt != NULL; xt = xt->next )
+          {
+            if ( count >= ptrbuf[2] ) break;
+            curr->addr = xt;
+            curr->handler = (unsigned long)xt->handler;
+            curr->err_handler = (unsigned long)xt->err_handler;
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5,8,0)
+            curr->cb_handler = (unsigned long)xt->cb_handler;
+#endif
+            curr++; count++;
+          }
+          mutex_unlock(s_tunnel4_mutex);
+          kbuf_size = (unsigned long) + count * sizeof(struct s_xfrm_tunnel);
+          goto copy_kbuf_count;
+        }
+      } else if ( 7 == ptrbuf[0] ) { // copy xfrm6_tunnels
+        struct xfrm6_tunnel *t6;
         int idx = ptrbuf[1];
         if ( !s_tunnel6_mutex ) return -ENOCSI;
         if ( idx < 0 || idx >= ARRAY_SIZE(x6t) ) return -EINVAL;
         if ( !x6t[idx] ) return -ENOCSI;
         if ( !*x6t[idx] ) goto copy_count;
+        if ( !ptrbuf[2] ) { // calc count
+          mutex_lock(s_tunnel6_mutex);
+          for ( t6 = rcu_dereference(*x6t[idx]); t6 != NULL; t6 = t6->next ) count++;
+          mutex_unlock(s_tunnel6_mutex);
+          goto copy_count;
+        } else {
+          ALLOC_KBUF(struct s_xfrm_tunnel, ptrbuf[2])
+          mutex_lock(s_tunnel6_mutex);
+          for ( t6 = rcu_dereference(*x6t[idx]); t6 != NULL; t6 = t6->next )
+          {
+            if ( count >= ptrbuf[2] ) break;
+            curr->addr = t6;
+            curr->handler = (unsigned long)t6->handler;
+            curr->err_handler = (unsigned long)t6->err_handler;
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5,8,0)
+            curr->cb_handler = (unsigned long)t6->cb_handler;
+#endif
+            curr++; count++;
+          }
+          mutex_unlock(s_tunnel6_mutex);
+          kbuf_size = (unsigned long) + count * sizeof(struct s_xfrm_tunnel);
+          goto copy_kbuf_count;
+        }
       }
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(5,10,0)
       else if ( 2 == ptrbuf[0] )
