@@ -73,6 +73,7 @@ class kotest
    void dump_symbols(int show_refs = 0) const;
    size_t s_moved_size = 0;
   protected:
+   void fix_add(unsigned rtype, Elf_Sxword &add);
    void hdump(asymbol *sym);
    art_symbol *add_art(asection *, Elf_Sxword add);
    int fix_art(asection *);
@@ -270,6 +271,18 @@ kotest::~kotest()
     if ( s ) delete s;
 }
 
+void kotest::fix_add(unsigned rtype, Elf_Sxword &add)
+{
+  auto mach = reader.get_machine();
+  if ( mach == EM_386 || mach == EM_486 || mach == EM_X86_64 )
+  {
+    if ( rtype == 2 || // pc32
+         rtype == 4    // plt32
+       )
+      add += 4;
+  }
+}
+
 void kotest::process_relocs(int sidx, section *s)
 {
   auto s_name = s->get_name();
@@ -304,16 +317,18 @@ void kotest::process_relocs(int sidx, section *s)
     if ( sym && sym->section == SHN_UNDEF ) continue;
     // skip refs to absolute symbols
     if ( sym && sym->section == SHN_ABS ) continue;
+    // fix add. depends from current arch & rtype
+    fix_add(rtype, add);
     // try to find symbol in dest section
     if ( g_debug ) {
       if ( sym )
       {
         if ( sym->type == STT_SECTION )
-         printf(" [%d] off %lX section %s + %lX\n", i, offset, sym->name.c_str(), add);
+         printf(" [%d] off %lX rtype %d section %s + %lX\n", i, offset, rtype, sym->name.c_str(), add);
         else
-          printf(" [%d] off %lX sym %s + %lX\n", i, offset, sym->name.c_str(), add);
+          printf(" [%d] off %lX rtype %d sym %s + %lX\n", i, offset, rtype, sym->name.c_str(), add);
       } else
-        printf(" [%d] off %lX sym_idx %d add %lX\n", i, offset, sym_idx, add);
+        printf(" [%d] off %lX rtype %d sym_idx %d add %lX\n", i, offset, rtype, sym_idx, add);
     }
     if ( !sym ) {
       printf("no symbol for reloc %d in %s, sym_idx %d offset %lX\n", i, SNAME(dest->s), sym_idx, offset);
