@@ -1271,6 +1271,20 @@ struct crypt_acomp {
   unsigned long compress, decompress, dst_free, init, exit;
 };
 
+// CRYPTO_ALG_TYPE_RNG, 0xc, in cra_u.rng till 4.2
+struct crypt_rng {
+  unsigned long rng_make_random, rng_reset,
+  // since 4.2
+   generate, seed, set_ent;
+  unsigned int seedsize;
+};
+
+// CRYPTO_ALG_TYPE_KPP - 8
+struct crypt_kpp {
+  unsigned long set_secret, generate_public_key, compute_shared_secret, max_size, init, exit;
+  unsigned int reqsize;
+};
+
 struct one_kcalgo
 {
   void *addr;
@@ -1295,8 +1309,10 @@ struct one_kcalgo
     struct crypt_aead aead;     // 3
     struct crypt_blkcipher blk; // 4
     struct crypt_ablkcipher ablk; // 5
+    struct crypt_kpp kpp;       // 8
     struct crypt_acomp acomp;   // 0xa
     struct crypt_scomp scomp;   // 0xb
+    struct crypt_rng rng;       // 0xc
     struct crypt_akcipher ak;   // 0xd
     struct crypt_shash shash;   // 0xe, 0xf for ahash
   };

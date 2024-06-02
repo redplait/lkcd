@@ -1315,8 +1315,26 @@ static unsigned long count_mprog_count(struct bpf_mprog_entry *entry)
 #endif /* CONFIG_NET_XGRESS */
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(4,2,0)
-#include <crypto/aead.h>  
+#include <crypto/aead.h>
+#include <crypto/rng.h>
 #endif
+
+static void copy_rng(struct one_kcalgo *curr, struct crypto_alg *q)
+{
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4,2,0)
+  struct rng_alg *r = &q->cra_u.rng;
+  curr->rng.rng_make_random = (unsigned long)r->rng_make_random;
+  curr->rng.rng_reset = (unsigned long)r->rng_reset;
+#else
+  struct rng_alg *r = container_of(q, struct rng_alg, base);
+  curr->addr = r;
+  curr->rng.generate = (unsigned long)r->generate;
+  curr->rng.seed = (unsigned long)r->seed;
+  curr->rng.set_ent = (unsigned long)r->set_ent;
+#endif
+  curr->what = 0xc;
+  curr->rng.seedsize = r->seedsize;
+}
 
 static void copy_aead(struct one_kcalgo *curr, struct crypto_alg *q)
 {
@@ -1400,6 +1418,26 @@ static void copy_ahash(struct one_kcalgo *curr, struct crypto_alg *q)
   curr->shash.digestsize = s->halg.digestsize;
   curr->shash.statesize = s->halg.statesize;
 }
+
+#ifdef CRYPTO_ALG_TYPE_KPP
+#include <crypto/kpp.h>
+
+static void copy_kpp(struct one_kcalgo *curr, struct crypto_alg *q)
+{
+  struct kpp_alg *s = container_of(q, struct kpp_alg, base);
+  curr->addr = s;
+  curr->what = 0x8;
+  curr->kpp.set_secret = (unsigned long)s->set_secret;
+  curr->kpp.generate_public_key = (unsigned long)s->generate_public_key;
+  curr->kpp.compute_shared_secret = (unsigned long)s->compute_shared_secret;
+  curr->kpp.max_size = (unsigned long)s->max_size;
+  curr->kpp.init = (unsigned long)s->init;
+  curr->kpp.exit = (unsigned long)s->exit;
+#if LINUX_VERSION_CODE < KERNEL_VERSION(6,2,0)
+  curr->kpp.reqsize = s->reqsize;
+#endif
+}
+#endif
 
 #ifdef CRYPTO_ALG_TYPE_BLKCIPHER
 static void copy_blkcipher(struct one_kcalgo *curr, struct crypto_alg *q)
@@ -5859,6 +5897,12 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
               copy_ahash(curr, q);
             else if ( curr->what == CRYPTO_ALG_TYPE_AEAD )
               copy_aead(curr, q);
+            else if ( curr->what == CRYPTO_ALG_TYPE_RNG )
+              copy_rng(curr, q);
+#ifdef CRYPTO_ALG_TYPE_KPP
+            else if ( curr->what == CRYPTO_ALG_TYPE_KPP )
+              copy_kpp(curr, q);
+#endif
 #if LINUX_VERSION_CODE < KERNEL_VERSION(5,5,0)
             else if ( curr->what == CRYPTO_ALG_TYPE_BLKCIPHER )
               copy_blkcipher(curr, q);
