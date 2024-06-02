@@ -1341,6 +1341,66 @@ static void copy_aead(struct one_kcalgo *curr, struct crypto_alg *q)
   curr->aead.maxauthsize = aead->maxauthsize;
 }
 
+#include <crypto/hash.h>
+
+static void copy_shash(struct one_kcalgo *curr, struct crypto_alg *q)
+{
+#if LINUX_VERSION_CODE < KERNEL_VERSION(6,4,0)
+  struct shash_alg *s = container_of(q, struct shash_alg, base);
+#else
+  struct shash_alg *s = container_of(q, struct shash_alg, halg.base);
+#endif
+  curr->addr = s;
+  curr->what = 0xe;
+  curr->shash.init = (unsigned long)s->init;
+  curr->shash.update = (unsigned long)s->update;
+  curr->shash.final = (unsigned long)s->final;
+  curr->shash.finup = (unsigned long)s->finup;
+  curr->shash.digest = (unsigned long)s->digest;
+  curr->shash._exp = (unsigned long)s->export;
+  curr->shash._imp = (unsigned long)s->import;
+  curr->shash.setkey = (unsigned long)s->setkey;
+#if LINUX_VERSION_CODE > KERNEL_VERSION(5,6,0)
+  curr->shash.init_tfm = (unsigned long)s->init_tfm;
+  curr->shash.exit_tfm = (unsigned long)s->exit_tfm;
+#endif
+#if LINUX_VERSION_CODE > KERNEL_VERSION(6,4,0)
+  curr->shash.clone_tfm = (unsigned long)s->clone_tfm;
+#endif
+  curr->shash.descsize = s->descsize;
+#if LINUX_VERSION_CODE < KERNEL_VERSION(6,4,0)
+  curr->shash.digestsize = s->digestsize;
+  curr->shash.statesize = s->statesize;
+#else
+  curr->shash.digestsize = s->halg.digestsize;
+  curr->shash.statesize = s->halg.statesize;
+#endif
+}
+
+static void copy_ahash(struct one_kcalgo *curr, struct crypto_alg *q)
+{
+  struct ahash_alg *s = container_of(q, struct ahash_alg, halg.base);
+  curr->addr = s;
+  curr->what = 0xf;
+  curr->shash.init = (unsigned long)s->init;
+  curr->shash.update = (unsigned long)s->update;
+  curr->shash.final = (unsigned long)s->final;
+  curr->shash.finup = (unsigned long)s->finup;
+  curr->shash.digest = (unsigned long)s->digest;
+  curr->shash._exp = (unsigned long)s->export;
+  curr->shash._imp = (unsigned long)s->import;
+  curr->shash.setkey = (unsigned long)s->setkey;
+#if LINUX_VERSION_CODE > KERNEL_VERSION(5,6,0)
+  curr->shash.init_tfm = (unsigned long)s->init_tfm;
+  curr->shash.exit_tfm = (unsigned long)s->exit_tfm;
+#endif
+#if LINUX_VERSION_CODE > KERNEL_VERSION(6,4,0)
+  curr->shash.clone_tfm = (unsigned long)s->clone_tfm;
+#endif
+  curr->shash.digestsize = s->halg.digestsize;
+  curr->shash.statesize = s->halg.statesize;
+}
+
 #ifdef CRYPTO_ALG_TYPE_BLKCIPHER
 static void copy_blkcipher(struct one_kcalgo *curr, struct crypto_alg *q)
 {
@@ -5793,7 +5853,11 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
               curr->cip.cia_setkey = (unsigned long)q->cra_u.cipher.cia_setkey;
               curr->cip.cia_encrypt = (unsigned long)q->cra_u.cipher.cia_encrypt;
               curr->cip.cia_decrypt = (unsigned long)q->cra_u.cipher.cia_decrypt;
-            } else if ( curr->what == CRYPTO_ALG_TYPE_AEAD )
+            } else if ( curr->what == CRYPTO_ALG_TYPE_SHASH )
+              copy_shash(curr, q);
+            else if ( curr->what == CRYPTO_ALG_TYPE_AHASH )
+              copy_ahash(curr, q);
+            else if ( curr->what == CRYPTO_ALG_TYPE_AEAD )
               copy_aead(curr, q);
 #if LINUX_VERSION_CODE < KERNEL_VERSION(5,5,0)
             else if ( curr->what == CRYPTO_ALG_TYPE_BLKCIPHER )

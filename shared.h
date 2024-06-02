@@ -1226,7 +1226,7 @@ struct crypt_skcipher {
 
 // CRYPTO_ALG_TYPE_AKCIPHER (0xd) was introduced in 4.2 with base
 struct crypt_akcipher {
-  unsigned long sign, verify, encrypt, decrypt, set_pub_key, set_priv_key, max_size, init, exit;
+  unsigned long sign, verify, encrypt, decrypt, set_pub_key, set_priv_key, set_c_key, max_size, init, exit;
   unsigned int reqsize;
 };
 
@@ -1243,13 +1243,21 @@ struct crypt_compress {
 
 // CRYPTO_ALG_TYPE_AHASH 0xf, base halg.base
 struct crypt_ahash {
-  unsigned long init, update, final, finup, digest, _exp, _imp, setkey;
+  unsigned long init, update, final, finup, digest, _exp, _imp, setkey,
+  // since 5.10
+  init_tfm, exit_tfm,
+  // since 6.4
+  clone_tfm;
   unsigned int digestsize, statesize; // from halg
 };
 
-// CRYPTO_ALG_TYPE_SHASH 0xe
+// CRYPTO_ALG_TYPE_SHASH 0xe, base halg.base since 6.4
 struct crypt_shash {
-  unsigned long init, update, final, finup, digest, _exp, _imp, setkey;
+  unsigned long init, update, final, finup, digest, _exp, _imp, setkey,
+  // since 5.6
+  init_tfm, exit_tfm,
+  // since 6.4
+  clone_tfm;
   unsigned int descsize, digestsize, statesize;
 };
 
@@ -1290,8 +1298,7 @@ struct one_kcalgo
     struct crypt_acomp acomp;   // 0xa
     struct crypt_scomp scomp;   // 0xb
     struct crypt_akcipher ak;   // 0xd
-    struct crypt_shash shash;   // 0xe
-    struct crypt_ahash ahash;   // 0xf
+    struct crypt_shash shash;   // 0xe, 0xf for ahash
   };
   // remained methods
   void *cra_init;
