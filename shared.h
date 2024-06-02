@@ -1218,6 +1218,12 @@ struct crypt_ablkcipher {
   unsigned int min_keysize, max_keysize, ivsize;
 };
 
+// CRYPTO_ALG_TYPE_SKCIPHER - 0x15, with base
+struct crypt_skcipher {
+  unsigned long setkey, encrypt, decrypt, init, exit;
+  unsigned int min_keysize, max_keysize, ivsize, chunksize, walksize;
+};
+
 // CRYPTO_ALG_TYPE_AKCIPHER (0xd) was introduced in 4.2 with base
 struct crypt_akcipher {
   unsigned long sign, verify, encrypt, decrypt, set_pub_key, set_priv_key, max_size, init, exit;

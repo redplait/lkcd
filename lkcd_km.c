@@ -1371,6 +1371,29 @@ static void copy_ablkcipher(struct one_kcalgo *curr, struct crypto_alg *q)
 }
 #endif
 
+#ifdef CRYPTO_ALG_TYPE_AKCIPHER
+#include <crypto/akcipher.h>
+
+static void copy_akcipher(struct one_kcalgo *curr, struct crypto_alg *q)
+{
+  struct akcipher_alg *ac = container_of(q, struct akcipher_alg, base);
+  curr->addr = ac;
+  curr->what = 0xd;
+  curr->ak.sign = (unsigned long)ac->sign;
+  curr->ak.verify = (unsigned long)ac->verify;
+  curr->ak.encrypt = (unsigned long)ac->encrypt;
+  curr->ak.decrypt = (unsigned long)ac->decrypt;
+  curr->ak.set_pub_key = (unsigned long)ac->set_pub_key;
+  curr->ak.set_priv_key = (unsigned long)ac->set_priv_key;
+  curr->ak.max_size = (unsigned long)ac->max_size;
+  curr->ak.init = (unsigned long)ac->init;
+  curr->ak.exit = (unsigned long)ac->exit;
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5,0,0)
+  curr->ak.reqsize = ac->reqsize;
+#endif
+}
+#endif
+
 #include "rn.h"
 #include "inject.inc"
 
@@ -5777,6 +5800,10 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
               copy_blkcipher(curr, q);
             else if ( curr->what == CRYPTO_ALG_TYPE_ABLKCIPHER )
               copy_ablkcipher(curr, q);
+#endif
+#ifdef CRYPTO_ALG_TYPE_AKCIPHER
+            else if ( curr->what == CRYPTO_ALG_TYPE_AKCIPHER )
+              copy_akcipher(curr, q);
 #endif
             curr->cra_init = q->cra_init;
             curr->cra_exit = q->cra_exit;
