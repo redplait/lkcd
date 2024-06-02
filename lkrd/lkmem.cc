@@ -2285,6 +2285,85 @@ static void cdump_ak(const crypt_akcipher &a, sa64 delta)
     printf("  reqsize: %d\n", a.reqsize);
 }
 
+static void cdump_rng(const crypt_rng &r, sa64 delta)
+{
+  if ( r.rng_make_random )
+    dump_kptr2(r.rng_make_random, "  rng_make_random", delta);
+  if ( r.rng_reset )
+    dump_kptr2(r.rng_reset, "  rng_reset", delta);
+  if ( r.generate )
+    dump_kptr2(r.generate, "  generate", delta);
+  if ( r.seed )
+    dump_kptr2(r.seed, "  seed", delta);
+  if ( r.set_ent )
+    dump_kptr2(r.set_ent, "  set_ent", delta);
+  if ( r.seedsize )
+    printf("  seedsize: %d\n", r.seedsize);
+}
+
+static void cdump_kpp(const crypt_kpp &k, sa64 delta)
+{
+  if ( k.set_secret )
+    dump_kptr2(k.set_secret, "  set_secret", delta);
+  if ( k.generate_public_key )
+    dump_kptr2(k.generate_public_key, "  generate_public_key", delta);
+  if ( k.compute_shared_secret )
+    dump_kptr2(k.compute_shared_secret, "  compute_shared_secret", delta);
+  if ( k.max_size )
+    dump_kptr2(k.max_size, "  max_size", delta);
+  if ( k.init )
+    dump_kptr2(k.init, "  init", delta);
+  if ( k.exit )
+    dump_kptr2(k.exit, "  exit", delta);
+  if ( k.reqsize )
+    printf("  reqsize: %d\n", k.reqsize);
+}
+
+static void cdump_scomp(const crypt_scomp &s, sa64 delta)
+{
+  if ( s.alloc_ctx )  dump_kptr2(s.alloc_ctx, "  alloc_ctx", delta);
+  if ( s.free_ctx )   dump_kptr2(s.free_ctx, "  free_ctx", delta);
+  if ( s.compress )   dump_kptr2(s.compress, "  compress", delta);
+  if ( s.decompress ) dump_kptr2(s.decompress, "  decompress", delta);
+}
+
+static void cdump_acomp(const crypt_acomp &s, sa64 delta)
+{
+  if ( s.compress )   dump_kptr2(s.compress, "  compress", delta);
+  if ( s.decompress ) dump_kptr2(s.decompress, "  decompress", delta);
+  if ( s.dst_free )   dump_kptr2(s.dst_free, "  dst_free", delta);
+  if ( s.init ) dump_kptr2(s.init, "  init", delta);
+  if ( s.exit ) dump_kptr2(s.exit, "  exit", delta);
+  if ( s.reqsize )
+    printf("  reqsize: %d\n", s.reqsize);
+}
+
+static void cdump_hash(const crypt_shash &h, sa64 delta)
+{
+  if ( h.init )
+   dump_kptr2(h.init, "  init", delta);
+  if ( h.update )
+   dump_kptr2(h.update, "  update", delta);
+  if ( h.final )
+    dump_kptr2(h.final, "  final", delta);
+  if ( h.finup )
+    dump_kptr2(h.finup, "  finup", delta);
+  if ( h.digest )
+    dump_kptr2(h.digest, "  digest", delta);
+  if ( h._exp )
+    dump_kptr2(h._exp, "  export", delta);
+  if ( h._imp )
+    dump_kptr2(h._imp, "  import", delta);
+  if ( h.setkey )
+    dump_kptr2(h.setkey, "  setkey", delta);
+  if ( h.init_tfm )
+    dump_kptr2(h.init_tfm, "  init_tfm", delta);
+  if ( h.exit_tfm )
+    dump_kptr2(h.exit_tfm, "  exit_tfm", delta);
+  if ( h.clone_tfm )
+    dump_kptr2(h.clone_tfm, "  clone_tfm", delta);
+}
+
 void dump_ckalgos(a64 list, a64 lock, sa64 delta)
 {
   if ( !list )
@@ -2340,7 +2419,18 @@ void dump_ckalgos(a64 list, a64 lock, sa64 delta)
        break;
       case 3: cdump_aead(curr->aead, delta);
        break;
+      case 8: cdump_kpp(curr->kpp, delta);
+       break;
+      case 0xa: cdump_acomp(curr->acomp, delta);
+       break;
+      case 0xb: cdump_scomp(curr->scomp, delta);
+       break;
+      case 0xc: cdump_rng(curr->rng, delta);
+        break;
       case 0xd: cdump_ak(curr->ak, delta);
+       break;
+      case 0xe:
+      case 0xf: cdump_hash(curr->shash, delta);
        break;
      }
      if ( curr->cra_init )
