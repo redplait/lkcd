@@ -2239,6 +2239,52 @@ void dump_input_handlers(sa64 delta, std::map<void *, std::string> &hmap)
   if ( name_buf ) free(name_buf);
 }
 
+static void cdump_aead(const crypt_aead &a, sa64 delta)
+{
+  if ( a.setkey )
+    dump_kptr2(a.setkey, "  setkey", delta);
+  if ( a.setauthsize )
+    dump_kptr2(a.setauthsize, "  setauthsize", delta);
+  if ( a.encrypt )
+    dump_kptr2(a.encrypt, "  encrypt", delta);
+  if ( a.decrypt )
+    dump_kptr2(a.decrypt, "  decrypt", delta);
+  if ( a.init )
+    dump_kptr2(a.init, "  init", delta);
+  if ( a.exit )
+    dump_kptr2(a.exit, "  exit", delta);
+  if ( a.givencrypt )
+    dump_kptr2(a.givencrypt, "  givencrypt", delta);
+  if ( a.givdecrypt )
+    dump_kptr2(a.givdecrypt, "  givdecrypt", delta);
+  if ( a.ivsize || a.maxauthsize )
+    printf("  ivsize %d maxauthsize %d\n", a.ivsize, a.maxauthsize);
+}
+
+static void cdump_ak(const crypt_akcipher &a, sa64 delta)
+{
+  if ( a.sign )
+    dump_kptr2(a.sign, "  sign", delta);
+  if ( a.verify )
+    dump_kptr2(a.verify, "  verify", delta);
+  if ( a.encrypt )
+    dump_kptr2(a.encrypt, "  encrypt", delta);
+  if ( a.decrypt )
+    dump_kptr2(a.decrypt, "  decrypt", delta);
+  if ( a.set_pub_key )
+    dump_kptr2(a.set_pub_key, "  set_pub_key", delta);
+  if ( a.set_priv_key )
+    dump_kptr2(a.set_priv_key, "  set_priv_key", delta);
+  if ( a.max_size )
+    dump_kptr2(a.max_size, "  max_size", delta);
+  if ( a.init )
+    dump_kptr2(a.init, "  init", delta);
+  if ( a.exit )
+    dump_kptr2(a.exit, "  exit", delta);
+  if ( a.reqsize )
+    printf("  reqsize: %d\n", a.reqsize);
+}
+
 void dump_ckalgos(a64 list, a64 lock, sa64 delta)
 {
   if ( !list )
@@ -2253,7 +2299,7 @@ void dump_ckalgos(a64 list, a64 lock, sa64 delta)
   }
   dump_data2arg<one_kcalgo>(list, lock, delta, IOCTL_ENUM_CALGO, "crypto_algos", "IOCTL_ENUM_CALGO", "crypto_algo",
    [=](size_t idx, const one_kcalgo *curr) {
-     printf(" [%ld] flags %X %s ", idx, curr->flags, curr->name);
+     printf(" [%ld] flags %X what %X %s", idx, curr->flags, curr->what, curr->name);
      dump_kptr2((unsigned long)curr->addr, "addr", delta);
      printf("  blocksize %d ctxsize %d tfmsize %d\n", curr->c_blocksize, curr->c_ctxsize, curr->tfmsize);
      if ( curr->c_type )
@@ -2274,21 +2320,28 @@ void dump_ckalgos(a64 list, a64 lock, sa64 delta)
        if ( curr->free )
          dump_kptr2((unsigned long)curr->free, "   free", delta);
      }
-     if ( curr->coa_compress || curr->coa_decompress )
+     switch(curr->what)
      {
-       if ( curr->coa_compress )
-         dump_kptr2((unsigned long)curr->coa_compress, "  coa_compress", delta);
-       if ( curr->coa_decompress )
-         dump_kptr2((unsigned long)curr->coa_decompress, "  coa_decompress", delta);
-     } else {
-       if ( curr->cia_min_keysize || curr->cia_max_keysize )
-       printf("  cia_min_keysize %d cia_max_keysize %d\n", curr->cia_min_keysize, curr->cia_max_keysize);
-       if ( curr->cia_setkey )
-         dump_kptr2((unsigned long)curr->cia_setkey, "  cia_setkey", delta);
-       if ( curr->cia_encrypt )
-         dump_kptr2((unsigned long)curr->cia_encrypt, "  cia_encrypt", delta);
-       if ( curr->cia_decrypt )
-         dump_kptr2((unsigned long)curr->cia_decrypt, "  cia_decrypt", delta);
+      case 1:
+       if ( curr->cip.cia_min_keysize || curr->cip.cia_max_keysize )
+       printf("  cia_min_keysize %d cia_max_keysize %d\n", curr->cip.cia_min_keysize, curr->cip.cia_max_keysize);
+       if ( curr->cip.cia_setkey )
+         dump_kptr2(curr->cip.cia_setkey, "  cia_setkey", delta);
+       if ( curr->cip.cia_encrypt )
+         dump_kptr2(curr->cip.cia_encrypt, "  cia_encrypt", delta);
+       if ( curr->cip.cia_decrypt )
+         dump_kptr2(curr->cip.cia_decrypt, "  cia_decrypt", delta);
+        break;
+      case 2:
+       if ( curr->comp.coa_compress )
+         dump_kptr2(curr->comp.coa_compress, "  coa_compress", delta);
+       if ( curr->comp.coa_decompress )
+         dump_kptr2(curr->comp.coa_decompress, "  coa_decompress", delta);
+       break;
+      case 3: cdump_aead(curr->aead, delta);
+       break;
+      case 0xd: cdump_ak(curr->ak, delta);
+       break;
      }
      if ( curr->cra_init )
        dump_kptr2((unsigned long)curr->cra_init, "  cra_init", delta);
