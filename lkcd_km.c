@@ -1419,6 +1419,38 @@ static void copy_ahash(struct one_kcalgo *curr, struct crypto_alg *q)
   curr->shash.statesize = s->halg.statesize;
 }
 
+#ifdef CRYPTO_ALG_TYPE_SCOMPRESS
+#include <crypto/internal/scompress.h>
+
+static void copy_scomp(struct one_kcalgo *curr, struct crypto_alg *q)
+{
+  struct scomp_alg *s = container_of(q, struct scomp_alg, base);
+  curr->addr = s;
+  curr->what = 0xb;
+  curr->scomp.alloc_ctx = (unsigned long)s->alloc_ctx;
+  curr->scomp.free_ctx = (unsigned long)s->free_ctx;
+  curr->scomp.compress = (unsigned long)s->compress;
+  curr->scomp.decompress = (unsigned long)s->decompress;
+}
+#endif
+
+#ifdef CRYPTO_ALG_TYPE_SCOMPRESS
+#include <crypto/internal/acompress.h>
+
+static void copy_acomp(struct one_kcalgo *curr, struct crypto_alg *q)
+{
+  struct acomp_alg *s = container_of(q, struct acomp_alg, base);
+  curr->addr = s;
+  curr->what = 0xa;
+  curr->acomp.init = (unsigned long)s->init;
+  curr->acomp.exit = (unsigned long)s->exit;
+  curr->acomp.compress = (unsigned long)s->compress;
+  curr->acomp.decompress = (unsigned long)s->decompress;
+  curr->acomp.dst_free = (unsigned long)s->dst_free;
+  curr->acomp.reqsize = s->reqsize;
+}
+#endif
+
 #ifdef CRYPTO_ALG_TYPE_KPP
 #include <crypto/kpp.h>
 
@@ -5899,6 +5931,14 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
               copy_aead(curr, q);
             else if ( curr->what == CRYPTO_ALG_TYPE_RNG )
               copy_rng(curr, q);
+#ifdef CRYPTO_ALG_TYPE_SCOMPRESS
+            else if ( curr->what == CRYPTO_ALG_TYPE_SCOMPRESS )
+              copy_scomp(curr, q);
+#endif
+#ifdef CRYPTO_ALG_TYPE_ACOMPRESS
+            else if ( curr->what == CRYPTO_ALG_TYPE_ACOMPRESS )
+              copy_acomp(curr, q);
+#endif
 #ifdef CRYPTO_ALG_TYPE_KPP
             else if ( curr->what == CRYPTO_ALG_TYPE_KPP )
               copy_kpp(curr, q);

@@ -1269,6 +1269,7 @@ struct crypt_scomp {
 // CRYPTO_ALG_TYPE_ACOMPRESS 0xa. since 4.10, base
 struct crypt_acomp {
   unsigned long compress, decompress, dst_free, init, exit;
+  unsigned int reqsize;
 };
 
 // CRYPTO_ALG_TYPE_RNG, 0xc, in cra_u.rng till 4.2
