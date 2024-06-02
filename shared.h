@@ -1193,6 +1193,70 @@ struct one_alarm
 // else N + N * one_alarm
 #define IOCTL_GET_ALARMS                _IOR(IOCTL_NUM, 0x50, int*)
 
+// in 4.8 mask was changed, I use more new
+// translation table
+// 4.8 + my code  more old
+// d ackcipher    d since 4.2
+// e shash        9
+// f ahash        a
+
+// CRYPTO_ALG_TYPE_AEAD - 3, since 4.2 has base, before - cra_u.aead
+struct crypt_aead {
+  unsigned long setkey, setauthsize, encrypt, decrypt, init, exit, givencrypt, givdecrypt;
+  unsigned int ivsize, maxauthsize;
+};
+
+// CRYPTO_ALG_TYPE_BLKCIPHER - 4. before 5.5 cra_u.blkcipher
+struct crypt_blkcipher {
+  unsigned long setkey, encrypt, decrypt;
+  unsigned int min_keysize, max_keysize, ivsize;
+};
+
+// CRYPTO_ALG_TYPE_ABLKCIPHER - 5, before 5.5 cra_u.blkcipher
+struct crypt_ablkcipher {
+  unsigned long setkey, encrypt, decrypt, givencrypt, givdecrypt;
+  unsigned int min_keysize, max_keysize, ivsize;
+};
+
+// CRYPTO_ALG_TYPE_AKCIPHER (0xd) was introduced in 4.2 with base
+struct crypt_akcipher {
+  unsigned long sign, verify, encrypt, decrypt, set_pub_key, set_priv_key, max_size, init, exit;
+  unsigned int reqsize;
+};
+
+// CRYPTO_ALG_TYPE_CIPHER 1 - always in cra_u.cipher
+struct crypt_cipher {
+  unsigned long cia_setkey, cia_encrypt, cia_decrypt;
+  unsigned int cia_min_keysize, cia_max_keysize;
+};
+
+// CRYPTO_ALG_TYPE_COMPRESS 2 - always in cra_u.compress
+struct crypt_compress {
+  unsigned long coa_compress, coa_decompress;
+};
+
+// CRYPTO_ALG_TYPE_AHASH 0xf, base halg.base
+struct crypt_ahash {
+  unsigned long init, update, final, finup, digest, _exp, _imp, setkey;
+  unsigned int digestsize, statesize; // from halg
+};
+
+// CRYPTO_ALG_TYPE_SHASH 0xe
+struct crypt_shash {
+  unsigned long init, update, final, finup, digest, _exp, _imp, setkey;
+  unsigned int descsize, digestsize, statesize;
+};
+
+// CRYPTO_ALG_TYPE_SCOMPRESS 0xb. since 4.10, base
+struct crypt_scomp {
+  unsigned long alloc_ctx, free_ctx, compress, decompress;
+};
+
+// CRYPTO_ALG_TYPE_ACOMPRESS 0xa. since 4.10, base
+struct crypt_acomp {
+  unsigned long compress, decompress, dst_free, init, exit;
+};
+
 struct one_kcalgo
 {
   void *addr;
@@ -1210,15 +1274,19 @@ struct one_kcalgo
   void *report;
   void *free;
   unsigned int tfmsize;
-  // for compress - methods from compress_alg
-  void *coa_compress;
-  void *coa_decompress;
-  // from cipher_alg
-  unsigned int cia_min_keysize;
-  unsigned int cia_max_keysize;
-  void *cia_setkey;
-  void *cia_encrypt;
-  void *cia_decrypt;
+  unsigned char what;
+  union {
+    struct crypt_cipher cip;    // 1
+    struct crypt_compress comp; // 2
+    struct crypt_aead aead;     // 3
+    struct crypt_blkcipher blk; // 4
+    struct crypt_ablkcipher ablk; // 5
+    struct crypt_acomp acomp;   // 0xa
+    struct crypt_scomp scomp;   // 0xb
+    struct crypt_akcipher ak;   // 0xd
+    struct crypt_shash shash;   // 0xe
+    struct crypt_ahash ahash;   // 0xf
+  };
   // remained methods
   void *cra_init;
   void *cra_exit;

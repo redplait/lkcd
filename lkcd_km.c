@@ -1281,6 +1281,7 @@ static void copy_xfrm_type_off(const struct xfrm_type_offload *off, struct s_xfr
 }
 #endif
 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5,3,0)
 static void copy_xfrm_type(const struct xfrm_type *t, struct s_xfrm_type *to)
 {
   to->addr = t;
@@ -1297,6 +1298,7 @@ static void copy_xfrm_type(const struct xfrm_type *t, struct s_xfrm_type *to)
 #endif  
 }
 #endif
+#endif /* CONFIG_XFRM */
 
 #ifdef CONFIG_NET_XGRESS
 #include <linux/bpf_mprog.h>
@@ -1309,6 +1311,63 @@ static unsigned long count_mprog_count(struct bpf_mprog_entry *entry)
   if ( !entry ) return res;
   bpf_mprog_foreach_prog(entry, fp, tmp) res++;
   return res;
+}
+#endif /* CONFIG_NET_XGRESS */
+
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4,2,0)
+#include <crypto/aead.h>  
+#endif
+
+static void copy_aead(struct one_kcalgo *curr, struct crypto_alg *q)
+{
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4,2,0)
+  struct aead_alg *aead = &q->cra_u.aead;
+#else
+  struct aead_alg *aead = container_of(q, struct aead_alg, base);
+  curr->addr = aead;
+#endif
+  curr->aead.setkey = (unsigned long)aead->setkey;
+  curr->aead.setauthsize = (unsigned long)aead->setauthsize;
+  curr->aead.encrypt = (unsigned long)aead->encrypt;
+  curr->aead.decrypt = (unsigned long)aead->decrypt;
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4,3,0)
+  curr->aead.givencrypt = (unsigned long)aead->givencrypt;
+  curr->aead.givdecrypt = (unsigned long)aead->givdecrypt;
+#else
+  curr->aead.init = (unsigned long)aead->init;
+  curr->aead.exit = (unsigned long)aead->exit;
+#endif
+  curr->aead.ivsize = aead->ivsize;
+  curr->aead.maxauthsize = aead->maxauthsize;
+}
+
+#ifdef CRYPTO_ALG_TYPE_BLKCIPHER
+static void copy_blkcipher(struct one_kcalgo *curr, struct crypto_alg *q)
+{
+  struct blkcipher_alg *bl = &q->cra_u.blkcipher;
+  curr->blk.setkey = (unsigned long)bl->setkey;
+  curr->blk.encrypt = (unsigned long)bl->encrypt;
+  curr->blk.decrypt = (unsigned long)bl->decrypt;
+  curr->blk.min_keysize = bl->min_keysize;
+  curr->blk.max_keysize = bl->max_keysize;
+  curr->blk.ivsize = bl->ivsize;
+}
+#endif
+
+#ifdef CRYPTO_ALG_TYPE_ABLKCIPHER
+static void copy_ablkcipher(struct one_kcalgo *curr, struct crypto_alg *q)
+{
+  struct ablkcipher_alg *bl = &q->cra_u.ablkcipher;
+  curr->ablk.setkey = (unsigned long)bl->setkey;
+  curr->ablk.encrypt = (unsigned long)bl->encrypt;
+  curr->ablk.decrypt = (unsigned long)bl->decrypt;
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5,0,0)
+  curr->ablk.givencrypt = (unsigned long)bl->givencrypt;
+  curr->ablk.givdecrypt = (unsigned long)bl->givdecrypt;
+#endif
+  curr->ablk.min_keysize = bl->min_keysize;
+  curr->ablk.max_keysize = bl->max_keysize;
+  curr->ablk.ivsize = bl->ivsize;
 }
 #endif
 
@@ -5699,18 +5758,26 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
 #endif
               curr->tfmsize = q->cra_type->tfmsize;
             }
+            curr->what = q->cra_flags & CRYPTO_ALG_TYPE_MASK;
             // copy algo methods
-            if ( (q->cra_flags & CRYPTO_ALG_TYPE_MASK) == CRYPTO_ALG_TYPE_COMPRESS )
+            if ( curr->what == CRYPTO_ALG_TYPE_COMPRESS )
             {
-              curr->coa_compress = q->cra_u.compress.coa_compress;
-              curr->coa_decompress = q->cra_u.compress.coa_decompress;
-            } else {
-              curr->cia_min_keysize = q->cra_u.cipher.cia_min_keysize;
-              curr->cia_max_keysize = q->cra_u.cipher.cia_max_keysize;
-              curr->cia_setkey = q->cra_u.cipher.cia_setkey;
-              curr->cia_encrypt = q->cra_u.cipher.cia_encrypt;
-              curr->cia_decrypt = q->cra_u.cipher.cia_decrypt;
-            }
+              curr->comp.coa_compress = (unsigned long)q->cra_u.compress.coa_compress;
+              curr->comp.coa_decompress = (unsigned long)q->cra_u.compress.coa_decompress;
+            } else if ( curr->what == CRYPTO_ALG_TYPE_CIPHER ) {
+              curr->cip.cia_min_keysize = q->cra_u.cipher.cia_min_keysize;
+              curr->cip.cia_max_keysize = q->cra_u.cipher.cia_max_keysize;
+              curr->cip.cia_setkey = (unsigned long)q->cra_u.cipher.cia_setkey;
+              curr->cip.cia_encrypt = (unsigned long)q->cra_u.cipher.cia_encrypt;
+              curr->cip.cia_decrypt = (unsigned long)q->cra_u.cipher.cia_decrypt;
+            } else if ( curr->what == CRYPTO_ALG_TYPE_AEAD )
+              copy_aead(curr, q);
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5,5,0)
+            else if ( curr->what == CRYPTO_ALG_TYPE_BLKCIPHER )
+              copy_blkcipher(curr, q);
+            else if ( curr->what == CRYPTO_ALG_TYPE_ABLKCIPHER )
+              copy_ablkcipher(curr, q);
+#endif
             curr->cra_init = q->cra_init;
             curr->cra_exit = q->cra_exit;
             curr->cra_destroy = q->cra_destroy;
