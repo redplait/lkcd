@@ -129,6 +129,11 @@ const char program_name[] = "lkcd";
 #define strlcpy strscpy
 #endif
 
+static void **s_sys_table = 0;
+#ifdef __x86_64__
+static void **s_ia32_sys_table = 0;
+static void **s_x32_sys_table = 0;
+#endif
 static struct cred *s_init_cred = 0;
 static struct rw_semaphore *s_net = 0;
 static rwlock_t *s_dev_base_lock = 0;
@@ -1117,7 +1122,7 @@ static void copy_trace_event_call(const struct trace_event_call *c, struct one_t
   out_data->bpf_cnt = 0;
 #ifdef CONFIG_PERF_EVENTS
   out_data->perf_perm = (void *)c->perf_perm;
-  if ( c->prog_array )
+  if ( c->prog_array && s_bpf_event_mutex )
   {
     mutex_lock(s_bpf_event_mutex);
     out_data->bpf_prog = (void *)c->prog_array->items[0].prog;
@@ -1125,6 +1130,28 @@ static void copy_trace_event_call(const struct trace_event_call *c, struct one_t
       out_data->bpf_cnt = bpf_prog_array_length_ptr(c->prog_array);
     mutex_unlock(s_bpf_event_mutex);
   }
+  list = this_cpu_ptr(c->perf_events);
+  if ( list )
+  {
+    struct perf_event *pe;
+    hlist_for_each_entry(pe, list, hlist_entry)
+      out_data->perf_cnt++;
+  }
+#endif
+}
+#else
+static void copy_trace_event_call(const struct ftrace_event_call *c, struct one_trace_event_call *out_data)
+{
+  struct hlist_head *list;
+  out_data->addr = (void *)c;
+  out_data->evt_class = (void *)c->class; // nice to use c++ keyword
+  out_data->tp = (void *)c->tp;
+  out_data->filter = (void *)c->filter;
+  out_data->flags = c->flags;
+  out_data->perf_cnt = 0;
+  out_data->bpf_cnt = 0;
+#ifdef CONFIG_PERF_EVENTS
+  out_data->perf_perm = (void *)c->perf_perm;
   list = this_cpu_ptr(c->perf_events);
   if ( list )
   {
@@ -3112,10 +3139,8 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
               tup = container_of(con, struct trace_uprobe, consumer);
               break;
             }
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(4,2,0)
             if ( tup != NULL )
               copy_trace_event_call(&tup->tp.event->call, &buf);
-#endif
             up_read(&up->consumer_rwsem);
             break;
           }
@@ -5494,14 +5519,17 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
      break; /* IOCTL_GET_DYN_EVT_OPS */
 #endif /* CONFIG_DYNAMIC_EVENTS */
 
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(4,2,0)
     case IOCTL_GET_EVT_CALLS:
-        if ( !s_trace_event_sem || !s_event_mutex || !s_ftrace_events || !s_bpf_event_mutex )
+        if ( !s_trace_event_sem || !s_event_mutex || !s_ftrace_events )
           return -ENOCSI;
         COPY_ARGS(2)
         if ( !ptrbuf[0] )
         {
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4,2,0)
           struct trace_event_call *call, *p;
+#else
+          struct ftrace_event_call *call, *p;
+#endif
           if ( !ptrbuf[1] )
           {
             // just count of registered events
@@ -5527,6 +5555,9 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
             goto copy_kbuf_count;
           }
         } else {
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4,2,0)
+        if ( !s_bpf_event_mutex ) return -ENOCSI;
+        else {
           // copy bpf_progs for some event
           int found = 0;
           struct trace_event_call *call, *p;
@@ -5560,9 +5591,12 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
           }
           kbuf_size = sizeof(unsigned long) + sizeof(struct one_bpf_prog) * count;
           goto copy_kbuf_count;
+          }
+#else
+          return -EBADRQC;
+#endif
         }
      break; /* IOCTL_GET_EVT_CALLS */
-#endif
 
     case IOCTL_GET_EVENT_CMDS:
         COPY_ARGS(3)
@@ -6809,6 +6843,23 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
      break; /* IOCTL_XFRM_GUTS */
 #endif /* CONFIG_XFRM */
 
+    case IOCTL_SYS_TABLE:
+      if ( !s_sys_table ) return -ENOCSI;
+      COPY_ARG
+      if ( !ptrbuf[0] ) {
+        ptrbuf[0] = (unsigned long)s_sys_table;
+        { // also X32_NR_syscalls & IA32_NR_syscalls
+#include <uapi/asm/unistd.h>
+          ptrbuf[1] = NR_syscalls;
+        }
+        if ( copy_to_user((void*)ioctl_param, (void*)ptrbuf, 2 * sizeof(ptrbuf[0])) > 0)
+         return -EFAULT;
+      } else {
+        if ( copy_to_user((void*)ioctl_param, (void*)s_sys_table, ptrbuf[0] * sizeof(s_sys_table[0])) > 0)
+         return -EFAULT;
+      }
+     break; /* IOCTL_SYS_TABLE */
+
     case IOCTL_PATCH_KTEXT1:
       if ( !s_patch_text ) return -ENOCSI;
       COPY_ARGS(2)
@@ -7006,6 +7057,11 @@ static struct miscdevice lkcd_dev = {
 
 const char report_fmt[] RDSection = "cannot find %s\n";
 static const char no_reg[] RDSection = "Unable to register the lkcd device, err %d\n";
+_RN(sys_call_table, sys_call_table)
+#ifdef __x86_64__
+_RN(ia32_sys_call_table, ia32_sys_call_table)
+_RN(x32_sys_call_table, x32_sys_call_table)
+#endif
 _RN(init_cred, init_cred)
 _RN(pre_hkret, pre_handler_kretprobe)
 _RN(dbg_open, debugfs_open_proxy_file_operations)
@@ -7038,6 +7094,14 @@ init_module (void)
     return -ENOMEM;
   }
 #endif /* HAS_ARM64_THUNKS */
+  s_sys_table = (void **)lkcd_lookup_name(_GN(sys_call_table));
+  REPORT(s_sys_table, _GN(sys_call_table))
+#ifdef __x86_64__
+  s_ia32_sys_table = (void **)lkcd_lookup_name(_GN(ia32_sys_call_table));
+  REPORT(s_ia32_sys_table, _GN(ia32_sys_call_table))
+  s_x32_sys_table = (void **)lkcd_lookup_name(_GN(x32_sys_call_table));
+  REPORT(s_x32_sys_table, _GN(x32_sys_call_table))
+#endif
   s_init_cred = (struct cred *)lkcd_lookup_name(_GN(init_cred));
   REPORT(s_init_cred, _GN(init_cred))
   k_pre_handler_kretprobe = (void *)lkcd_lookup_name(_GN(pre_hkret));

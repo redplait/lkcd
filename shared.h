@@ -1874,4 +1874,7 @@ struct s_xfrm_tunnel {
 //   out param - N + N * s_xfrm_tunnel
 #define IOCTL_XFRM_GUTS                     _IOR(IOCTL_NUM, 0x73, int*)
 
+// return sys_call_table + __NR_syscalls
+#define IOCTL_SYS_TABLE                     _IOR(IOCTL_NUM, 0x74, int*)
+
 #endif /* LKCD_SHARED_H */
