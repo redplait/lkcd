@@ -4157,6 +4157,41 @@ int patch_kprobe(unsigned long a1, unsigned long a2, int idx, void *addr, int ac
   return 0;
 }
 
+void dump_sys_tab(sa64 delta)
+{
+  unsigned long cnt[2] = { 0, 0 };
+  int err = ioctl(g_fd, IOCTL_SYS_TABLE, (int *)&cnt);
+  if ( err )
+  {
+    printf("IOCTL_SYS_TABLE failed, error %d (%s)\n", errno, strerror(errno));
+    return;
+  }
+  printf("sys_tab size %ld at", cnt[1]); dump_unnamed_kptr(cnt[0], delta);
+  size_t ts = cnt[1] * sizeof(unsigned long);
+  unsigned long *tab = (unsigned long *)malloc(ts);
+  if ( !tab ) {
+    printf("cannot alloc %X bytes for sys_table\n", ts);
+    return;
+  }
+  dumb_free<unsigned long> tmp(tab);
+  tab[0] = cnt[1];
+  err = ioctl(g_fd, IOCTL_SYS_TABLE, (int *)tab);
+  if ( err )
+  {
+    printf("IOCTL_SYS_TABLE(%ld) failed, error %d (%s)\n", cnt[1], errno, strerror(errno));
+    return;
+  }
+  for ( size_t i = 0; i < cnt[1]; ++i )
+  {
+    if ( is_inside_kernel(tab[i] )) {
+      if ( g_opt_v ) {
+       printf("[%d]", i); dump_unnamed_kptr(tab[i], delta); }
+      continue;
+    }
+    printf("sys_table entry %d patched: ", i); dump_unnamed_kptr(tab[i], delta);
+  }
+}
+
 void dump_kprobes(sa64 delta)
 {
   unsigned long a1 = get_addr("kprobe_table");
@@ -5414,6 +5449,7 @@ int main(int argc, char **argv)
      // dump kprobes
      if ( -1 != g_fd && opt_k )
      {
+       dump_sys_tab(delta);
        dump_kprobes(delta);
        dump_uprobes(delta);
      }
