@@ -1877,4 +1877,36 @@ struct s_xfrm_tunnel {
 // return sys_call_table + __NR_syscalls
 #define IOCTL_SYS_TABLE                     _IOR(IOCTL_NUM, 0x74, int*)
 
+// pgd/p4d/pud/pmd/pte descriptors
+struct vmem_item {
+  void *ptr; // address of pgd/p4d/pud/pmd/pte
+  unsigned long value; // value of pgd/p4d/pud/pmd/pte
+  unsigned short present: 1,
+                 huge: 1, // CONFIG_HUGETLB_PAGE
+                 large: 1,
+                 bad: 1,
+                 nx: 1;
+};
+
+// under x86 size of each is 9 bit so it contains 512 items
+#define VITEMS_CNT	512
+struct vlevel_res {
+  unsigned long live; // present && !bad
+  struct vmem_item items[VITEMS_CNT];
+};
+
+// scan some paging aread
+// in params:
+//  0 - kind
+//    0 - return CONFIG_PGTABLE_LEVELS
+//    1 - for pgd
+//    2 - p4d
+//    3 - pud
+//    4 - pmd
+//    5 - pte
+//  1 - virtual addr of starting range
+//  2 - ptr - address of item from previous level, ignored for pgd
+// out param - plevel_res
+#define IOCTL_VMEM_SCAN                     _IOR(IOCTL_NUM, 0x75, int*)
+
 #endif /* LKCD_SHARED_H */

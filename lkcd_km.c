@@ -7,6 +7,7 @@
 #include <linux/binfmts.h>
 #include <linux/sysrq.h>
 #include <linux/slab.h>
+#include <linux/hugetlb.h>
 #if LINUX_VERSION_CODE < KERNEL_VERSION(6,0,0)
 #ifdef CONFIG_SLAB
 #include <linux/slab_def.h>
@@ -129,6 +130,17 @@ const char program_name[] = "lkcd";
 #define strlcpy strscpy
 #endif
 
+static struct mm_struct *s_init_mm = 0;
+#ifdef CONFIG_HUGETLB_PAGE
+typedef int (*my_pmd_huge)(pmd_t pmd);
+typedef int (*my_pud_huge)(pud_t pmd);
+my_pmd_huge s_pmd_huge = 0;
+my_pud_huge s_pud_huge = 0;
+#endif
+#if LINUX_VERSION_CODE < KERNEL_VERSION(6,8,0)
+static spinlock_t *s_vmap_area_lock = 0;
+static struct list_head *s_vmap_area_list = 0;
+#endif
 static void **s_sys_table = 0;
 #ifdef __x86_64__
 static void **s_ia32_sys_table = 0;
@@ -6843,6 +6855,206 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
      break; /* IOCTL_XFRM_GUTS */
 #endif /* CONFIG_XFRM */
 
+    case IOCTL_VMEM_SCAN:
+      COPY_ARGS(3)
+      if ( !ptrbuf[0] )
+      {
+#ifdef CONFIG_PGTABLE_LEVELS
+        ptrbuf[0] = CONFIG_PGTABLE_LEVELS;
+#else // wtf? let it be 4 - in older kernels like 3.x there is no p4d
+        ptrbuf[0] = 4;
+#endif
+        ptrbuf[1] = PAGE_SIZE;
+        if ( copy_to_user((void*)ioctl_param, (void*)ptrbuf, 2 * sizeof(ptrbuf[0])) > 0)
+          return -EFAULT;
+        return 0;
+      } else if ( !s_init_mm )
+        return -ENOCSI;
+      else if ( ptrbuf[0] > 5 )
+        return -EINVAL;
+      else {
+        int i;
+        // alloc vlevel_res
+        struct vlevel_res *data;
+        kbuf_size = sizeof(struct vlevel_res);
+        kbuf = kmalloc(kbuf_size, GFP_KERNEL | __GFP_ZERO);
+        if ( !kbuf ) return -ENOMEM;
+        data = (struct vlevel_res *)kbuf;
+        if ( ptrbuf[0] == 1 )
+        { // read pgd
+          pgd_t *pgd;
+          i = pgd_index(ptrbuf[1]);
+          if ( i >= VITEMS_CNT ) goto bad_p;
+          pgd = s_init_mm->pgd + i;
+          do {
+            data->items[i].ptr = pgd;
+            if ( !pgd_none(*pgd) )
+            {
+              data->items[i].value = pgd->pgd;
+              if ( pgd_bad(*pgd) )
+                data->items[i].bad = 1;
+#ifdef pgd_leaf // since 5.8?
+              else if ( pgd_leaf(*pgd) ) {
+                data->items[i].large = 1;
+#ifdef __x86_64__
+                data->items[i].nx = pgd_flags(*pgd) & _PAGE_NX;
+#endif
+              }
+#endif
+              else if ( pgd_present(*pgd) )
+              {
+                data->items[i].present = 1;
+                data->live++;
+              }
+            }
+            i++; pgd++;
+          } while( i < VITEMS_CNT );
+          goto copy_kbuf;
+        } else if ( ptrbuf[0] == 2 )
+        { // read p4d
+#if CONFIG_PGTABLE_LEVELS > 4
+          p4d_t *p4;
+          i = p4d_index(ptrbuf[1]);
+          if ( i >= VITEMS_CNT ) goto bad_p;
+          p4 = p4d_offset((pgd_t *)ptrbuf[2], ptrbuf[1]);
+          if ( !p4 ) goto bad_p;
+          do {
+            data->items[i].ptr = p4;
+            if ( !p4d_none(*p4) )
+            {
+              data->items[i].value = p4->p4d;
+              if ( p4d_bad(*p4) )
+                data->items[i].bad = 1;
+              else if ( p4d_leaf(*p4) ) {
+                data->items[i].large = 1;
+#ifdef __x86_64__
+                data->items[i].nx = p4d_flags(*p4) & _PAGE_NX;
+#endif
+              } else if ( p4d_present(*p4) )
+              {
+                data->items[i].present = 1;
+                data->live++;
+              }
+            }
+            i++; p4++;
+          } while( i < VITEMS_CNT );
+          goto copy_kbuf;
+#else
+          goto bad_p;
+#endif          
+        } else if ( ptrbuf[0] == 3 )
+        { // read pud
+          pud_t *pud;
+          i = pud_index(ptrbuf[1]);
+          if ( i >= VITEMS_CNT ) goto bad_p;
+#ifdef CONFIG_PGTABLE_LEVELS
+          pud = pud_offset((p4d_t *)ptrbuf[2], ptrbuf[1]);
+#else
+          pud = pud_offset((pgd_t *)ptrbuf[2], ptrbuf[1]);
+#endif
+          if ( !pud ) goto bad_p;
+          do {
+            data->items[i].ptr = pud;
+            if ( !pud_none(*pud) )
+            {
+              data->items[i].value = pud->pud;
+              if ( pud_bad(*pud) )
+                data->items[i].bad = 1;
+#ifdef pud_leaf
+              else if ( pud_leaf(*pud) ) {
+                data->items[i].large = 1;
+#ifdef __x86_64__
+                data->items[i].nx = pud_flags(*pud) & _PAGE_NX;
+#endif
+              }
+#endif
+#ifdef CONFIG_HUGETLB_PAGE
+              else if ( s_pud_huge && s_pud_huge(*pud) ) {
+                data->items[i].huge = 1;
+#ifdef __x86_64__
+                data->items[i].nx = pud_flags(*pud) & _PAGE_NX;
+#endif
+#endif
+              } else if ( pud_present(*pud) )
+              {
+                data->items[i].present = 1;
+                data->live++;
+              }
+            }
+            i++; pud++;
+          } while( i < VITEMS_CNT );
+          goto copy_kbuf;
+        }
+        else if ( ptrbuf[0] == 4 )
+        { // read pmd
+          pmd_t *pmd;
+          i = pmd_index(ptrbuf[1]);
+          if ( i >= VITEMS_CNT ) goto bad_p;
+          pmd = pmd_offset((pud_t *)ptrbuf[2], ptrbuf[1]);
+          if ( !pmd ) goto bad_p;
+          do {
+            data->items[i].ptr = pmd;
+            if ( !pmd_none(*pmd) )
+            {
+              data->items[i].value = pmd->pmd;
+              if ( pmd_bad(*pmd) )
+                data->items[i].bad = 1;
+#ifdef pmd_leaf
+              else if ( pmd_leaf(*pmd) ) {
+                data->items[i].large = 1;
+#ifdef __x86_64__
+                data->items[i].nx = pmd_flags(*pmd) & _PAGE_NX;
+#endif
+              }
+#endif
+#ifdef CONFIG_HUGETLB_PAGE
+              else if ( s_pmd_huge && s_pmd_huge(*pmd) ) {
+                data->items[i].huge = 1;
+#ifdef __x86_64__
+                data->items[i].nx = pmd_flags(*pmd) & _PAGE_NX;
+#endif
+#endif
+              } else if ( pmd_present(*pmd) )
+              {
+                data->items[i].present = 1;
+                data->live++;
+              }
+            }
+            i++; pmd++;
+          } while( i < VITEMS_CNT );
+          goto copy_kbuf;
+        }
+        else if ( ptrbuf[0] == 5 )
+        { // read pte
+          pte_t *pte;
+          i = pte_index(ptrbuf[1]);
+          if ( i >= VITEMS_CNT ) goto bad_p;
+          pte = pte_offset_kernel((pmd_t *)ptrbuf[2], ptrbuf[1]);
+          if ( !pte ) goto bad_p;
+          do {
+            data->items[i].ptr = pte;
+            if ( pte_present(*pte) )
+            {
+              data->items[i].value = pte->pte;
+              data->items[i].present = 1;
+#ifdef __x86_64__
+              data->items[i].nx = pte_flags(*pte) & _PAGE_NX;
+#elif defined(CONFIG_ARM64)
+              data->items[i].nx = _PAGE_KERNEL_EXEC != (pte_val(*pte) & _PAGE_KERNEL_EXEC);
+#endif
+            }
+            i++; pte++;
+          } while( i < VITEMS_CNT );
+          goto copy_kbuf;
+        }
+        kfree(kbuf);
+        return -EBADRQC;
+bad_p:
+        kfree(kbuf);
+        return -EINVAL;
+      }
+     break; /* IOCTL_VMEM_SCAN */
+
     case IOCTL_SYS_TABLE:
       if ( !s_sys_table ) return -ENOCSI;
       COPY_ARG
@@ -7058,6 +7270,8 @@ static struct miscdevice lkcd_dev = {
 const char report_fmt[] RDSection = "cannot find %s\n";
 static const char no_reg[] RDSection = "Unable to register the lkcd device, err %d\n";
 _RN(sys_call_table, sys_call_table)
+_RN(vmap_area_list, vmap_area_list)
+_RN(vmap_area_lock, vmap_area_lock)
 #ifdef __x86_64__
 _RN(ia32_sys_call_table, ia32_sys_call_table)
 _RN(x32_sys_call_table, x32_sys_call_table)
@@ -7094,6 +7308,14 @@ init_module (void)
     return -ENOMEM;
   }
 #endif /* HAS_ARM64_THUNKS */
+#if LINUX_VERSION_CODE < KERNEL_VERSION(6,8,0)
+  s_vmap_area_lock = (spinlock_t *)lkcd_lookup_name(_GN(vmap_area_lock));
+  REPORT(s_vmap_area_lock, _GN(vmap_area_lock))
+  s_vmap_area_list = (struct list_head *)lkcd_lookup_name(_GN(vmap_area_list));
+  REPORT(s_vmap_area_list, _GN(vmap_area_list))
+#endif
+  s_init_mm = (struct mm_struct *)lkcd_lookup_name("init_mm");
+  REPORT(s_init_mm, "init_mm")
   s_sys_table = (void **)lkcd_lookup_name(_GN(sys_call_table));
   REPORT(s_sys_table, _GN(sys_call_table))
 #ifdef __x86_64__
@@ -7257,6 +7479,10 @@ init_module (void)
 #if LINUX_VERSION_CODE < KERNEL_VERSION(4,2,0)
   s_inode_sb_list_lock = (spinlock_t *)lkcd_lookup_name("inode_sb_list_lock");
   REPORT(s_inode_sb_list_lock, "inode_sb_list_lock")
+#endif
+#ifdef CONFIG_HUGETLB_PAGE
+ SYM_LOAD("pmd_huge", my_pmd_huge, s_pmd_huge)
+ SYM_LOAD("pud_huge", my_pud_huge, s_pud_huge)
 #endif
 #if CONFIG_FSNOTIFY && LINUX_VERSION_CODE >= KERNEL_VERSION(4,15,0)
   fsnotify_mark_srcu_ptr = (struct srcu_struct *)lkcd_lookup_name("fsnotify_mark_srcu");
