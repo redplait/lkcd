@@ -1608,7 +1608,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
        char name[BUFF_SIZE];
        read_user_string(name, ioctl_param);
        ptrbuf[0] = lkcd_lookup_name(name);
-       goto copy_ptrbuf;
+       goto copy_ptrbuf0;
       }
       break; /* IOCTL_RKSYM */
 
@@ -1906,7 +1906,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
          } else
            ptrbuf[0] = 0;
          // copy result to user-mode
-         goto copy_ptrbuf;
+         goto copy_ptrbuf0;
         }
       break; /* IOCTL_REM_BNTFY */
 
@@ -1937,7 +1937,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
          } else
            ptrbuf[0] = 0;
          // copy result to user-mode
-         goto copy_ptrbuf;
+         goto copy_ptrbuf0;
         }
       break; /* IOCTL_REM_ANTFY */
 
@@ -1968,7 +1968,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
          } else
            ptrbuf[0] = 0;
          // copy result to user-mode
-         goto copy_ptrbuf;
+         goto copy_ptrbuf0;
         }
       break; /* IOCTL_REM_SNTFY */
 
@@ -2254,9 +2254,8 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
           err = get_inj_state(task, ptrbuf);
           if ( p ) put_pid(p);
           if ( err ) return err;
-          if (copy_to_user((void*)ioctl_param, (void*)ptrbuf, sizeof(ptrbuf[0]) * 3) > 0)
-            return -EFAULT;
-          return 0;
+          kbuf_size = 3;
+          goto copy_ptrbuf;
         }
         if ( 1 == ptrbuf[1] )
         {
@@ -2554,7 +2553,8 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
        else
          rcu_read_unlock();
        // copy to usermode
-       if (copy_to_user((void*)ioctl_param, (void*)ptrbuf, sizeof(ptrbuf[0]) * 4) > 0) return -EFAULT;
+       kbuf_size = 4;
+       goto copy_ptrbuf;
      }
      break; /* IOCTL_TRACEPOINT_INFO */
 
@@ -2633,7 +2633,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
         {
           file_close(file);
           ptrbuf[0] = 0;
-          goto copy_ptrbuf;
+          goto copy_ptrbuf0;
         }
         // they really have some notifiers
         kbuf_size = (1 + ptrbuf[0]) * sizeof(unsigned long);
@@ -2851,8 +2851,8 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
        }
 
        file_close(file);
-       if (copy_to_user((void*)ioctl_param, (void*)ptrbuf, sizeof(ptrbuf[0]) * 13) > 0)
-         return -EFAULT;
+       kbuf_size = 13;
+       goto copy_ptrbuf;
       }
      break; /* IOCTL_KERNFS_NODE */
 
@@ -3057,7 +3057,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
        {
          ptrbuf[0] = 0;
          iterate_supers_ptr(count_super_blocks, (void*)ptrbuf);
-         goto copy_ptrbuf;
+         goto copy_ptrbuf0;
        } else {
          struct super_args sargs;
          size_t ksize = sizeof(unsigned long) + ptrbuf[0] * sizeof(struct one_super_block);
@@ -3601,8 +3601,8 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
           return err;
         }
         // copy result back to user-space
-        if (copy_to_user((void*)ioctl_param, (void*)ptrbuf, sizeof(ptrbuf[0]) * 2) > 0)
-          return -EFAULT;
+        kbuf_size = 2;
+        goto copy_ptrbuf;
        }
       break; /* IOCTL_CNT_RNL_PER_CPU */
 
@@ -4718,7 +4718,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
               ptrbuf[0]++;
             // unlock
             mutex_unlock(m);
-            goto copy_ptrbuf;
+            goto copy_ptrbuf0;
           } else {
             ALLOC_KBUF(struct one_pmu, ptrbuf[2])
             // lock
@@ -4802,7 +4802,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
           // unlock
           spin_unlock_bh(lock);
           idr_preload_end();
-          goto copy_ptrbuf;
+          goto copy_ptrbuf0;
         } else {
           ALLOC_KBUF(struct one_bpf_map, ptrbuf[2])
           idr_preload(GFP_KERNEL);
@@ -6279,8 +6279,8 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
           ptrbuf[1] = (unsigned long)ca->get_ktime;
           ptrbuf[2] = (unsigned long)ca->get_timespec;
           // copy to user-mode
-          if (copy_to_user((void*)ioctl_param, (void*)ptrbuf, sizeof(ptrbuf[0]) * 3) > 0)
-            return -EFAULT;
+          kbuf_size = 3;
+          goto copy_ptrbuf;
         } else {
           ALLOC_KBUF(struct one_alarm, ptrbuf[1])
           // lock
@@ -6604,7 +6604,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
         if ( !s_xfrm_policy_afinfo[ptrbuf[1]] )
         {
           ptrbuf[0] = 0;
-          goto copy_ptrbuf;
+          goto copy_ptrbuf0;
         }
         // alloc out buffer
         kbuf_size = sizeof(struct s_xfrm_policy_afinfo);
@@ -6816,7 +6816,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
         struct s_xfrm_translator *curr = (struct s_xfrm_translator *)ptrbuf;
         if ( !s_xfrm_translator || !s_xfrm_translator_lock ) return -ENOCSI;
         ptrbuf[0] = (unsigned long)*s_xfrm_translator;
-        if ( !ptrbuf[0] ) goto copy_ptrbuf;
+        if ( !ptrbuf[0] ) goto copy_ptrbuf0;
         spin_lock_bh(s_xfrm_translator_lock);
         curr->addr = *s_xfrm_translator;
         kbuf_size = sizeof(curr->addr);
@@ -6883,19 +6883,17 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
      break; /* IOCTL_XFRM_GUTS */
 #endif /* CONFIG_XFRM */
 
+// it seems that CONFIG_PGTABLE_LEVELS appeared since 4.10
+// I don't know how memory paging was processed on more old kernels and too lazy to investigate this ancient wisdom
+#ifdef CONFIG_PGTABLE_LEVELS
     case IOCTL_VMEM_SCAN:
       COPY_ARGS(3)
       if ( !ptrbuf[0] )
       {
-#ifdef CONFIG_PGTABLE_LEVELS
         ptrbuf[0] = CONFIG_PGTABLE_LEVELS;
-#else // wtf? let it be 4 - in older kernels like 3.x there is no p4d
-        ptrbuf[0] = 4;
-#endif
         ptrbuf[1] = PAGE_SIZE;
-        if ( copy_to_user((void*)ioctl_param, (void*)ptrbuf, 2 * sizeof(ptrbuf[0])) > 0)
-          return -EFAULT;
-        return 0;
+        kbuf_size = 2;
+        goto copy_ptrbuf;
       } else if ( !s_init_mm )
         return -ENOCSI;
       else if ( ptrbuf[0] > 5 )
@@ -6943,7 +6941,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
           } while( i < VITEMS_CNT );
           goto copy_kbuf;
         } else if ( ptrbuf[0] == 2 )
-        { // read p4d
+        { // read p4d - no huge 4pd exists in 2024
 #if CONFIG_PGTABLE_LEVELS > 4
           p4d_t *p4;
           if ( !ptrbuf[2] ) goto bad_p;
@@ -7000,7 +6998,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
               else if ( pud_leaf(*pud) ) {
                 data->items[i].large = 1;
 #ifdef __x86_64__
-                data->items[i].nx = pud_flags(*pud) & _PAGE_NX;
+                if ( pud_val(*pud) & _PAGE_NX ) data->items[i].nx = 1;
 #endif
               }
 #endif
@@ -7008,10 +7006,10 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
               else if ( s_pud_huge && s_pud_huge(*pud) ) {
                 data->items[i].huge = 1;
 #ifdef __x86_64__
-                data->items[i].nx = pud_flags(*pud) & _PAGE_NX;
-#endif
+                if ( pud_val(*pud) & _PAGE_NX ) data->items[i].nx = 1;
 #endif
               }
+#endif
               else if ( pud_present(*pud) )
               {
                 data->items[i].present = 1;
@@ -7043,7 +7041,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
               else if ( pmd_leaf(*pmd) ) {
                 data->items[i].large = 1;
 #ifdef __x86_64__
-                data->items[i].nx = pmd_flags(*pmd) & _PAGE_NX;
+                if ( pmd_val(*pmd) & _PAGE_NX ) data->items[i].nx = 1;
 #endif
               }
 #endif
@@ -7051,10 +7049,11 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
               else if ( s_pmd_huge && s_pmd_huge(*pmd) ) {
                 data->items[i].huge = 1;
 #ifdef __x86_64__
-                data->items[i].nx = pmd_flags(*pmd) & _PAGE_NX;
+                if ( pmd_val(*pmd) & _PAGE_NX ) data->items[i].nx = 1;
 #endif
+              }
 #endif
-              } else if ( pmd_present(*pmd) )
+              else if ( pmd_present(*pmd) )
               {
                 data->items[i].present = 1;
                 data->live++;
@@ -7081,7 +7080,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
               data->items[i].value = pte->pte;
               data->items[i].present = 1;
 #ifdef __x86_64__
-              data->items[i].nx = pte_flags(*pte) & _PAGE_NX;
+              if ( pte_val(*pte) & _PAGE_NX ) data->items[i].nx = 1;
 #elif defined(CONFIG_ARM64)
               data->items[i].nx = _PAGE_KERNEL_EXEC != (pte_val(*pte) & _PAGE_KERNEL_EXEC);
 #endif
@@ -7097,6 +7096,7 @@ bad_p:
         return -EINVAL;
       }
      break; /* IOCTL_VMEM_SCAN */
+#endif /* CONFIG_PGTABLE_LEVELS */
 
     case IOCTL_SYS_TABLE:
       if ( !s_sys_table ) return -ENOCSI;
@@ -7107,13 +7107,14 @@ bad_p:
 #include <uapi/asm/unistd.h>
           ptrbuf[1] = NR_syscalls;
         }
-        if ( copy_to_user((void*)ioctl_param, (void*)ptrbuf, 2 * sizeof(ptrbuf[0])) > 0)
-         return -EFAULT;
+        kbuf_size = 2;
+        goto copy_ptrbuf;
       } else {
         if ( copy_to_user((void*)ioctl_param, (void*)s_sys_table, ptrbuf[0] * sizeof(s_sys_table[0])) > 0)
          return -EFAULT;
       }
      break; /* IOCTL_SYS_TABLE */
+
 
     case IOCTL_PATCH_KTEXT1:
       if ( !s_patch_text ) return -ENOCSI;
@@ -7132,6 +7133,10 @@ bad_p:
   }
   return 0;
 copy_ptrbuf:
+  if (copy_to_user((void*)ioctl_param, (void*)ptrbuf, kbuf_size * sizeof(ptrbuf[0])) > 0)
+    return -EFAULT;
+  return 0;
+copy_ptrbuf0:
   if (copy_to_user((void*)ioctl_param, (void*)ptrbuf, sizeof(ptrbuf[0])) > 0)
     return -EFAULT;
   return 0;
