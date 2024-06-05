@@ -67,7 +67,8 @@ void usage(const char *prog)
   printf("-kp addr byte - patch kernel\n");
   printf("-kpd addr - disable kprobe\n");
   printf("-kpe addr - enable kprobe\n");
-  printf("-m - dump zpool drivers\n");
+  printf("-m - dump (zpool) drivers\n");
+  printf("-M - scan virtual memory, WARNING: highly dangerous experimental feature\n");
   printf("-n - dump nets\n");
   printf("-p PID list. mutually exclusive option with -s\n");
   printf("-r - check .rodata section\n");
@@ -78,6 +79,10 @@ void usage(const char *prog)
   printf("-u - dump usb_monitor\n");
   printf("-v - verbose mode\n");
   exit(6);
+}
+
+inline void margin(int idx) {
+  for ( int i = 0; i < idx; i++ ) putc(' ', stdout);
 }
 
 static a64 s_security_hook_heads = 0;
@@ -667,6 +672,17 @@ void dump_kptr2(unsigned long l, const char *name, sa64 delta)
         printf(" %s: %p - %s\n", name, (void *)l, mname);
     } else
       printf(" %s: %p\n", name, (void *)l);
+  }
+}
+
+void dump_pte_addr(unsigned long l)
+{
+  if ( is_inside_kernel(l) )
+   printf(" kernel");
+  else {
+   const char *mname = find_kmod(l);
+   if ( mname )
+    printf(" %s", mname);
   }
 }
 
@@ -3164,8 +3180,9 @@ void dump_netlinks(a64 nca, a64 lock, sa64 delta)
     one_nl_socket *curr = (one_nl_socket *)(buf + 1);
     for ( size_t j = 0; j < buf_size; j++, curr++ )
     {
-      printf(" sock[%ld] at %p portid %d sk_type %d sk_protocol %d flags %X subscriptions %d\n",
-       j, curr->addr, curr->portid, curr->sk_type, curr->sk_protocol, curr->flags, curr->subscriptions
+      printf(" sock[%ld] at %p portid %d dst_portid %d sk_type %d sk_protocol %d flags %X subscriptions %d state %lX\n",
+       j, curr->addr, curr->portid, curr->dst_portid, curr->sk_type, curr->sk_protocol, curr->flags, 
+         curr->subscriptions, curr->state
       );
       if ( curr->netlink_rcv )
         dump_kptr((unsigned long)curr->netlink_rcv, " netlink_rcv", delta);
@@ -3179,6 +3196,20 @@ void dump_netlinks(a64 nca, a64 lock, sa64 delta)
         dump_kptr((unsigned long)curr->cb_dump, " cb.dump", delta);
       if ( curr->cb_done )
         dump_kptr((unsigned long)curr->cb_done, " cb.done", delta);
+      if ( curr->sk_state_change )
+        dump_kptr((unsigned long)curr->sk_state_change, " sk.sk_state_change", delta);
+      if ( curr->sk_data_ready )
+        dump_kptr((unsigned long)curr->sk_data_ready, " sk.data_ready", delta);
+      if ( curr->sk_write_space )
+        dump_kptr((unsigned long)curr->sk_write_space, " sk.write_space", delta);
+      if ( curr->sk_error_report )
+        dump_kptr((unsigned long)curr->sk_error_report, " sk.error_report", delta);
+      if ( curr->sk_backlog_rcv )
+        dump_kptr((unsigned long)curr->sk_backlog_rcv, " sk.backlog_rcv", delta);
+      if ( curr->sk_destruct )
+        dump_kptr((unsigned long)curr->sk_destruct, " sk.destruct", delta);
+      if ( curr->sk_validate_xmit_skb )
+        dump_kptr((unsigned long)curr->sk_validate_xmit_skb, " sk.validate_xmit_skb", delta);
     }
   }
 }
@@ -3996,8 +4027,8 @@ void dump_super_blocks(sa64 delta)
   struct one_super_block *sb = (struct one_super_block *)(buf + 1);
   for ( size_t idx = 0; idx < size; idx++ )
   {
-    printf("superblock[%ld] at %p dev %ld flags %lX inodes %ld %s mnt_count %ld root %p %s\n", idx, sb[idx].addr, sb[idx].dev, sb[idx].s_flags, sb[idx].inodes_cnt, sb[idx].s_id, 
-      sb[idx].mount_count, sb[idx].s_root, sb[idx].root
+    printf("superblock[%ld] at %p dev %ld flags %lX inodes %ld %s mnt_count %ld fs_info %p root %p %s\n", idx, sb[idx].addr, sb[idx].dev, sb[idx].s_flags, sb[idx].inodes_cnt, sb[idx].s_id, 
+      sb[idx].mount_count, sb[idx].s_fs_info, sb[idx].s_root, sb[idx].root
     );
     if ( sb[idx].s_type )
       dump_kptr((unsigned long)sb[idx].s_type, "s_type", delta);
@@ -4009,8 +4040,14 @@ void dump_super_blocks(sa64 delta)
       dump_kptr((unsigned long)sb[idx].s_qcop, "s_qcop", delta);
     if ( sb[idx].s_export_op )
       dump_kptr((unsigned long)sb[idx].s_export_op, "s_export_op", delta);
+    if ( sb[idx].s_cop )
+      dump_kptr((unsigned long)sb[idx].s_cop, "s_cop", delta);
     if ( sb[idx].s_d_op )
       dump_kptr((unsigned long)sb[idx].s_d_op, "s_d_op", delta);
+    if ( sb[idx].count_objects )
+      dump_kptr((unsigned long)sb[idx].count_objects, " s_shrink.count_objects", delta);
+    if ( sb[idx].scan_objects )
+      dump_kptr((unsigned long)sb[idx].scan_objects, " s_shrink.scan_objects", delta);
     if ( sb[idx].s_fsnotify_mask || sb[idx].s_fsnotify_marks )
       printf(" s_fsnotify_mask: %lX s_fsnotify_marks %p\n", sb[idx].s_fsnotify_mask, sb[idx].s_fsnotify_marks);
     // dump super-block marks
@@ -5132,6 +5169,134 @@ void dump_mods(sa64 delta, int opt_t)
   }
 }
 
+static int s_page_size = 0;
+static unsigned long s_initial;
+static vlevel_res vmem[5];
+static const char *p_names[5] = { "PGD", "P4D", "PUD", "PMD", "PTE" };
+
+// under x86_64 & arm64 all pgd/p4d/pud/pmd/pte has size 9 bits
+// for pte shift is just s_page_size, idx 5
+// for pmd shift is 9 + s_page_size, idx 4
+// for pud shift is 18 + s_page_size, idx 3
+// for p4d shift is 27 + s_page_size, idx 2
+// for pgd shift is 36 + s_page_size, idx 1
+// so we can use ditry hack - shift original index << 9 (5 - idx) times and then shift on s_page_size
+// Warning! rewrite this function for other arches
+unsigned long gen_mask(int v, int idx)
+{
+  int shift = (5 - idx) * 9 + s_page_size;
+  return v << shift;
+}
+
+void dump_next(unsigned long addr, void *prev_addr, int idx, sa64 delta)
+{
+  vlevel_res *pgds = &vmem[idx - 1];
+  unsigned long *ptr = (unsigned long *)pgds;
+  // 3 args: level address
+  ptr[0] = idx;
+  ptr[1] = addr;
+  ptr[2] = (unsigned long)prev_addr;
+  int err = ioctl(g_fd, IOCTL_VMEM_SCAN, (int *)ptr);
+  if ( err )
+  {
+    printf("IOCTL_VMEM_SCAN(%d) %s failed, errno %d (%s)\n", idx, p_names[idx-1], errno, strerror(errno));
+    return;
+  }
+  for ( int i = 0; i < VITEMS_CNT; i++ )
+  {
+    if ( pgds->items[i].bad ) continue;
+    if ( !pgds->items[i].present ) continue;
+    if ( pgds->items[i].huge ) {
+      margin(idx);
+      printf("[%d] huge %s %p %lX\n", i, p_names[idx-1], pgds->items[i].ptr, pgds->items[i].value);    
+      continue;
+    }
+    if ( pgds->items[i].large ) {
+      margin(idx);
+      printf("[%d] large %s %p %lX\n", i, p_names[idx-1], pgds->items[i].ptr, pgds->items[i].value);    
+      continue;
+    }
+    if ( idx == 5 && pgds->items[i].nx ) continue;
+    margin(idx);
+    if ( idx != 5 )
+    {
+      printf("[%d] %s %p %lX\n", i, p_names[idx-1], pgds->items[i].ptr, pgds->items[i].value);
+      dump_next(addr | gen_mask(i, idx), pgds->items[i].ptr, 1 + idx, delta);
+    } else {
+      // this is PTE without NX bit
+      unsigned long final_addr = addr | gen_mask(i, idx);
+      printf("[%d] %s %p %lX addr %lX", i, p_names[idx-1], pgds->items[i].ptr, pgds->items[i].value, final_addr);
+      dump_pte_addr(final_addr);
+      putc('\n', stdout);
+    }
+  }
+}
+
+void scan_vmem(sa64 delta)
+{
+  // 1) get page size and translation levels
+  unsigned long args[2] = { 0, 0 };
+  int err = ioctl(g_fd, IOCTL_VMEM_SCAN, (int *)args);
+  if ( err )
+  {
+    printf("IOCTL_VMEM_SCAN failed, errno %d (%s)\n", errno, strerror(errno));
+    return;
+  }
+  printf("page_size %lX, translation level %ld\n", args[1], args[0]);
+  switch(args[1])
+  {
+    // 4kb
+    case 0x1000: s_page_size = 12;
+      if ( 5 == args[0] ) // 57 bit, upper 64 - 57 = 7 should be ff
+        s_initial = 0xfe00000000000000;
+      else if ( 4 == args[0] ) // 48 bit, upper 64 - 48 = 16 should be ff
+        s_initial = 0xffff000000000000;
+      else {
+        printf("unknown translation level\n");
+        return;
+      }
+     break;
+     // 8kb
+    case 0x2000: s_page_size = 13;
+     break;
+     // 16kb
+    case 0x4000: s_page_size = 14;
+     break;
+     // 32kb
+    case 0x8000: s_page_size = 15;
+     break;
+     // 64kb
+    case 0x10000: s_page_size = 16;
+     break;
+    default:
+     printf("unknown page size\n");
+     return;
+  }
+  // ok, lets try to read PGD
+  vlevel_res *pgds = &vmem[0];
+  unsigned long *ptr = (unsigned long *)pgds;
+  // 3 args: level address
+  ptr[0] = 1;
+  ptr[1] = s_initial;
+  err = ioctl(g_fd, IOCTL_VMEM_SCAN, (int *)ptr);
+  if ( err )
+  {
+    printf("IOCTL_VMEM_SCAN PGD failed, errno %d (%s)\n", errno, strerror(errno));
+    return;
+  }
+  for ( int i = 0; i < VITEMS_CNT; i++ )
+  {
+    if ( pgds->items[i].bad ) continue;
+    if ( !pgds->items[i].present ) continue;
+    printf("[%d] pgd %p %lX\n", i, pgds->items[i].ptr, pgds->items[i].value);
+    // ok, dump next level
+    int next = 2;
+    if ( args[0] == 4 ) next = 3;
+    else if ( args[0] == 3 ) next = 4;
+    dump_next(s_initial | gen_mask(i, args[0]), pgds->items[i].ptr, next, delta);
+  }
+}
+
 void dump_task(sa64 delta, int pid)
 {
   one_task_info ti;
@@ -5183,7 +5348,7 @@ int main(int argc, char **argv)
        opt_d = 0,
        opt_c = 0, opt_C = 0,
        opt_k = 0, opt_K = 0,
-       opt_m = 0,
+       opt_m = 0, opt_M = 0,
        opt_n = 0,
        opt_p = 0,
        opt_r = 0,
@@ -5238,7 +5403,7 @@ int main(int argc, char **argv)
        optind++; need_driver = 1;
        continue;
      }
-     c = getopt(argc, argv, "BbCcdFfghHKkmnprSstTuvj:");
+     c = getopt(argc, argv, "BbCcdFfghHKkMmnprSstTuvj:");
      if (c == -1)
       break;
 
@@ -5292,6 +5457,9 @@ int main(int argc, char **argv)
          break;
         case 'm':
           opt_m = 1; need_driver = 1;
+         break;
+        case 'M':
+          opt_M = 1; need_driver = 1;
          break;
         case 'n':
           opt_n = 1; need_driver = 1;
@@ -5438,6 +5606,8 @@ int main(int argc, char **argv)
      // dump consoles
      if ( -1 != g_fd && opt_C )
        dump_consoles(delta);
+     if ( -1 != g_fd && opt_M )
+       scan_vmem(delta);
      // -m
      if ( -1 != g_fd && opt_m )
      {
