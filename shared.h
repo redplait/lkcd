@@ -537,11 +537,16 @@ struct one_nltab
 struct one_nl_socket
 {
   void *addr;
-  unsigned int portid;
+  unsigned int portid, dst_portid;
   unsigned int flags;
   unsigned int subscriptions;
   unsigned short sk_type;
   unsigned short sk_protocol;
+  unsigned long state;
+  // from sock
+  void *sk_state_change, *sk_data_ready, *sk_write_space, *sk_error_report, *sk_backlog_rcv, *sk_destruct,
+  // CONFIG_SOCK_VALIDATE_XMIT
+   *sk_validate_xmit_skb;
   void *netlink_rcv;
   void *netlink_bind;
   void *netlink_unbind;

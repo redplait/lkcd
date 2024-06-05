@@ -882,8 +882,15 @@ static void fill_super_blocks(struct super_block *sb, void *arg)
 #ifdef CONFIG_FS_ENCRYPTION
   args->data[index].s_cop     = (void *)sb->s_cop;
 #endif
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6,7,0)
+  if ( sb->s_shrink ) {
+    args->data[index].count_objects = (void *)sb->s_shrink->count_objects;
+    args->data[index].scan_objects = (void *)sb->s_shrink->scan_objects;
+  }
+#else
   args->data[index].count_objects = (void *)sb->s_shrink.count_objects;
   args->data[index].scan_objects = (void *)sb->s_shrink.scan_objects;
+#endif
   args->data[index].s_fs_info = (void *)sb->s_fs_info;
   args->data[index].s_op      = (void *)sb->s_op;
   args->data[index].s_type    = sb->s_type;
@@ -5138,6 +5145,8 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
             // copy fields
             curr->addr = (void *)ns;
             curr->portid = ns->portid;
+            curr->dst_portid = ns->dst_portid;
+            curr->state = ns->state;
             curr->flags  = ns->flags;
             curr->subscriptions = ns->subscriptions;
             curr->sk_type = ns->sk.sk_type;
@@ -5150,6 +5159,15 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
 #endif
             curr->cb_dump = ns->cb.dump;
             curr->cb_done = ns->cb.done;
+            curr->sk_state_change = (void *)ns->sk.sk_state_change;
+            curr->sk_data_ready = (void *)ns->sk.sk_data_ready;
+            curr->sk_write_space = (void *)ns->sk.sk_write_space;
+            curr->sk_error_report = (void *)ns->sk.sk_error_report;
+            curr->sk_backlog_rcv = (void *)ns->sk.sk_backlog_rcv;
+            curr->sk_destruct = (void *)ns->sk.sk_destruct;
+#ifdef CONFIG_SOCK_VALIDATE_XMIT
+            curr->sk_validate_xmit_skb = (void *)ns->sk.sk_validate_xmit_skb;
+#endif
             // for next iteration
             count++;
             curr++;
