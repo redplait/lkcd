@@ -248,8 +248,13 @@ struct one_super_block
   void *dq_op;
   void *s_qcop;
   void *s_export_op;
+  void *s_cop; // CONFIG_FS_ENCRYPTION
   void *s_d_op;
   void *s_user_ns;
+  void *s_fs_info;
+  // from shrinker
+  void *count_objects;
+  void *scan_objects;
   unsigned long s_flags;
   unsigned long s_iflags;
   unsigned long inodes_cnt;
@@ -1891,7 +1896,7 @@ struct vmem_item {
 // under x86 size of each is 9 bit so it contains 512 items
 #define VITEMS_CNT	512
 struct vlevel_res {
-  unsigned long live; // present && !bad
+  unsigned short live; // present && !bad
   struct vmem_item items[VITEMS_CNT];
 };
 

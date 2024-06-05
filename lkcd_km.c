@@ -879,6 +879,12 @@ static void fill_super_blocks(struct super_block *sb, void *arg)
 #else
   args->data[index].s_iflags  = 0;
 #endif
+#ifdef CONFIG_FS_ENCRYPTION
+  args->data[index].s_cop     = (void *)sb->s_cop;
+#endif
+  args->data[index].count_objects = (void *)sb->s_shrink.count_objects;
+  args->data[index].scan_objects = (void *)sb->s_shrink.scan_objects;
+  args->data[index].s_fs_info = (void *)sb->s_fs_info;
   args->data[index].s_op      = (void *)sb->s_op;
   args->data[index].s_type    = sb->s_type;
   args->data[index].dq_op     = (void *)sb->dq_op;
@@ -6914,6 +6920,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
         { // read p4d
 #if CONFIG_PGTABLE_LEVELS > 4
           p4d_t *p4;
+          if ( !ptrbuf[2] ) goto bad_p;
           i = p4d_index(ptrbuf[1]);
           if ( i >= VITEMS_CNT ) goto bad_p;
           p4 = p4d_offset((pgd_t *)ptrbuf[2], ptrbuf[1]);
@@ -6945,6 +6952,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
         } else if ( ptrbuf[0] == 3 )
         { // read pud
           pud_t *pud;
+          if ( !ptrbuf[2] ) goto bad_p;
           i = pud_index(ptrbuf[1]);
           if ( i >= VITEMS_CNT ) goto bad_p;
 #ifdef CONFIG_PGTABLE_LEVELS
@@ -6988,6 +6996,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
         else if ( ptrbuf[0] == 4 )
         { // read pmd
           pmd_t *pmd;
+          if ( !ptrbuf[2] ) goto bad_p;
           i = pmd_index(ptrbuf[1]);
           if ( i >= VITEMS_CNT ) goto bad_p;
           pmd = pmd_offset((pud_t *)ptrbuf[2], ptrbuf[1]);
@@ -7027,6 +7036,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
         else if ( ptrbuf[0] == 5 )
         { // read pte
           pte_t *pte;
+          if ( !ptrbuf[2] ) goto bad_p;
           i = pte_index(ptrbuf[1]);
           if ( i >= VITEMS_CNT ) goto bad_p;
           pte = pte_offset_kernel((pmd_t *)ptrbuf[2], ptrbuf[1]);
@@ -7035,6 +7045,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
             data->items[i].ptr = pte;
             if ( pte_present(*pte) )
             {
+              data->live++;
               data->items[i].value = pte->pte;
               data->items[i].present = 1;
 #ifdef __x86_64__
