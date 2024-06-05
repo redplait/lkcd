@@ -958,9 +958,11 @@ static int uprobe_sample_handler(struct uprobe_consumer *con,
 {
 #if defined(CONFIG_ARM64)
   u64 ip = regs->pc;
-#else
+#elif defined(CONFIG_X86)
   u64 ip = regs->ip;
-#endif  
+#elif defined(CONFIG_MIPS)
+  unsigned long ip = regs->cp0_epc;
+#endif
   printk("uprobe handler in PID %d executed, ip = %lx\n", task_pid_nr(current), (unsigned long)ip);
   return 0;
 }
@@ -971,8 +973,10 @@ static int uprobe_sample_ret_handler(struct uprobe_consumer *con,
 {
 #if defined(CONFIG_ARM64)
   u64 ip = regs->pc;
-#else
+#elif defined(CONFIG_X86)
   u64 ip = regs->ip;
+#elif defined(CONFIG_MIPS)
+  unsigned long ip = regs->cp0_epc;
 #endif
   printk("uprobe ret_handler is executed, ip = %lX\n", (unsigned long)ip);
   return 0;
@@ -6925,7 +6929,11 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
 #endif
               }
 #endif
+#ifdef __x86_64__
+              else if ( pgd_flags(*pgd) & _PAGE_PRESENT )
+#else
               else if ( pgd_present(*pgd) )
+#endif
               {
                 data->items[i].present = 1;
                 data->live++;
@@ -6967,7 +6975,9 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
 #else
           goto bad_p;
 #endif          
-        } else if ( ptrbuf[0] == 3 )
+        } 
+#if CONFIG_PGTABLE_LEVELS > 3
+        else if ( ptrbuf[0] == 3 )
         { // read pud
           pud_t *pud;
           if ( !ptrbuf[2] ) goto bad_p;
@@ -7001,7 +7011,8 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
                 data->items[i].nx = pud_flags(*pud) & _PAGE_NX;
 #endif
 #endif
-              } else if ( pud_present(*pud) )
+              }
+              else if ( pud_present(*pud) )
               {
                 data->items[i].present = 1;
                 data->live++;
@@ -7011,6 +7022,8 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
           } while( i < VITEMS_CNT );
           goto copy_kbuf;
         }
+#endif
+#if CONFIG_PGTABLE_LEVELS > 2
         else if ( ptrbuf[0] == 4 )
         { // read pmd
           pmd_t *pmd;
@@ -7051,6 +7064,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
           } while( i < VITEMS_CNT );
           goto copy_kbuf;
         }
+#endif
         else if ( ptrbuf[0] == 5 )
         { // read pte
           pte_t *pte;
@@ -7216,7 +7230,11 @@ static ssize_t read_kmem(struct file *file, char __user *buf, size_t count, loff
 	char *kbuf; /* k-addr because vread() takes vmlist_lock rwlock */
 	int err = 0;
 
+#ifdef CONFIG_64BIT
  printk(KERN_INFO "[+] lkcd_read: %lX at %lX\n", count, p);
+#else
+ printk(KERN_INFO "[+] lkcd_read: %X at %lX\n", count, p);
+#endif
 
 	read = 0;
 	if (p < (unsigned long) high_memory) {
