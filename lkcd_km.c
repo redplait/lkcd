@@ -1585,7 +1585,7 @@ static void copy_akcipher(struct one_kcalgo *curr, struct crypto_alg *q)
 
 static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long ioctl_param)
 {
-  unsigned long ptrbuf[16];
+  unsigned long ptrbuf[16]; // keep it 16 bcs test case in IOCTL_VMEM_SCAN can use all 16
   unsigned long count = 0;
   size_t kbuf_size = 0;
   unsigned long *kbuf = NULL;
@@ -6898,7 +6898,76 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
         return -ENOCSI;
       else if ( ptrbuf[0] > 5 )
         return -EINVAL;
-      else {
+      else if ( ptrbuf[0] == 42 ) // test, address in ptrbuf[1]
+      { // code ripped from https://elixir.bootlin.com/linux/v6.9.3/source/mm/vmalloc.c
+        // out result: ptrbuf[0] - last succeed level
+        // 1, 2, 3 - index, ptr & value of PXX for this level
+        unsigned long addr = ptrbuf[1];
+        int i, idx = pgd_index(addr);
+        pgd_t *pgd = s_init_mm->pgd + idx;
+	      p4d_t *p4d;
+	      pud_t *pud;
+	      pmd_t *pmd;
+	      pte_t *pte;
+        ptrbuf[0] = i = 1;
+        ptrbuf[i] = idx;
+        kbuf_size = 4;
+        ptrbuf[i+1] = (unsigned long)pgd;
+        if ( pgd_none(*pgd) ) {
+          ptrbuf[i+2] = 0;
+          goto copy_ptrbuf;
+        }
+        ptrbuf[i+2] = pgd_val(*pgd);
+        if ( pgd_leaf(*pgd) || pgd_bad(*pgd) )
+          goto copy_ptrbuf;
+        // p4
+        i += 3, kbuf_size += 3; ptrbuf[0]++;
+#if CONFIG_PGTABLE_LEVELS > 4
+        ptrbuf[i] = p4d_index(addr);
+#else
+        ptrbuf[i] = idx;
+#endif
+        p4d = p4d_offset(pgd, addr);
+        if ( p4d_none(*p4d) ) {
+          ptrbuf[i+2] = 0;
+          goto copy_ptrbuf;
+        }
+        ptrbuf[i+2] = p4d_val(*p4d);
+        if ( p4d_leaf(*p4d) || p4d_bad(*p4d) )
+          goto copy_ptrbuf;
+        // pud
+        i += 3, kbuf_size += 3; ptrbuf[0]++;
+        ptrbuf[i] = pud_index(addr);
+        pud = pud_offset(p4d, addr);
+        if ( pud_none(*pud) ) {
+          ptrbuf[i+2] = 0;
+          goto copy_ptrbuf;
+        }
+        ptrbuf[i+2] = pud_val(*pud);
+        if ( pud_leaf(*pud) || pud_bad(*pud) )
+          goto copy_ptrbuf;
+        // pmd
+        i += 3, kbuf_size += 3; ptrbuf[0]++;
+        ptrbuf[i] = pmd_index(addr);
+        pmd = pmd_offset(pud, addr);
+        if ( pmd_none(*pmd) ) {
+          ptrbuf[i+2] = 0;
+          goto copy_ptrbuf;
+        }
+        ptrbuf[i+2] = pmd_val(*pmd);
+        if ( pmd_leaf(*pmd) || pmd_bad(*pmd) )
+          goto copy_ptrbuf;
+        // finally pte
+        i += 3, kbuf_size += 3; ptrbuf[0]++;
+        ptrbuf[i] = pte_index(addr);
+        pte = pte_offset_kernel(pmd, addr);
+        if ( pte_none(*pte) ) {
+          ptrbuf[i+2] = 0;
+          goto copy_ptrbuf;
+        }
+        ptrbuf[i+2] = pte_val(*pte);
+        goto copy_ptrbuf;
+      } else {
         int i;
         // alloc vlevel_res
         struct vlevel_res *data;
@@ -6981,11 +7050,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
           if ( !ptrbuf[2] ) goto bad_p;
           i = pud_index(ptrbuf[1]);
           if ( i >= VITEMS_CNT ) goto bad_p;
-#ifdef CONFIG_PGTABLE_LEVELS
           pud = pud_offset((p4d_t *)ptrbuf[2], ptrbuf[1]);
-#else
-          pud = pud_offset((pgd_t *)ptrbuf[2], ptrbuf[1]);
-#endif
           if ( !pud ) goto bad_p;
           do {
             data->items[i].ptr = pud;
