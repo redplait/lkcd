@@ -675,15 +675,18 @@ void dump_kptr2(unsigned long l, const char *name, sa64 delta)
   }
 }
 
-void dump_pte_addr(unsigned long l)
+int dump_pte_addr(unsigned long l)
 {
-  if ( is_inside_kernel(l) )
+  if ( is_inside_kernel(l) ) {
    printf(" kernel");
-  else {
-   const char *mname = find_kmod(l);
-   if ( mname )
-    printf(" %s", mname);
+   return 1;
   }
+  const char *mname = find_kmod(l);
+  if ( mname ) {
+    printf(" %s", mname);
+    return 2;
+  }
+  return 0;
 }
 
 // some template magic
@@ -5182,13 +5185,13 @@ static const char *p_names[5] = { "PGD", "P4D", "PUD", "PMD", "PTE" };
 // for pgd shift is 36 + s_page_size, idx 1
 // so we can use ditry hack - shift original index << 9 (5 - idx) times and then shift on s_page_size
 // Warning! rewrite this function for other arches
-unsigned long gen_mask(int v, int idx)
+unsigned long gen_mask(unsigned long v, int idx)
 {
   int shift = (5 - idx) * 9 + s_page_size;
-  return v << shift;
+  return (v & 0x1ff) << shift;
 }
 
-void dump_next(unsigned long addr, void *prev_addr, int idx, sa64 delta)
+void dump_next(unsigned long addr, void *prev_addr, int idx)
 {
   vlevel_res *pgds = &vmem[idx - 1];
   unsigned long *ptr = (unsigned long *)pgds;
@@ -5199,6 +5202,8 @@ void dump_next(unsigned long addr, void *prev_addr, int idx, sa64 delta)
   int err = ioctl(g_fd, IOCTL_VMEM_SCAN, (int *)ptr);
   if ( err )
   {
+    // pte out of valid kernel memory. whatever that means - just to reduce output noise
+    if ( (idx == 5) && (errno == 22) /* EINVAL*/) return;
     printf("IOCTL_VMEM_SCAN(%d) %s failed, errno %d (%s)\n", idx, p_names[idx-1], errno, strerror(errno));
     return;
   }
@@ -5207,25 +5212,35 @@ void dump_next(unsigned long addr, void *prev_addr, int idx, sa64 delta)
     if ( pgds->items[i].bad ) continue;
     if ( !pgds->items[i].present ) continue;
     if ( pgds->items[i].huge ) {
+      if ( pgds->items[i].nx ) continue;
       margin(idx);
-      printf("[%d] huge %s %p %lX\n", i, p_names[idx-1], pgds->items[i].ptr, pgds->items[i].value);    
+      unsigned long final_addr = addr | gen_mask(i, idx);
+      printf("[%d] huge %s %p %lX addr %p", i, p_names[idx-1], pgds->items[i].ptr, pgds->items[i].value, (void *)final_addr);
+      dump_pte_addr(final_addr);
+      putc('\n', stdout);
       continue;
     }
     if ( pgds->items[i].large ) {
+      if ( pgds->items[i].nx ) continue;
       margin(idx);
-      printf("[%d] large %s %p %lX\n", i, p_names[idx-1], pgds->items[i].ptr, pgds->items[i].value);    
+      unsigned long final_addr = addr | gen_mask(i, idx);
+      printf("[%d] large %s %p %lX addr %p", i, p_names[idx-1], pgds->items[i].ptr, pgds->items[i].value, (void *)final_addr);
+      dump_pte_addr(final_addr);
+      putc('\n', stdout);
       continue;
     }
-    if ( idx == 5 && pgds->items[i].nx ) continue;
+    if ( 5 == idx && pgds->items[i].nx ) continue;
     margin(idx);
     if ( idx != 5 )
     {
-      printf("[%d] %s %p %lX\n", i, p_names[idx-1], pgds->items[i].ptr, pgds->items[i].value);
-      dump_next(addr | gen_mask(i, idx), pgds->items[i].ptr, 1 + idx, delta);
+      printf("[%d] %s %p %lX addr %lX\n", i, p_names[idx-1], pgds->items[i].ptr, pgds->items[i].value, addr);
+      dump_next(addr | gen_mask(i, idx), pgds->items[i].ptr, 1 + idx);
     } else {
       // this is PTE without NX bit
-      unsigned long final_addr = addr | gen_mask(i, idx);
-      printf("[%d] %s %p %lX addr %lX", i, p_names[idx-1], pgds->items[i].ptr, pgds->items[i].value, final_addr);
+      auto pte_val = gen_mask(i, idx);
+      unsigned long final_addr = addr | pte_val;
+      printf("[%d] %s %p %lX addr %lX final_addr %lX pte_val %lX", i, p_names[idx-1], pgds->items[i].ptr, pgds->items[i].value, 
+       addr, final_addr, pte_val);
       dump_pte_addr(final_addr);
       putc('\n', stdout);
     }
@@ -5234,11 +5249,26 @@ void dump_next(unsigned long addr, void *prev_addr, int idx, sa64 delta)
 
 void scan_vmem(sa64 delta)
 {
+  extern unsigned long g_kstart;
+  unsigned long targs[16];
+  targs[0] = 42;
+  targs[1] = g_kstart;
+  int err = ioctl(g_fd, IOCTL_VMEM_SCAN, (int *)targs);
+  if ( err ) {
+    printf("IOCTL_VMEM_SCAN test failed, errno %d (%s)\n", errno, strerror(errno));
+  } else {
+    printf("last processed level for %lX: %ld\n", g_kstart, targs[0]);
+    for ( int i = 0; i < targs[0]; i++ )
+    {
+      // on x86_64 machine with CONFIG_PGTABLE_LEVELS == 5 for address FFFFFFFFAEC00000 p4d_index *always* returns 0
+      // srsly? FFFFFFFFAEC00000 >> 39 = 1FFFFFF. God hates us all (c) Slayer
+      printf("%d: %ld %p %lX\n", i, targs[i * 3 + 1], (void *)targs[i * 3 + 2], targs[i * 3 + 3]);
+    }
+  }
   // 1) get page size and translation levels
   unsigned long args[2] = { 0, 0 };
-  int err = ioctl(g_fd, IOCTL_VMEM_SCAN, (int *)args);
-  if ( err )
-  {
+  err = ioctl(g_fd, IOCTL_VMEM_SCAN, (int *)args);
+  if ( err ) {
     printf("IOCTL_VMEM_SCAN failed, errno %d (%s)\n", errno, strerror(errno));
     return;
   }
@@ -5247,9 +5277,9 @@ void scan_vmem(sa64 delta)
   {
     // 4kb
     case 0x1000: s_page_size = 12;
-      if ( 5 == args[0] ) // 57 bit, upper 64 - 57 = 7 should be ff
+      if ( 5 == args[0] ) // 57 bit, upper 64 - 57 = 7 should be 1
         s_initial = 0xfe00000000000000;
-      else if ( 4 == args[0] ) // 48 bit, upper 64 - 48 = 16 should be ff
+      else if ( 4 == args[0] ) // 48 bit, upper 64 - 48 = 16 should be 1
         s_initial = 0xffff000000000000;
       else {
         printf("unknown translation level\n");
@@ -5275,7 +5305,10 @@ void scan_vmem(sa64 delta)
   // ok, lets try to read PGD
   vlevel_res *pgds = &vmem[0];
   unsigned long *ptr = (unsigned long *)pgds;
-  // 3 args: level address
+  int next = 2;
+  if ( args[0] == 4 ) next = 3;
+  else if ( args[0] == 3 ) next = 4;
+  // 2 args: level address, 3rd ignored for PGD
   ptr[0] = 1;
   ptr[1] = s_initial;
   err = ioctl(g_fd, IOCTL_VMEM_SCAN, (int *)ptr);
@@ -5288,12 +5321,10 @@ void scan_vmem(sa64 delta)
   {
     if ( pgds->items[i].bad ) continue;
     if ( !pgds->items[i].present ) continue;
-    printf("[%d] pgd %p %lX\n", i, pgds->items[i].ptr, pgds->items[i].value);
-    // ok, dump next level
-    int next = 2;
-    if ( args[0] == 4 ) next = 3;
-    else if ( args[0] == 3 ) next = 4;
-    dump_next(s_initial | gen_mask(i, args[0]), pgds->items[i].ptr, next, delta);
+    auto next_mask = gen_mask(i, next - 1);
+    printf("[%d] pgd %p %lX next %d mask %lX\n", i, pgds->items[i].ptr, pgds->items[i].value, next, next_mask);
+    // dump next level
+    dump_next(s_initial | next_mask, pgds->items[i].ptr, next);
   }
 }
 
