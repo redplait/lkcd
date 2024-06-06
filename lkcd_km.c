@@ -1585,7 +1585,7 @@ static void copy_akcipher(struct one_kcalgo *curr, struct crypto_alg *q)
 
 static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long ioctl_param)
 {
-  unsigned long ptrbuf[16]; // keep it 16 bcs test case in IOCTL_VMEM_SCAN can use all 16
+  unsigned long ptrbuf[16]; // keep it at least 16 items bcs test case in IOCTL_VMEM_SCAN can use all 16
   unsigned long count = 0;
   size_t kbuf_size = 0;
   unsigned long *kbuf = NULL;
@@ -6896,8 +6896,6 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
         goto copy_ptrbuf;
       } else if ( !s_init_mm )
         return -ENOCSI;
-      else if ( ptrbuf[0] > 5 )
-        return -EINVAL;
       else if ( ptrbuf[0] == 42 ) // test, address in ptrbuf[1]
       { // code ripped from https://elixir.bootlin.com/linux/v6.9.3/source/mm/vmalloc.c
         // out result: ptrbuf[0] - last succeed level
@@ -6928,6 +6926,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
         ptrbuf[i] = idx;
 #endif
         p4d = p4d_offset(pgd, addr);
+        ptrbuf[i+1] = (unsigned long)p4d;
         if ( p4d_none(*p4d) ) {
           ptrbuf[i+2] = 0;
           goto copy_ptrbuf;
@@ -6939,6 +6938,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
         i += 3, kbuf_size += 3; ptrbuf[0]++;
         ptrbuf[i] = pud_index(addr);
         pud = pud_offset(p4d, addr);
+        ptrbuf[i+1] = (unsigned long)pud;
         if ( pud_none(*pud) ) {
           ptrbuf[i+2] = 0;
           goto copy_ptrbuf;
@@ -6950,6 +6950,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
         i += 3, kbuf_size += 3; ptrbuf[0]++;
         ptrbuf[i] = pmd_index(addr);
         pmd = pmd_offset(pud, addr);
+        ptrbuf[i+1] = (unsigned long)pmd;
         if ( pmd_none(*pmd) ) {
           ptrbuf[i+2] = 0;
           goto copy_ptrbuf;
@@ -6961,13 +6962,15 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
         i += 3, kbuf_size += 3; ptrbuf[0]++;
         ptrbuf[i] = pte_index(addr);
         pte = pte_offset_kernel(pmd, addr);
+        ptrbuf[i+1] = (unsigned long)pte;
         if ( pte_none(*pte) ) {
           ptrbuf[i+2] = 0;
           goto copy_ptrbuf;
         }
         ptrbuf[i+2] = pte_val(*pte);
         goto copy_ptrbuf;
-      } else {
+      } else if ( ptrbuf[0] > 5 ) return -EINVAL;
+      else {
         int i;
         // alloc vlevel_res
         struct vlevel_res *data;
@@ -6986,20 +6989,21 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
             if ( !pgd_none(*pgd) )
             {
               data->items[i].value = pgd->pgd;
-              if ( pgd_bad(*pgd) )
-                data->items[i].bad = 1;
 #ifdef pgd_leaf // since 5.8?
-              else if ( pgd_leaf(*pgd) ) {
+              // xx_leaf should be checked before xx_bad
+              if ( pgd_leaf(*pgd) ) {
                 data->items[i].large = 1;
 #ifdef __x86_64__
                 data->items[i].nx = pgd_flags(*pgd) & _PAGE_NX;
 #endif
-              }
+              } else
 #endif
+              if ( pgd_bad(*pgd) )
+                data->items[i].bad = 1;
 #ifdef __x86_64__
-              else if ( pgd_flags(*pgd) & _PAGE_PRESENT )
+              if ( pgd_flags(*pgd) & _PAGE_PRESENT )
 #else
-              else if ( pgd_present(*pgd) )
+              if ( pgd_present(*pgd) )
 #endif
               {
                 data->items[i].present = 1;
@@ -7023,20 +7027,23 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
             if ( !p4d_none(*p4) )
             {
               data->items[i].value = p4->p4d;
-              if ( p4d_bad(*p4) )
-                data->items[i].bad = 1;
-              else if ( p4d_leaf(*p4) ) {
+              // xx_leaf should be checked before xx_bad
+              if ( p4d_leaf(*p4) ) {
                 data->items[i].large = 1;
 #ifdef __x86_64__
-                data->items[i].nx = p4d_flags(*p4) & _PAGE_NX;
+                data->items[i].nx = p4d_val(*p4) & _PAGE_NX;
 #endif
-              } else if ( p4d_present(*p4) )
+              } else if ( p4d_bad(*p4) )
+                data->items[i].bad = 1;
+              if ( p4d_present(*p4) )
               {
                 data->items[i].present = 1;
                 data->live++;
               }
             }
-            i++; p4++;
+            i++;
+            ptrbuf[1] += 1UL << P4D_SHIFT;
+            p4 = p4d_offset((pgd_t *)ptrbuf[2], ptrbuf[1]);
           } while( i < VITEMS_CNT );
           goto copy_kbuf;
 #else
@@ -7057,25 +7064,26 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
             if ( !pud_none(*pud) )
             {
               data->items[i].value = pud->pud;
-              if ( pud_bad(*pud) )
-                data->items[i].bad = 1;
+              // xx_leaf should be checked before xx_bad
 #ifdef pud_leaf
-              else if ( pud_leaf(*pud) ) {
+              if ( pud_leaf(*pud) ) {
                 data->items[i].large = 1;
 #ifdef __x86_64__
                 if ( pud_val(*pud) & _PAGE_NX ) data->items[i].nx = 1;
 #endif
-              }
+              } else
 #endif
 #ifdef CONFIG_HUGETLB_PAGE
-              else if ( s_pud_huge && s_pud_huge(*pud) ) {
+              if ( s_pud_huge && s_pud_huge(*pud) ) {
                 data->items[i].huge = 1;
 #ifdef __x86_64__
                 if ( pud_val(*pud) & _PAGE_NX ) data->items[i].nx = 1;
 #endif
-              }
+              } else
 #endif
-              else if ( pud_present(*pud) )
+              if ( pud_bad(*pud) )
+                data->items[i].bad = 1;
+              if ( pud_present(*pud) )
               {
                 data->items[i].present = 1;
                 data->live++;
@@ -7100,25 +7108,26 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
             if ( !pmd_none(*pmd) )
             {
               data->items[i].value = pmd->pmd;
-              if ( pmd_bad(*pmd) )
-                data->items[i].bad = 1;
+              // xx_leaf should be checked before xx_bad
 #ifdef pmd_leaf
-              else if ( pmd_leaf(*pmd) ) {
+              if ( pmd_leaf(*pmd) ) {
                 data->items[i].large = 1;
 #ifdef __x86_64__
                 if ( pmd_val(*pmd) & _PAGE_NX ) data->items[i].nx = 1;
 #endif
-              }
+              } else
 #endif
 #ifdef CONFIG_HUGETLB_PAGE
-              else if ( s_pmd_huge && s_pmd_huge(*pmd) ) {
+              if ( s_pmd_huge && s_pmd_huge(*pmd) ) {
                 data->items[i].huge = 1;
 #ifdef __x86_64__
                 if ( pmd_val(*pmd) & _PAGE_NX ) data->items[i].nx = 1;
 #endif
-              }
+              } else
 #endif
-              else if ( pmd_present(*pmd) )
+              if ( pmd_bad(*pmd) )
+                data->items[i].bad = 1;
+              if ( pmd_present(*pmd) )
               {
                 data->items[i].present = 1;
                 data->live++;
@@ -7133,6 +7142,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
         { // read pte
           pte_t *pte;
           if ( !ptrbuf[2] ) goto bad_p;
+          if ( s_vmalloc_or_module_addr && !s_vmalloc_or_module_addr((const void *)ptrbuf[1]) ) return -EINVAL;
           i = pte_index(ptrbuf[1]);
           if ( i >= VITEMS_CNT ) goto bad_p;
           pte = pte_offset_kernel((pmd_t *)ptrbuf[2], ptrbuf[1]);
