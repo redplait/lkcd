@@ -1572,6 +1572,8 @@ struct one_module1
   unsigned long kprobe_blacklist;
   // CONFIG_FUNCTION_ERROR_INJECTION, since 4.16
   unsigned long ei_funcs;
+  // CONFIG_ARCH_USES_CFI_TRAPS
+  unsigned long kcfi_traps, kcfi_traps_end;
 };
 
 // wrapper to read /proc/modules from non-root
@@ -1905,6 +1907,10 @@ struct vlevel_res {
   struct vmem_item items[VITEMS_CNT];
 };
 
+struct one_purge_area {
+  unsigned long start, end;
+};
+
 // scan some paging aread
 // in params:
 //  0 - kind
@@ -1914,6 +1920,10 @@ struct vlevel_res {
 //    3 - pud
 //    4 - pmd
 //    5 - pte
+//   41 - get content of purge_vmap_area_list
+//    2nd param - count
+//    out result: N + N * one_purge_area
+//   42 - test one virtual address
 //  1 - virtual addr of starting range
 //  2 - ptr - address of item from previous level, ignored for pgd
 // out param - plevel_res

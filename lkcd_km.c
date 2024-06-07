@@ -139,7 +139,9 @@ my_pud_huge s_pud_huge = 0;
 #endif
 #if LINUX_VERSION_CODE < KERNEL_VERSION(6,8,0)
 static spinlock_t *s_vmap_area_lock = 0;
+static spinlock_t *s_purge_vmap_area_lock = 0;
 static struct list_head *s_vmap_area_list = 0;
+static struct list_head *s_purge_vmap_area_list = 0;
 #endif
 static void **s_sys_table = 0;
 #ifdef __x86_64__
@@ -1821,6 +1823,10 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
             curr->num_trace_evals = mod->num_trace_evals;
             curr->trace_evals = (unsigned long)mod->trace_evals;
 #endif
+#endif
+#ifdef CONFIG_ARCH_USES_CFI_TRAPS
+            curr->kcfi_traps = (unsigned long)mod->kcfi_traps;
+            curr->kcfi_traps_end = (unsigned long)mod->kcfi_traps_end;
 #endif
 #ifdef CONFIG_TREE_SRCU
             curr->num_srcu_structs = mod->num_srcu_structs;
@@ -6958,7 +6964,31 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
         goto copy_ptrbuf;
       } else if ( !s_init_mm )
         return -ENOCSI;
-      else if ( ptrbuf[0] == 42 ) // test, address in ptrbuf[1]
+      else if ( ptrbuf[0] == 41 ) {
+        if ( !s_purge_vmap_area_list || !s_purge_vmap_area_lock ) return -ENOCSI;
+        if ( !ptrbuf[1] )
+        { // calc count of items in purge_vmap_area_list
+          struct vmap_area *va;
+	        spin_lock(s_purge_vmap_area_lock);
+	        list_for_each_entry(va, s_purge_vmap_area_list, list) count++;
+          spin_unlock(s_purge_vmap_area_lock);
+          goto copy_count;
+        } else {
+          struct vmap_area *va;
+          ALLOC_KBUF(struct one_purge_area, ptrbuf[1])
+	        spin_lock(s_purge_vmap_area_lock);
+	        list_for_each_entry(va, s_purge_vmap_area_list, list) {
+            if ( count >= ptrbuf[1] ) break;
+            curr->start = va->va_start;
+            curr->end = va->va_end;
+            // for next iteration
+            curr++; count++;
+          }
+          spin_unlock(s_purge_vmap_area_lock);
+          kbuf_size = sizeof(unsigned long) + count * sizeof(struct one_purge_area);
+          goto copy_kbuf_count;
+        }
+      } else if ( ptrbuf[0] == 42 ) // test, address in ptrbuf[1]
       { // code ripped from https://elixir.bootlin.com/linux/v6.9.3/source/mm/vmalloc.c
         // out result: ptrbuf[0] - last succeed level
         // 1, 2, 3 - index, ptr & value of PXX for this level
@@ -7487,6 +7517,10 @@ init_module (void)
   REPORT(s_vmap_area_lock, _GN(vmap_area_lock))
   s_vmap_area_list = (struct list_head *)lkcd_lookup_name(_GN(vmap_area_list));
   REPORT(s_vmap_area_list, _GN(vmap_area_list))
+  s_purge_vmap_area_list = (struct list_head *)lkcd_lookup_name("purge_vmap_area_list");
+  REPORT(s_purge_vmap_area_list, "purge_vmap_area_list")
+  s_purge_vmap_area_lock = (spinlock_t *)lkcd_lookup_name("purge_vmap_area_lock");
+  REPORT(s_purge_vmap_area_lock, "purge_vmap_area_lock")
 #endif
   s_init_mm = (struct mm_struct *)lkcd_lookup_name("init_mm");
   REPORT(s_init_mm, "init_mm")
