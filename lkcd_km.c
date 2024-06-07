@@ -1580,6 +1580,68 @@ static void copy_akcipher(struct one_kcalgo *curr, struct crypto_alg *q)
 }
 #endif
 
+// functions to check NX on some page
+// arc has __PAGE_EXECUTE
+// loongarch has _PAGE_NO_EXEC
+// powerpc has _PAGE_EXEC
+// s390 hash _PAGE_NOEXEC
+#ifdef CONFIG_PGTABLE_LEVELS
+static inline int pgd_nx(pgd_t *p)
+{
+#ifdef __x86_64__
+ return pgd_flags(*p) & _PAGE_NX ? 1 : 0;
+#elif defined(CONFIG_ARM64)
+ return _PAGE_KERNEL_EXEC != (pgd_val(*p) & _PAGE_KERNEL_EXEC) ? 1 : 0;
+#else
+ return 0;
+#endif
+}
+
+static inline int p4d_nx(p4d_t *p)
+{
+#ifdef __x86_64__
+ return p4d_flags(*p) & _PAGE_NX ? 1 : 0;
+#elif defined(CONFIG_ARM64)
+ return _PAGE_KERNEL_EXEC != (p4d_val(*p) & _PAGE_KERNEL_EXEC) ? 1 : 0;
+#else
+ return 0;
+#endif
+}
+
+static inline int pud_nx(pud_t *p)
+{
+#ifdef __x86_64__
+ return pud_flags(*p) & _PAGE_NX ? 1 : 0;
+#elif defined(CONFIG_ARM64)
+ return _PAGE_KERNEL_EXEC != (pud_val(*p) & _PAGE_KERNEL_EXEC) ? 1 : 0;
+#else
+ return 0;
+#endif
+}
+
+static inline int pmd_nx(pmd_t *p)
+{
+#ifdef __x86_64__
+ return pmd_flags(*p) & _PAGE_NX ? 1 : 0;
+#elif defined(CONFIG_ARM64)
+ return _PAGE_KERNEL_EXEC != (pmd_val(*p) & _PAGE_KERNEL_EXEC) ? 1 : 0;
+#else
+ return 0;
+#endif
+}
+
+static inline int pte_nx(pte_t *p)
+{
+#ifdef __x86_64__
+ return pte_flags(*p) & _PAGE_NX ? 1 : 0;
+#elif defined(CONFIG_ARM64)
+ return _PAGE_KERNEL_EXEC != (pte_val(*p) & _PAGE_KERNEL_EXEC) ? 1 : 0;
+#else
+ return 0;
+#endif
+}
+#endif
+
 #include "rn.h"
 #include "inject.inc"
 
@@ -6903,10 +6965,10 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
         unsigned long addr = ptrbuf[1];
         int i, idx = pgd_index(addr);
         pgd_t *pgd = s_init_mm->pgd + idx;
-	      p4d_t *p4d;
-	      pud_t *pud;
-	      pmd_t *pmd;
-	      pte_t *pte;
+        p4d_t *p4d;
+        pud_t *pud;
+        pmd_t *pmd;
+        pte_t *pte;
         ptrbuf[0] = i = 1;
         ptrbuf[i] = idx;
         kbuf_size = 4;
@@ -6977,6 +7039,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
         kbuf_size = sizeof(struct vlevel_res);
         kbuf = kmalloc(kbuf_size, GFP_KERNEL | __GFP_ZERO);
         if ( !kbuf ) return -ENOMEM;
+        // till end of this block don't use return, instead goto bad_p to kfree alloced memory
         data = (struct vlevel_res *)kbuf;
         if ( ptrbuf[0] == 1 )
         { // read pgd
@@ -6993,9 +7056,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
               // xx_leaf should be checked before xx_bad
               if ( pgd_leaf(*pgd) ) {
                 data->items[i].large = 1;
-#ifdef __x86_64__
-                data->items[i].nx = pgd_flags(*pgd) & _PAGE_NX;
-#endif
+                data->items[i].nx = pgd_nx(pgd);
               } else
 #endif
               if ( pgd_bad(*pgd) )
@@ -7030,9 +7091,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
               // xx_leaf should be checked before xx_bad
               if ( p4d_leaf(*p4) ) {
                 data->items[i].large = 1;
-#ifdef __x86_64__
-                data->items[i].nx = p4d_val(*p4) & _PAGE_NX;
-#endif
+                data->items[i].nx = p4d_nx(p4);
               } else if ( p4d_bad(*p4) )
                 data->items[i].bad = 1;
               if ( p4d_present(*p4) )
@@ -7048,8 +7107,8 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
           goto copy_kbuf;
 #else
           goto bad_p;
-#endif          
-        } 
+#endif
+        }
 #if CONFIG_PGTABLE_LEVELS > 3
         else if ( ptrbuf[0] == 3 )
         { // read pud
@@ -7068,17 +7127,13 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
 #ifdef pud_leaf
               if ( pud_leaf(*pud) ) {
                 data->items[i].large = 1;
-#ifdef __x86_64__
-                if ( pud_val(*pud) & _PAGE_NX ) data->items[i].nx = 1;
-#endif
+                data->items[i].nx = pud_nx(pud);
               } else
 #endif
 #ifdef CONFIG_HUGETLB_PAGE
               if ( s_pud_huge && s_pud_huge(*pud) ) {
                 data->items[i].huge = 1;
-#ifdef __x86_64__
-                if ( pud_val(*pud) & _PAGE_NX ) data->items[i].nx = 1;
-#endif
+                data->items[i].nx = pud_nx(pud);
               } else
 #endif
               if ( pud_bad(*pud) )
@@ -7112,17 +7167,13 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
 #ifdef pmd_leaf
               if ( pmd_leaf(*pmd) ) {
                 data->items[i].large = 1;
-#ifdef __x86_64__
-                if ( pmd_val(*pmd) & _PAGE_NX ) data->items[i].nx = 1;
-#endif
+                data->items[i].nx = pmd_nx(pmd);
               } else
 #endif
 #ifdef CONFIG_HUGETLB_PAGE
               if ( s_pmd_huge && s_pmd_huge(*pmd) ) {
                 data->items[i].huge = 1;
-#ifdef __x86_64__
-                if ( pmd_val(*pmd) & _PAGE_NX ) data->items[i].nx = 1;
-#endif
+                data->items[i].nx = pmd_nx(pmd);
               } else
 #endif
               if ( pmd_bad(*pmd) )
@@ -7142,7 +7193,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
         { // read pte
           pte_t *pte;
           if ( !ptrbuf[2] ) goto bad_p;
-          if ( s_vmalloc_or_module_addr && !s_vmalloc_or_module_addr((const void *)ptrbuf[1]) ) return -EINVAL;
+          if ( s_vmalloc_or_module_addr && !s_vmalloc_or_module_addr((const void *)ptrbuf[1]) ) goto bad_p;
           i = pte_index(ptrbuf[1]);
           if ( i >= VITEMS_CNT ) goto bad_p;
           pte = pte_offset_kernel((pmd_t *)ptrbuf[2], ptrbuf[1]);
@@ -7154,11 +7205,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
               data->live++;
               data->items[i].value = pte->pte;
               data->items[i].present = 1;
-#ifdef __x86_64__
-              if ( pte_val(*pte) & _PAGE_NX ) data->items[i].nx = 1;
-#elif defined(CONFIG_ARM64)
-              data->items[i].nx = _PAGE_KERNEL_EXEC != (pte_val(*pte) & _PAGE_KERNEL_EXEC);
-#endif
+              data->items[i].nx = pte_nx(pte);
             }
             i++; pte++;
           } while( i < VITEMS_CNT );
