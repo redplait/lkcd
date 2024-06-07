@@ -15,6 +15,7 @@ extern void HexDump(unsigned char *From, int Len);
 int g_hexdump = 0,
     g_with_bss = 0,
     g_debug = 0,
+    g_opt_f = 0,
     g_verbose = 0;
 
 struct asymbol
@@ -71,12 +72,18 @@ class kotest
    int open(const char *);
    void process_relocs(int);
    void dump_symbols(int show_refs = 0) const;
+   inline int is_mips() const
+   {
+    auto m = reader.get_machine();
+    return m == EM_MIPS;
+   }
    size_t s_moved_size = 0;
   protected:
    void fix_add(unsigned rtype, Elf_Sxword &add);
    void hdump(asymbol *sym);
    art_symbol *add_art(asection *, Elf_Sxword add);
    int fix_art(asection *);
+   void fix_sizes(asection *);
    size_t calc_loss(asection *);
    void process_relocs(int, section *);
 #define SNAME(i) reader.sections[i]->get_name().c_str()
@@ -157,7 +164,7 @@ void kotest::hdump(asymbol *sym)
   // check section
   if ( !sects[sym->section] ) return;
   section *s = reader.sections[sym->section];
-  if ( !(s->get_flags() && 4) ) return; // bss?
+  if ( s->get_type() == SHT_NOBITS ) return; // bss?
   auto ssize = s->get_size();
   if ( !ssize ) return; // empty
   if ( sym->addr >= ssize ) return; // out of content
@@ -212,6 +219,48 @@ size_t kotest::calc_loss(asection *as)
     res += si->second->size;
   }
   return res;
+}
+
+void kotest::fix_sizes(asection *as)
+{
+  int res = 0;
+  section *s = reader.sections[as->s];
+  auto iter = as->syms.begin();
+  asymbol *prev = iter->second;
+  auto debug = [s](const asymbol *fs, int &res) {
+    if ( !res ) {
+      res++;
+      printf("Fix symbols sizes in %s:\n", s->get_name().c_str());
+    }
+    if ( fs->art )
+      printf(" %lX fix size %ld xref %ld rref %ld\n", fs->addr, fs->size, fs->xref, fs->rref);
+    else {
+      if ( fs->type == STT_SECTION )
+         printf(" %lX section %s fix size %ld\n", fs->addr, fs->name.c_str(), fs->size);
+        else
+          printf(" %lX sym %s fix size %ld\n", fs->addr, fs->name.c_str(), fs->size);
+      }
+  };
+  for ( ++iter; iter != as->syms.end(); ++iter )
+  {
+    if ( !prev->size )
+    {
+      prev->size = iter->second->addr - prev->addr;
+      if ( g_debug ) debug(prev, res);
+    }
+    prev = iter->second;
+  }
+  // last one
+  if ( !prev->size )
+  {
+    // find size of section
+    auto end = s->get_size();
+    if ( end > prev->addr )
+    {
+      prev->size = end - prev->addr;
+      if ( g_debug ) debug(prev, res);
+    }
+  }
 }
 
 int kotest::fix_art(asection *as)
@@ -441,6 +490,12 @@ void kotest::process_relocs(int ds)
     // skip bss
     if ( s->is_bss && !g_with_bss ) continue;
     fix_art(s);
+    if ( is_mips() || g_opt_f ) {
+      // skip executable sections
+      section *es = reader.sections[i];
+      if ( es->get_flags() & 4 ) continue;
+      fix_sizes(s);
+    }
   }
   if ( ds ) dump_symbols(1);
   // and calculate size of symbols reffered from discardable sections only
@@ -497,7 +552,7 @@ int kotest::open(const char *fname)
   }
   auto et = reader.get_type();
   if ( g_debug )
-    printf("%s: type %X sections %d\n", fname, et, n_sec);
+    printf("%s: type %X machine %d sections %d\n", fname, et, reader.get_machine(), n_sec);
   if ( et != ET_REL )
   {
     printf("%s: not relocatable, type %X\n", fname, et);
@@ -624,6 +679,7 @@ void usage(const char *prog)
   printf("Options:\n");
   printf("-b - with .bss section (NOBITS)\n");
   printf("-d - debug moder\n");
+  printf("-f - fix symbol size when zero (like on mips)\n");
   printf("-h - hexdump\n");
   printf("-v - verbose node\n");
   exit(6);
@@ -634,7 +690,7 @@ int main(int argc, char **argv)
   int ds = 0, c;
   while(1)
   {
-    c = getopt(argc, argv, "Sbdhv");
+    c = getopt(argc, argv, "Sbdfhv");
     if ( c == -1 ) break;
     switch(c)
     {
@@ -643,6 +699,8 @@ int main(int argc, char **argv)
       case 'b': g_with_bss = 1;
         break;
       case 'd': g_debug = 1;
+        break;
+      case 'f': g_opt_f = 1;
         break;
       case 'h': g_hexdump = 1;
         break;
