@@ -1668,7 +1668,9 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
 #ifdef __x86_64__
        if ( s_lookup_address ) {
          unsigned int unused = 0;
-         if ( !s_lookup_address(ptrbuf[0], &unused) ) return -EFAULT;
+         pte_t *pte = s_lookup_address(ptrbuf[0], &unused);
+         if ( !pte ) return -EFAULT;
+         if ( pte_none(*pte) || !pte_present(*pte) ) return -EFAULT;
        } else
 #endif
        if ( !virt_addr_valid((void *)ptrbuf[0]) &&
@@ -6970,7 +6972,8 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
       {
         ptrbuf[0] = CONFIG_PGTABLE_LEVELS;
         ptrbuf[1] = PAGE_SIZE;
-        kbuf_size = 2;
+        ptrbuf[2] = PGDIR_SHIFT;
+        kbuf_size = 3;
         goto copy_ptrbuf;
       } else if ( !s_init_mm )
         return -ENOCSI;
@@ -7023,7 +7026,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
         pmd_t *pmd;
         pte_t *pte;
         ptrbuf[0] = i;
-        ptrbuf[i] = idx;
+        ptrbuf[1] = idx;
         kbuf_size = 4;
         ptrbuf[i+1] = (unsigned long)pgd;
         if ( pgd_none(*pgd) ) {
@@ -7034,7 +7037,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
         if ( pgd_leaf(*pgd) || pgd_bad(*pgd) )
           goto copy_ptrbuf;
         // p4
-        i += 3, kbuf_size += 3; ptrbuf[0]++;
+        i += 3; kbuf_size += 3; ptrbuf[0]++;
 #if CONFIG_PGTABLE_LEVELS > 4
         ptrbuf[i] = p4d_index(addr);
 #else
@@ -7050,7 +7053,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
         if ( p4d_leaf(*p4d) || p4d_bad(*p4d) )
           goto copy_ptrbuf;
         // pud
-        i += 3, kbuf_size += 3; ptrbuf[0]++;
+        i += 3; kbuf_size += 3; ptrbuf[0]++;
         ptrbuf[i] = pud_index(addr);
         pud = pud_offset(p4d, addr);
         ptrbuf[i+1] = (unsigned long)pud;
@@ -7062,7 +7065,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
         if ( pud_leaf(*pud) || pud_bad(*pud) )
           goto copy_ptrbuf;
         // pmd
-        i += 3, kbuf_size += 3; ptrbuf[0]++;
+        i += 3; kbuf_size += 3; ptrbuf[0]++;
         ptrbuf[i] = pmd_index(addr);
         pmd = pmd_offset(pud, addr);
         ptrbuf[i+1] = (unsigned long)pmd;
@@ -7074,7 +7077,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
         if ( pmd_leaf(*pmd) || pmd_bad(*pmd) )
           goto copy_ptrbuf;
         // finally pte
-        i += 3, kbuf_size += 3; ptrbuf[0]++;
+        i += 3; kbuf_size += 3; ptrbuf[0]++;
         ptrbuf[i] = pte_index(addr);
         pte = pte_offset_kernel(pmd, addr);
         ptrbuf[i+1] = (unsigned long)pte;
