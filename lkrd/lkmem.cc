@@ -5176,6 +5176,24 @@ static int s_page_size = 0;
 static unsigned long s_initial;
 static vlevel_res vmem[5];
 static const char *p_names[5] = { "PGD", "P4D", "PUD", "PMD", "PTE" };
+typedef std::pair<unsigned long, unsigned long> parea;
+static std::vector<parea> s_purged;
+
+int is_purged(unsigned long addr)
+{
+  if ( s_purged.empty() ) return 0;
+  parea p { addr, 0 };
+  auto up = std::upper_bound(s_purged.cbegin(), s_purged.cend(), p);
+  if ( up == s_purged.cend() )
+  {
+    // check last
+    return (addr >= s_purged.back().first) && (addr < s_purged.back().second);
+  } else {
+    up--;
+    if ( up == s_purged.cend() ) return 0;
+    return (addr >= up->first) && (addr < up->second);
+  }
+}
 
 // under x86_64 & arm64 all pgd/p4d/pud/pmd/pte has size 9 bits
 // for pte shift is just s_page_size, idx 5
@@ -5189,6 +5207,16 @@ unsigned long gen_mask(unsigned long v, int idx)
 {
   int shift = (5 - idx) * 9 + s_page_size;
   return (v & 0x1ff) << shift;
+}
+
+static inline void _dump_pte_addr(unsigned long addr)
+{
+  if ( is_purged(addr) )
+    printf(" [purged]");
+  else
+    if ( !dump_pte_addr(addr) )
+      printf(" UNK_MEM");
+  putc('\n', stdout);
 }
 
 void dump_next(unsigned long addr, void *prev_addr, int idx)
@@ -5216,8 +5244,7 @@ void dump_next(unsigned long addr, void *prev_addr, int idx)
       margin(idx);
       unsigned long final_addr = addr | gen_mask(i, idx);
       printf("[%d] huge %s %p %lX addr %p", i, p_names[idx-1], pgds->items[i].ptr, pgds->items[i].value, (void *)final_addr);
-      dump_pte_addr(final_addr);
-      putc('\n', stdout);
+      _dump_pte_addr(final_addr);
       continue;
     }
     if ( pgds->items[i].large ) {
@@ -5225,8 +5252,7 @@ void dump_next(unsigned long addr, void *prev_addr, int idx)
       margin(idx);
       unsigned long final_addr = addr | gen_mask(i, idx);
       printf("[%d] large %s %p %lX addr %p", i, p_names[idx-1], pgds->items[i].ptr, pgds->items[i].value, (void *)final_addr);
-      dump_pte_addr(final_addr);
-      putc('\n', stdout);
+      _dump_pte_addr(final_addr);
       continue;
     }
     if ( 5 == idx && pgds->items[i].nx ) continue;
@@ -5239,47 +5265,69 @@ void dump_next(unsigned long addr, void *prev_addr, int idx)
       // this is PTE without NX bit
       auto pte_val = gen_mask(i, idx);
       unsigned long final_addr = addr | pte_val;
-      printf("[%d] %s %p %lX addr %lX final_addr %lX pte_val %lX", i, p_names[idx-1], pgds->items[i].ptr, pgds->items[i].value, 
-       addr, final_addr, pte_val);
-      dump_pte_addr(final_addr);
-      putc('\n', stdout);
+      printf("[%d] %s %p %lX addr %lX final_addr %lX", i, p_names[idx-1], pgds->items[i].ptr, pgds->items[i].value, 
+       addr, final_addr);
+      _dump_pte_addr(final_addr);
     }
   }
 }
 
-void scan_vmem(sa64 delta)
+static void _scan_vmem(sa64 delta)
 {
+  int err;
   extern unsigned long g_kstart;
   unsigned long targs[16];
-  targs[0] = 42;
-  targs[1] = g_kstart;
-  int err = ioctl(g_fd, IOCTL_VMEM_SCAN, (int *)targs);
-  if ( err ) {
-    printf("IOCTL_VMEM_SCAN test failed, errno %d (%s)\n", errno, strerror(errno));
-  } else {
-    printf("last processed level for %lX: %ld\n", g_kstart, targs[0]);
+  auto dump_test = [&](unsigned long what) {
+    printf("last processed level for %lX: %ld\n", what, targs[0]);
     for ( int i = 0; i < targs[0]; i++ )
     {
       // on x86_64 machine with CONFIG_PGTABLE_LEVELS == 5 for address FFFFFFFFAEC00000 p4d_index *always* returns 0
       // srsly? FFFFFFFFAEC00000 >> 39 = 1FFFFFF. God hates us all (c) Slayer
       printf("%d: %ld %p %lX\n", i, targs[i * 3 + 1], (void *)targs[i * 3 + 2], targs[i * 3 + 3]);
     }
+  };
+  if ( g_opt_v ) {
+    targs[0] = 42;
+    targs[1] = g_kstart;
+    err = ioctl(g_fd, IOCTL_VMEM_SCAN, (int *)targs);
+    if ( err ) {
+      printf("IOCTL_VMEM_SCAN test failed, errno %d (%s)\n", errno, strerror(errno));
+    } else
+      dump_test(g_kstart);
   }
   // 1) get page size and translation levels
-  unsigned long args[2] = { 0, 0 };
+  unsigned long args[3] = { 0, 0, 0 };
   err = ioctl(g_fd, IOCTL_VMEM_SCAN, (int *)args);
   if ( err ) {
     printf("IOCTL_VMEM_SCAN failed, errno %d (%s)\n", errno, strerror(errno));
     return;
   }
-  printf("page_size %lX, translation level %ld\n", args[1], args[0]);
+  printf("page_size %lX, translation level %ld pgd_shift %ld\n", args[1], args[0], args[2]);
+  // for 5level run another test with decreased PGD
+  if ( g_opt_v && 5 == args[0] )
+  {
+    unsigned long pgd_dec = g_kstart;
+    memset(targs, 0, sizeof(targs));
+    pgd_dec -= 1UL << args[2];
+    targs[0] = 42;
+    targs[1] = pgd_dec;
+    err = ioctl(g_fd, IOCTL_VMEM_SCAN, (int *)targs);
+    if ( err )
+      printf("second IOCTL_VMEM_SCAN test failed, errno %d (%s)\n", errno, strerror(errno));
+    else
+      dump_test(pgd_dec);
+  }
   switch(args[1])
   {
     // 4kb
     case 0x1000: s_page_size = 12;
       if ( 5 == args[0] ) // 57 bit, upper 64 - 57 = 7 should be 1
-        s_initial = 0xfe00000000000000;
-      else if ( 4 == args[0] ) // 48 bit, upper 64 - 48 = 16 should be 1
+      {
+         if ( args[2] == 39 )
+          s_initial = 0xffff000000000000;
+         else
+          s_initial = 0xfe00000000000000;
+      } else if ( 4 == args[0] ) // 48 bit, upper 64 - 48 = 16 should be 1
         s_initial = 0xffff000000000000;
       else {
         printf("unknown translation level\n");
@@ -5306,7 +5354,8 @@ void scan_vmem(sa64 delta)
   vlevel_res *pgds = &vmem[0];
   unsigned long *ptr = (unsigned long *)pgds;
   int next = 2;
-  if ( args[0] == 4 ) next = 3;
+  if ( args[0] == 5 && args[2] == 39 ) next = 3;
+  else if ( args[0] == 4 ) next = 3;
   else if ( args[0] == 3 ) next = 4;
   // 2 args: level address, 3rd ignored for PGD
   ptr[0] = 1;
@@ -5317,6 +5366,7 @@ void scan_vmem(sa64 delta)
     printf("IOCTL_VMEM_SCAN PGD failed, errno %d (%s)\n", errno, strerror(errno));
     return;
   }
+  printf("next level %d initial %p\n", next, s_initial);
   for ( int i = 0; i < VITEMS_CNT; i++ )
   {
     if ( pgds->items[i].bad ) continue;
@@ -5326,6 +5376,41 @@ void scan_vmem(sa64 delta)
     // dump next level
     dump_next(s_initial | next_mask, pgds->items[i].ptr, next);
   }
+}
+
+void scan_vmem(sa64 delta)
+{
+  // read purged
+  unsigned long args[3] = { 41, 0, 0 };
+  int err = ioctl(g_fd, IOCTL_VMEM_SCAN, (int *)args);
+  if ( err )
+    printf("IOCTL_VMEM_SCAN purged count failed, errno %d (%s)\n", errno, strerror(errno));
+  else if ( args[0] ) {
+    printf("%ld purged aread\n", args[0]);
+    size_t psize = calc_data_size<one_purge_area>(args[0]);
+    unsigned long *buf = (unsigned long *)malloc(psize);
+    if ( !buf )
+     printf("cannot alloc %lX bytes for purged areas\n", psize);
+    else {
+      dumb_free<unsigned long> tmp(buf);
+      buf[0] = 41;
+      buf[1] = args[0];
+      err = ioctl(g_fd, IOCTL_VMEM_SCAN, (int *)buf);
+      if ( err )
+        printf("IOCTL_VMEM_SCAN purged failed, errno %d (%s)\n", errno, strerror(errno));
+      else {
+        one_purge_area *curr = (one_purge_area *)(buf + 1);
+        for ( unsigned long i = 0; i < buf[0]; ++i, ++curr )
+        {
+          if ( g_opt_v )
+            printf("%lx - %lx\n", curr->start, curr->end);
+          s_purged.push_back( { curr->start, curr->end});
+        }
+      }
+    }
+  }
+  _scan_vmem(delta);
+  s_purged.clear();
 }
 
 void dump_task(sa64 delta, int pid)
