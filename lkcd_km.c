@@ -131,6 +131,10 @@ const char program_name[] = "lkcd";
 #endif
 
 static struct mm_struct *s_init_mm = 0;
+#ifdef __x86_64__
+typedef pte_t *(*my_lookup_address)(unsigned long address, unsigned int *level);
+static my_lookup_address s_lookup_address = 0;
+#endif
 #ifdef CONFIG_HUGETLB_PAGE
 typedef int (*my_pmd_huge)(pmd_t pmd);
 typedef int (*my_pud_huge)(pud_t pmd);
@@ -1661,6 +1665,12 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
   {
     case IOCTL_READ_PTR:
        COPY_ARG
+#ifdef __x86_64__
+       if ( s_lookup_address ) {
+         unsigned int unused = 0;
+         if ( !s_lookup_address(ptrbuf[0], &unused) ) return -EFAULT;
+       } else
+#endif
        if ( !virt_addr_valid((void *)ptrbuf[0]) &&
          (s_vmalloc_or_module_addr && !s_vmalloc_or_module_addr((const void *)ptrbuf[0])) ) return -EFAULT;
        if ( copy_to_user((void*)ioctl_param, (void*)ptrbuf[0], sizeof(void *)) > 0 )
@@ -6964,6 +6974,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
         goto copy_ptrbuf;
       } else if ( !s_init_mm )
         return -ENOCSI;
+#if LINUX_VERSION_CODE < KERNEL_VERSION(6,8,0)
       else if ( ptrbuf[0] == 41 ) {
         if ( !s_purge_vmap_area_list || !s_purge_vmap_area_lock ) return -ENOCSI;
         if ( !ptrbuf[1] )
@@ -6988,18 +6999,30 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
           kbuf_size = sizeof(unsigned long) + count * sizeof(struct one_purge_area);
           goto copy_kbuf_count;
         }
-      } else if ( ptrbuf[0] == 42 ) // test, address in ptrbuf[1]
+      }
+#endif
+#ifdef __x86_64__
+      else if ( ptrbuf[0] == 43 ) // return pte_t from lookup_address(ptrbuf[1])
+      {
+        unsigned int unused = 0;
+        if ( !s_lookup_address ) return -ENOCSI;
+        ptrbuf[0] = (unsigned long)s_lookup_address(ptrbuf[1], &unused);
+        goto copy_ptrbuf0;
+      }
+#endif
+      else if ( ptrbuf[0] == 42 ) // test, address in ptrbuf[1]
       { // code ripped from https://elixir.bootlin.com/linux/v6.9.3/source/mm/vmalloc.c
         // out result: ptrbuf[0] - last succeed level
         // 1, 2, 3 - index, ptr & value of PXX for this level
         unsigned long addr = ptrbuf[1];
-        int i, idx = pgd_index(addr);
+        int i = 1, 
+            idx = pgd_index(addr);
         pgd_t *pgd = s_init_mm->pgd + idx;
         p4d_t *p4d;
         pud_t *pud;
         pmd_t *pmd;
         pte_t *pte;
-        ptrbuf[0] = i = 1;
+        ptrbuf[0] = i;
         ptrbuf[i] = idx;
         kbuf_size = 4;
         ptrbuf[i+1] = (unsigned long)pgd;
@@ -7527,6 +7550,7 @@ init_module (void)
   s_sys_table = (void **)lkcd_lookup_name(_GN(sys_call_table));
   REPORT(s_sys_table, _GN(sys_call_table))
 #ifdef __x86_64__
+  SYM_LOAD("lookup_address", my_lookup_address, s_lookup_address)
   s_ia32_sys_table = (void **)lkcd_lookup_name(_GN(ia32_sys_call_table));
   REPORT(s_ia32_sys_table, _GN(ia32_sys_call_table))
   s_x32_sys_table = (void **)lkcd_lookup_name(_GN(x32_sys_call_table));
