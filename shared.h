@@ -1911,6 +1911,10 @@ struct one_purge_area {
   unsigned long start, end;
 };
 
+struct one_vmap_area {
+  unsigned long start, size, caller;
+};
+
 // scan some paging aread
 // in params:
 //  0 - kind
@@ -1920,6 +1924,9 @@ struct one_purge_area {
 //    3 - pud
 //    4 - pmd
 //    5 - pte
+//   40 - get content of vmap_area_list
+//    2nd - count
+//    out res: N + N * one_vmap_area
 //   41 - get content of purge_vmap_area_list
 //    2nd param - count
 //    out result: N + N * one_purge_area

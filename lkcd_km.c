@@ -6978,7 +6978,38 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
       } else if ( !s_init_mm )
         return -ENOCSI;
 #if LINUX_VERSION_CODE < KERNEL_VERSION(6,8,0)
-      else if ( ptrbuf[0] == 41 ) {
+      else if ( ptrbuf[0] == 40 ) {
+        if ( !s_vmap_area_list || !s_vmap_area_lock ) return -ENOCSI;
+        if ( !ptrbuf[1] )
+        { // calc count of items in purge_vmap_area_list
+          struct vmap_area *va;
+	        spin_lock(s_vmap_area_lock);
+	        list_for_each_entry(va, s_vmap_area_list, list) {
+            if ( !va->vm ) continue;
+            if ( va->vm->flags & VM_ALLOC )
+              count++;
+          }
+          spin_unlock(s_vmap_area_lock);
+          goto copy_count;
+        } else {
+          struct vmap_area *va;
+          ALLOC_KBUF(struct one_vmap_area, ptrbuf[1])
+          spin_lock(s_vmap_area_lock);
+          list_for_each_entry(va, s_vmap_area_list, list) {
+            if ( count >= ptrbuf[1] ) break;
+            if ( !va->vm ) continue;
+            if ( !(va->vm->flags & VM_ALLOC) ) continue;
+            curr->start = va->va_start;
+            curr->size = va->va_end - va->va_start;
+            curr->caller = (unsigned long)va->vm->caller;
+            // for next iteration
+            count++; curr++;
+          }
+          spin_unlock(s_vmap_area_lock);
+          kbuf_size = sizeof(unsigned long) + count * sizeof(struct one_vmap_area);
+          goto copy_kbuf_count;
+        }
+      } else if ( ptrbuf[0] == 41 ) {
         if ( !s_purge_vmap_area_list || !s_purge_vmap_area_lock ) return -ENOCSI;
         if ( !ptrbuf[1] )
         { // calc count of items in purge_vmap_area_list
