@@ -60,13 +60,17 @@
 # -F filename with functions names
 # -s - section name (for example in lkm .init.text etc)
 #
-# Addition from 9 jum 2024
+# Addition from 9 jun 2024
 # mips (option -M) has literal constants in form
 #> $LC0:
 #>     .ascii  "const string %f\012\000"
 # and without sizes
 # function ends with
 #> .end
+# also like x86 you can't patch opcodes:
+#>    lui     $2,%hi($LCXX)
+#>    addiu   $4,$2,%lo($LCXX)
+# just move LC into code section
 
 use strict;
 use warnings;
