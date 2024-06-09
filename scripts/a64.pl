@@ -59,12 +59,21 @@
 # to mitigate this I add couple options for filtering functions to patch:
 # -F filename with functions names
 # -s - section name (for example in lkm .init.text etc)
+#
+# Addition from 9 jum 2024
+# mips (option -M) has literal constants in form
+#> $LC0:
+#>     .ascii  "const string %f\012\000"
+# and without sizes
+# function ends with
+#> .end
+
 use strict;
 use warnings;
 use Carp;
 use Getopt::Std;
 
-use vars qw/$opt_D $opt_F $opt_d $opt_f $opt_g $opt_i $opt_l $opt_m $opt_s $opt_v $opt_w/;
+use vars qw/$opt_D $opt_F $opt_d $opt_f $opt_g $opt_i $opt_l $opt_M $opt_m $opt_s $opt_v $opt_w/;
 # restriction on offset
 my $g_limit = 2048;
 
@@ -80,6 +89,7 @@ Options:
  -g - try all non-global symbols
  -i - x86_64 arch
  -l - dump literals
+ -M - mips arch
  -m - try to detect adrp/add pairs even with interleved movs, extremely dangerous
  -s section name
  -v - verbose mode
@@ -321,7 +331,7 @@ sub move_label {
   my $moved = 0;
   foreach my $iter ( @$xr ) {
     next if ( $iter->[2] ne $label );
-    if ( defined $opt_i ) { # don't patch leaq - it's already in right format
+    if ( defined($opt_i) || defined($opt_M) ) { # don't patch leaq - it's already in right format
       # $fobj->[2]->[$iter->[0]]->[2] = sprintf("\tleaq %s(%%rip), %s", $iter->[2], $iter->[1]);
       $dec += 1;
     } else { # aarch64 patch
@@ -366,6 +376,7 @@ sub extract_len {
  for ( my $i = $lv->[0]; $i < $lv->[1]; $i++ ) {
    my $str = $fobj->[2]->[$i]->[2];
    return 1 + length($1) if ( $str =~ /^\s+\.string\s+\"(.*)\"$/ );
+   return 1 + length($1) if ( $str =~ /^\s+\.ascii\s+\"(.*)\"$/ );
  }
  return undef;
 }
@@ -484,6 +495,14 @@ sub read_s
       $section = ".text";
       put_string($fobj, $str); next;
     }
+    if ( $str =~ /^\s*\.rdata/ )
+    {
+      $check_lc->();
+      $state = 0;
+      $section = '.rdata';
+      $in_rs = 1;
+      put_string($fobj, $str); next;
+    }
     # .size
     if ( $str =~ /^\s*\.size\s+(\S+)\s*,\s*(\d+)$/ ) {
       $sh->{$1} = int($2);
@@ -506,7 +525,7 @@ sub read_s
         $l_num = $line - 1;
         next;
       }
-      if ( $str =~ /^\s*(\.LC\S+):/ )
+      if ( $str =~ /^\s*([\.\$]LC\S+):/ )
       {
         $check_lc->();
         $l_name = $1;
@@ -516,10 +535,15 @@ sub read_s
         next;
       } elsif ( $l_state && $str =~ /^\s+\.string\s+\"/ )
       {
-        # allow only .string directive
+        # allow .string directive
         if ( $l_state == 1 ) { $l_state = 2; }
         else { $l_state = 0; }
 # printf("string state %d line %d\n", $l_state, $line - 1) if defined($opt_D);
+      } elsif ( $l_state && $str =~ /^\s+\.ascii\s+\"/ )
+      {
+        # allow .ascii directive
+        if ( $l_state == 1 ) { $l_state = 2; }
+        else { $l_state = 0; }
       } else {
         $check_lc->();
       }
@@ -536,7 +560,9 @@ sub read_s
     # if we alreay inside function ?
     if ( $state )
     {
-      if ( $str =~ /^\s*\.cfi_endproc/ )
+      if ( $str =~ /^\s*\.cfi_endproc/ or
+           (defined($opt_M) && $str =~ /^\s*\.end/ )
+         )
       {
         $state = $l_state = 0;
         if ( defined $fdata ) {
@@ -562,6 +588,18 @@ sub read_s
             $fx_line = $line - 1;
             $fx_reg = $2;
             $fx_name = $1;
+            add_lref($fobj, $fx_name, $func_name);
+            put_xref($fdata, $fx_line, $fx_reg, $fx_name, $pc - 4, $fx_line) if ( $fdata->[4] );
+            $res++;
+          }
+          next;
+        }
+        if ( defined($opt_M) ) {
+          if ( $str =~ /^\s*lui\s+(\S+)\,\%hi\((\S+)\)$/ )
+          {
+            $fx_line = $line - 1;
+            $fx_reg = $1;
+            $fx_name = $2;
             add_lref($fobj, $fx_name, $func_name);
             put_xref($fdata, $fx_line, $fx_reg, $fx_name, $pc - 4, $fx_line) if ( $fdata->[4] );
             $res++;
@@ -634,6 +672,7 @@ sub apatch {
    while( my($name, $lv) = each %uniq ) {
      my $rsize = extract_len($fobj, $lv, $name);
      if ( !defined $rsize ) {
+# printf("name %s no rsize\n", $name);
        push @no_size, $name;
        next;
      }
@@ -657,7 +696,7 @@ sub apatch {
      # check that we can access this const literal
      next if ( ! exists $moffs{$rname->[0]} );
      my $curr_moff = $moffs{$rname->[0]};
-     if ( !defined($opt_i) ) {
+     if ( !defined($opt_i) && !defined($opt_M) ) {
        my $diff = $curr_fsize - $curr_moff;
        if ( $diff > $g_limit ) {
          printf("skip %s bcs diff %X is too high, curr_size %X, off %X\n", $rname->[0], $diff, $curr_fsize, $curr_moff);
@@ -684,7 +723,7 @@ sub apatch {
 }
 
 ### main
-my $status = getopts("DdfgilmvwF:s:");
+my $status = getopts("DdfgilMmvwF:s:");
 HELP_MESSAGE() if ( !$status );
 HELP_MESSAGE() if ( $#ARGV == -1 );
 exit(2) if ( defined($opt_F) && !read_F() );
