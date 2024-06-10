@@ -383,7 +383,7 @@ void kotest::process_relocs(int sidx, section *s)
       printf("no symbol for reloc %d in %s, sym_idx %d offset %lX\n", i, SNAME(dest->s), sym_idx, offset);
       continue;
     }
-    auto process = [=](asymbol *sym, asection *src) {
+    auto process = [&](asymbol *sym, asection *src) {
       if ( dest->discard ) sym->rref++;
       else {
         sym->xref++;
