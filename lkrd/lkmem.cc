@@ -5178,6 +5178,11 @@ static vlevel_res vmem[5];
 static const char *p_names[5] = { "PGD", "P4D", "PUD", "PMD", "PTE" };
 typedef std::pair<unsigned long, unsigned long> parea;
 static std::vector<parea> s_purged;
+struct vmap_desc {
+  size_t size = 0;
+  unsigned long caller = 0;
+};
+static std::map<unsigned long, vmap_desc> s_vmaps;
 
 int is_purged(unsigned long addr)
 {
@@ -5209,17 +5214,32 @@ unsigned long gen_mask(unsigned long v, int idx)
   return (v & 0x1ff) << shift;
 }
 
-static inline void _dump_pte_addr(unsigned long addr)
+static inline void _dump_pte_addr(unsigned long addr, sa64 delta)
 {
   if ( is_purged(addr) )
     printf(" [purged]");
   else
     if ( !dump_pte_addr(addr) )
-      printf(" UNK_MEM");
+    {
+      auto vi = s_vmaps.find(addr);
+      if ( vi == s_vmaps.end() )
+       printf(" UNK_MEM");
+      else {
+        size_t off = 0;
+        auto cname = lower_name_by_addr_with_off((a64)vi->second.caller - delta, &off);
+        if ( cname )
+        {
+          if ( off )
+            printf(" alloced by %s+%X", cname, off);
+          else
+            printf(" alloced by %s", cname);
+        }
+      }
+    }
   putc('\n', stdout);
 }
 
-void dump_next(unsigned long addr, void *prev_addr, int idx)
+void dump_next(unsigned long addr, void *prev_addr, int idx, sa64 delta)
 {
   vlevel_res *pgds = &vmem[idx - 1];
   unsigned long *ptr = (unsigned long *)pgds;
@@ -5244,7 +5264,7 @@ void dump_next(unsigned long addr, void *prev_addr, int idx)
       margin(idx);
       unsigned long final_addr = addr | gen_mask(i, idx);
       printf("[%d] huge %s %p %lX addr %p", i, p_names[idx-1], pgds->items[i].ptr, pgds->items[i].value, (void *)final_addr);
-      _dump_pte_addr(final_addr);
+      _dump_pte_addr(final_addr, delta);
       continue;
     }
     if ( pgds->items[i].large ) {
@@ -5252,7 +5272,7 @@ void dump_next(unsigned long addr, void *prev_addr, int idx)
       margin(idx);
       unsigned long final_addr = addr | gen_mask(i, idx);
       printf("[%d] large %s %p %lX addr %p", i, p_names[idx-1], pgds->items[i].ptr, pgds->items[i].value, (void *)final_addr);
-      _dump_pte_addr(final_addr);
+      _dump_pte_addr(final_addr, delta);
       continue;
     }
     if ( 5 == idx && pgds->items[i].nx ) continue;
@@ -5260,14 +5280,14 @@ void dump_next(unsigned long addr, void *prev_addr, int idx)
     if ( idx != 5 )
     {
       printf("[%d] %s %p %lX addr %lX\n", i, p_names[idx-1], pgds->items[i].ptr, pgds->items[i].value, addr);
-      dump_next(addr | gen_mask(i, idx), pgds->items[i].ptr, 1 + idx);
+      dump_next(addr | gen_mask(i, idx), pgds->items[i].ptr, 1 + idx, delta);
     } else {
       // this is PTE without NX bit
       auto pte_val = gen_mask(i, idx);
       unsigned long final_addr = addr | pte_val;
       printf("[%d] %s %p %lX addr %lX final_addr %lX", i, p_names[idx-1], pgds->items[i].ptr, pgds->items[i].value, 
        addr, final_addr);
-      _dump_pte_addr(final_addr);
+      _dump_pte_addr(final_addr, delta);
     }
   }
 }
@@ -5374,7 +5394,7 @@ static void _scan_vmem(sa64 delta)
     auto next_mask = gen_mask(i, next - 1);
     printf("[%d] pgd %p %lX next %d mask %lX\n", i, pgds->items[i].ptr, pgds->items[i].value, next, next_mask);
     // dump next level
-    dump_next(s_initial | next_mask, pgds->items[i].ptr, next);
+    dump_next(s_initial | next_mask, pgds->items[i].ptr, next, delta);
   }
 }
 
@@ -5386,7 +5406,7 @@ void scan_vmem(sa64 delta)
   if ( err )
     printf("IOCTL_VMEM_SCAN purged count failed, errno %d (%s)\n", errno, strerror(errno));
   else if ( args[0] ) {
-    printf("%ld purged aread\n", args[0]);
+    printf("%ld purged areas\n", args[0]);
     size_t psize = calc_data_size<one_purge_area>(args[0]);
     unsigned long *buf = (unsigned long *)malloc(psize);
     if ( !buf )
@@ -5405,6 +5425,38 @@ void scan_vmem(sa64 delta)
           if ( g_opt_v )
             printf("%lx - %lx\n", curr->start, curr->end);
           s_purged.push_back( { curr->start, curr->end});
+        }
+      }
+    }
+  }
+  // read vmap_area_list
+  args[0] = 40;
+  args[1] = 0;
+  err = ioctl(g_fd, IOCTL_VMEM_SCAN, (int *)args);
+  if ( err )
+    printf("IOCTL_VMEM_SCAN vmap count failed, errno %d (%s)\n", errno, strerror(errno));
+  else if ( args[0] ) {
+    printf("%ld vmap areas\n", args[0]);
+    size_t psize = calc_data_size<one_vmap_area>(args[0]);
+    unsigned long *buf = (unsigned long *)malloc(psize);
+    if ( !buf )
+     printf("cannot alloc %lX bytes for vmap areas\n", psize);
+    else {
+      dumb_free<unsigned long> tmp(buf);
+      buf[0] = 40;
+      buf[1] = args[0];
+      err = ioctl(g_fd, IOCTL_VMEM_SCAN, (int *)buf);
+      if ( err )
+        printf("IOCTL_VMEM_SCAN vmap failed, errno %d (%s)\n", errno, strerror(errno));
+      else {
+        one_vmap_area *curr = (one_vmap_area *)(buf + 1);
+        for ( unsigned long i = 0; i < buf[0]; ++i, ++curr )
+        {
+          auto im = find_kmod(curr->start);
+          if ( im ) continue; // skip modules
+          if ( g_opt_v )
+            printf("%lx - %lx caller %lX\n", curr->start, curr->start + curr->size, curr->caller);
+          s_vmaps[curr->start] = { curr->size, curr->caller};
         }
       }
     }
