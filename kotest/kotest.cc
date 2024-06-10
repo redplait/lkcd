@@ -587,7 +587,7 @@ int kotest::open(const char *fname)
   }
   if ( !num_disc )
   {
-    printf("%s: not discardable sections\n", fname);
+    printf("%s: no discardable sections\n", fname);
     return 0;
   }
   if ( g_verbose )
@@ -620,7 +620,7 @@ int kotest::open(const char *fname)
     Elf_Xword     size    = 0;
     unsigned char bind    = 0;
     unsigned char type    = 0;
-    Elf_Half      _section = 0;
+    Elf_Half     _section = 0;
     unsigned char other   = 0;
     symbols.get_symbol( i, name, value, size, bind, type, _section, other );
     if ( type == STT_FILE ) continue; // ignore file symbols
@@ -668,6 +668,10 @@ int kotest::open(const char *fname)
       auto added = ss->syms.find(value);
       if ( added == ss->syms.end() )
         ss->syms[value] = as;
+      else { // several names for the same offset?
+        if ( g_verbose )
+         printf("symbol %ld ignored for section %s offset %lX\n", i, SNAME(_section), value);
+      }
     }
   }
   return 1;
@@ -678,7 +682,7 @@ void usage(const char *prog)
   printf("%s usage: [options] lkm ...\n", prog);
   printf("Options:\n");
   printf("-b - with .bss section (NOBITS)\n");
-  printf("-d - debug moder\n");
+  printf("-d - debug mode\n");
   printf("-f - fix symbol size when zero (like on mips)\n");
   printf("-h - hexdump\n");
   printf("-v - verbose node\n");
