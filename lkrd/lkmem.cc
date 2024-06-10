@@ -5214,6 +5214,20 @@ unsigned long gen_mask(unsigned long v, int idx)
   return (v & 0x1ff) << shift;
 }
 
+static unsigned long try_find_caller(unsigned long addr)
+{
+  if ( s_vmaps.empty() ) return 0;
+  auto vi = s_vmaps.find(addr);
+  if ( vi != s_vmaps.end() ) return vi->second.caller;
+  // ok, may be this is not first PTE
+  if ( addr < s_vmaps.cbegin()->first ) return 0; // addr less that most left address in vmaps
+  vi = s_vmaps.upper_bound(addr);
+  vi--;
+  if ( vi == s_vmaps.end() ) return 0;
+  if ( addr >= vi->first && addr <= (vi->first + vi->second.size) ) return vi->second.caller;
+  return 0;
+}
+
 static inline void _dump_pte_addr(unsigned long addr, sa64 delta)
 {
   if ( is_purged(addr) )
@@ -5221,12 +5235,12 @@ static inline void _dump_pte_addr(unsigned long addr, sa64 delta)
   else
     if ( !dump_pte_addr(addr) )
     {
-      auto vi = s_vmaps.find(addr);
-      if ( vi == s_vmaps.end() )
+      auto caller = try_find_caller(addr);
+      if ( !caller )
        printf(" UNK_MEM");
       else {
         size_t off = 0;
-        auto cname = lower_name_by_addr_with_off((a64)vi->second.caller - delta, &off);
+        auto cname = lower_name_by_addr_with_off((a64)caller - delta, &off);
         if ( cname )
         {
           if ( off )
@@ -5463,6 +5477,7 @@ void scan_vmem(sa64 delta)
   }
   _scan_vmem(delta);
   s_purged.clear();
+  s_vmaps.clear();
 }
 
 void dump_task(sa64 delta, int pid)
