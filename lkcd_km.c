@@ -141,7 +141,7 @@ typedef int (*my_pud_huge)(pud_t pmd);
 my_pmd_huge s_pmd_huge = 0;
 my_pud_huge s_pud_huge = 0;
 #endif
-#if LINUX_VERSION_CODE < KERNEL_VERSION(6,8,0)
+#if LINUX_VERSION_CODE < KERNEL_VERSION(6,9,0)
 static spinlock_t *s_vmap_area_lock = 0;
 static spinlock_t *s_purge_vmap_area_lock = 0;
 static struct list_head *s_vmap_area_list = 0;
@@ -6973,11 +6973,18 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
         ptrbuf[0] = CONFIG_PGTABLE_LEVELS;
         ptrbuf[1] = PAGE_SIZE;
         ptrbuf[2] = PGDIR_SHIFT;
-        kbuf_size = 3;
+#if CONFIG_PGTABLE_LEVELS > 4
+        ptrbuf[3] = P4D_SHIFT;
+#else
+        ptrbuf[3] = 0;
+#endif
+        ptrbuf[4] = PUD_SHIFT;
+        ptrbuf[5] = PMD_SHIFT;
+        kbuf_size = 6;
         goto copy_ptrbuf;
       } else if ( !s_init_mm )
         return -ENOCSI;
-#if LINUX_VERSION_CODE < KERNEL_VERSION(6,8,0)
+#if LINUX_VERSION_CODE < KERNEL_VERSION(6,9,0)
       else if ( ptrbuf[0] == 40 ) {
         if ( !s_vmap_area_list || !s_vmap_area_lock ) return -ENOCSI;
         if ( !ptrbuf[1] )
@@ -7569,7 +7576,9 @@ init_module (void)
     return -ENOMEM;
   }
 #endif /* HAS_ARM64_THUNKS */
-#if LINUX_VERSION_CODE < KERNEL_VERSION(6,8,0)
+// since 6.9 evil clowns changed memory managament - now vmap_nodes is array with size nr_vmap_nodes
+// besides struct vmap_node declared inside vmalloc.c. nah
+#if LINUX_VERSION_CODE < KERNEL_VERSION(6,9,0)
   s_vmap_area_lock = (spinlock_t *)lkcd_lookup_name(_GN(vmap_area_lock));
   REPORT(s_vmap_area_lock, _GN(vmap_area_lock))
   s_vmap_area_list = (struct list_head *)lkcd_lookup_name(_GN(vmap_area_list));
