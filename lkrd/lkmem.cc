@@ -5247,7 +5247,8 @@ static inline void _dump_pte_addr(unsigned long addr, sa64 delta)
             printf(" alloced by %s+%X", cname, off);
           else
             printf(" alloced by %s", cname);
-        }
+        } else
+         printf(" unnamed caddr %lX", caller);
       }
     }
   putc('\n', stdout);
@@ -5330,13 +5331,15 @@ static void _scan_vmem(sa64 delta)
       dump_test(g_kstart);
   }
   // 1) get page size and translation levels
-  unsigned long args[3] = { 0, 0, 0 };
+  unsigned long args[6] = { 0, 0, 0 };
   err = ioctl(g_fd, IOCTL_VMEM_SCAN, (int *)args);
   if ( err ) {
     printf("IOCTL_VMEM_SCAN failed, errno %d (%s)\n", errno, strerror(errno));
     return;
   }
-  printf("page_size %lX, translation level %ld pgd_shift %ld\n", args[1], args[0], args[2]);
+  printf("page_size %lX, translation level %ld pgd_shift %ld", args[1], args[0], args[2]);
+  if ( args[0] > 4 ) printf(" p4d_shift %ld", args[3]);
+  printf(" pud_shift %ld pmd_shift %ld\n", args[4], args[5]);
   // for 5level run another test with decreased PGD
   if ( g_opt_v && 5 == args[0] )
   {
