@@ -70,6 +70,9 @@
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(6,0,0)
 #include <linux/ftrace.h>
 #endif
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4,18,0)
+#include <uapi/linux/btf.h>
+#endif
 #include <linux/task_work.h>
 #include "uprobes.h"
 #include <net/net_namespace.h>
@@ -497,6 +500,7 @@ static inline int is_dbgfs(const struct file_operations *in)
 typedef struct cgroup_subsys_state *(*kcss_next_child)(struct cgroup_subsys_state *pos, struct cgroup_subsys_state *parent);
 static kcss_next_child css_next_child_ptr = 0;
 #ifdef CONFIG_BPF
+static struct undoc_btf_ops **s_kind_ops = NULL;
 // bpf_prog_put was not exported till 4.1
 typedef void (*my_bpf_prog_put)(struct bpf_prog *prog);
 my_bpf_prog_put s_bpf_prog_put = 0;
@@ -5273,6 +5277,33 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
 #endif
 
 #ifdef CONFIG_BPF
+    case IOCTL_GET_BTF:
+      COPY_ARG
+      if ( !s_kind_ops ) return -ENOCSI;
+      else if ( ptrbuf[0] == -1 )
+      {
+        // return NR_BTF_KINDS
+        count = NR_BTF_KINDS;
+        goto copy_count;
+      } else if ( ptrbuf[0] >= NR_BTF_KINDS ) return -EINVAL;
+      else if ( !s_kind_ops[ptrbuf[0]] )
+        return -ENOENT;
+      else {
+        struct btf_op out_res;
+        memset(&out_res, 0, sizeof(out_res));
+        out_res.check_meta = s_kind_ops[ptrbuf[0]]->check_meta;
+        out_res.resolve = s_kind_ops[ptrbuf[0]]->resolve;
+        out_res.check_member = s_kind_ops[ptrbuf[0]]->check_member;
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5,0,0)
+        out_res.check_kflag_member = s_kind_ops[ptrbuf[0]]->check_kflag_member;
+#endif
+        out_res.log_details = s_kind_ops[ptrbuf[0]]->log_details;
+        out_res.show = s_kind_ops[ptrbuf[0]]->show;
+        if ( copy_to_user((void*)ioctl_param, (void*)&out_res, sizeof(out_res)) > 0 )
+         return -EFAULT;
+      }
+     break; /* IOCTL_GET_BTF*/
+
     case IOCTL_GET_BPF_USED_MAPS:
     case IOCTL_GET_BPF_OPCODES:
     case IOCTL_GET_BPF_PROG_BODY:
@@ -7731,8 +7762,13 @@ init_module (void)
   REPORT(s_event_mutex, "event_mutex")
   s_ftrace_events = (struct list_head *)lkcd_lookup_name("ftrace_events");
   REPORT(s_ftrace_events, "ftrace_events")
+#ifdef CONFIG_BPF
+  s_kind_ops = (struct undoc_btf_ops **)lkcd_lookup_name("kind_ops");
+  REPORT(s_kind_ops, "kind_ops")
   s_bpf_event_mutex = (struct mutex *)lkcd_lookup_name("bpf_event_mutex");
   REPORT(s_bpf_event_mutex, "bpf_event_mutex")
+  SYM_LOAD("bpf_prog_put", my_bpf_prog_put, s_bpf_prog_put)
+#endif
   s_tracepoints_mutex = (struct mutex *)lkcd_lookup_name("tracepoints_mutex");
   REPORT(s_tracepoints_mutex, "tracepoints_mutex")
   s_tracepoint_module_list_mutex = (struct mutex *)lkcd_lookup_name("tracepoint_module_list_mutex");
@@ -7740,9 +7776,6 @@ init_module (void)
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(4,15,0)  
   SYM_LOAD("bpf_prog_array_length", und_bpf_prog_array_length, bpf_prog_array_length_ptr)
   SYM_LOAD("cgroup_bpf_detach", kcgroup_bpf_detach, cgroup_bpf_detach_ptr)
-#endif
-#ifdef CONFIG_BPF
-  SYM_LOAD("bpf_prog_put", my_bpf_prog_put, s_bpf_prog_put)
 #endif
   css_next_child_ptr = (kcss_next_child)lkcd_lookup_name("css_next_child");
   REPORT(css_next_child_ptr, "css_next_child")

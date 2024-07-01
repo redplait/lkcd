@@ -1936,4 +1936,22 @@ struct one_vmap_area {
 // out param - plevel_res
 #define IOCTL_VMEM_SCAN                     _IOR(IOCTL_NUM, 0x75, int*)
 
+struct btf_op {
+  void *addr;
+  unsigned long check_meta,
+   resolve,
+   check_member,
+   check_kflag_member,
+   log_details,
+   show;
+};
+
+// get item from btf kind_ops
+// in params:
+//  0 - idx (up to NR_BTF_KINDS), if -1 - return value of NR_BTF_KINDS
+// out params:
+//  struct btf_op (undocumented as usually - defined in kernel/bpf/btf.c
+#define IOCTL_GET_BTF                       _IOR(IOCTL_NUM, 0x76, int*)
+
+
 #endif /* LKCD_SHARED_H */
