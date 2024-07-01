@@ -1169,6 +1169,45 @@ void dump_data2arg(a64 list, a64 lock, sa64 delta, int code, const char *header,
     apply_for_each<T>(buf, func);
 }
 
+void dump_struct_ops(sa64 delta)
+{
+  unsigned long cnt = -1;
+  int err = ioctl(g_fd, IOCTL_GET_BTF, (int *)&cnt);
+  if ( err )
+  {
+    printf("IOCTL_GET_BTF cnt failed, error %d (%s)\n", errno, strerror(errno));
+    return;
+  }
+  printf("NR_BTF_KINDS: %ld\n", cnt);
+  btf_op ops;
+  unsigned long *arg = (unsigned long *)&ops;
+  for ( unsigned long i = 0; i < cnt; i++ )
+  {
+    *arg = i;
+    err = ioctl(g_fd, IOCTL_GET_BTF, (int *)&ops);
+    if ( err )
+    {
+      if ( errno != ENOENT )
+        printf("IOCTL_GET_BTF(%ld) failed, error %d (%s)\n", i, errno, strerror(errno));
+      continue;
+    }
+    printf("btf_ops[%ld] at", i);
+    dump_unnamed_kptr((unsigned long)ops.addr, delta, true);
+    if ( ops.check_meta )
+      dump_kptr(ops.check_meta, " check_meta", delta);
+    if ( ops.resolve )
+      dump_kptr(ops.resolve, " resolve", delta);
+    if ( ops.check_member )
+      dump_kptr(ops.check_member, " check_member", delta);
+    if ( ops.check_kflag_member )
+      dump_kptr(ops.check_kflag_member, " check_kflag_member", delta);
+    if ( ops.log_details )
+      dump_kptr(ops.log_details, " log_details", delta);
+    if ( ops.show )
+      dump_kptr(ops.show, " show", delta);
+  }
+}
+
 void check_bpf_protos(sa64 delta)
 {
   std::list<one_bpf_proto> bpf_protos;
@@ -6156,6 +6195,8 @@ end:
          dump_input_devs(delta, hmap);
          dump_sysrq_keys(delta);
        }
+       if ( opt_B ) // read BTF struct_ops
+          dump_struct_ops(delta);
        if ( opt_d )
        {
           dis_base *bd = NULL;
