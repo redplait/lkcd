@@ -5291,6 +5291,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
       else {
         struct btf_op out_res;
         memset(&out_res, 0, sizeof(out_res));
+        out_res.addr = (void *)s_kind_ops[ptrbuf[0]];
         out_res.check_meta = s_kind_ops[ptrbuf[0]]->check_meta;
         out_res.resolve = s_kind_ops[ptrbuf[0]]->resolve;
         out_res.check_member = s_kind_ops[ptrbuf[0]]->check_member;
