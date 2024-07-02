@@ -73,7 +73,7 @@
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(4,18,0)
 #include <uapi/linux/btf.h>
 #endif
-#ifdef CONFIG_NETFILTER_XTABLES
+#ifdef CONFIG_NETFILTER
 #include <linux/netfilter/x_tables.h>
 #endif
 #include <linux/task_work.h>
@@ -166,10 +166,8 @@ static struct mutex *s_sock_diag_table_mutex = 0;
 #ifdef CONFIG_NETFILTER
 static struct mutex *s_nf_hook_mutex = 0;
 static struct mutex *s_nf_log_mutex = 0;
-#endif /* CONFIG_NETFILTER */
-#ifdef CONFIG_NETFILTER_XTABLES
 static struct xt_af *s_xt = 0;
-#endif
+#endif /* CONFIG_NETFILTER */
 #ifdef CONFIG_XFRM
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(5,3,0)
 static spinlock_t *s_xfrm_state_afinfo_lock = 0;
@@ -3955,33 +3953,33 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
         }
       break; /* IOCTL_GET_PROTOSW */
 
-#ifdef CONFIG_NETFILTER_XTABLES
+#ifdef CONFIG_NETFILTER
      case IOCTL_GET_NFXT:
        if ( !s_xt ) return -ENOCSI;
        COPY_ARGS(3)
        if ( ptrbuf[0] >= NFPROTO_NUMPROTO ) return -EINVAL;
        if ( ptrbuf[1] != 0 && ptrbuf[1] != 1 ) return -EINVAL;
        if ( !ptrbuf[2] ) {
-         mutex_lock(&xt[ptrbuf[0]].mutex);
+         mutex_lock(&s_xt[ptrbuf[0]].mutex);
          // calc count
          if ( !ptrbuf[1] ) // of targets
          {
            struct xt_target *t;
-           list_for_each_entry(t, &xt[af].target, list) count++;
+           list_for_each_entry(t, &s_xt[ptrbuf[0]].target, list) count++;
          } else { // of matches
            struct xt_match *m;
-           list_for_each_entry(m, &xt[af].match, list) count++;
+           list_for_each_entry(m, &s_xt[ptrbuf[0]].match, list) count++;
          }
-         mutex_unlock(&xt[ptrbuf[0]].mutex);
+         mutex_unlock(&s_xt[ptrbuf[0]].mutex);
          goto copy_count;
        } else {
          ALLOC_KBUF(struct xt_common, ptrbuf[2])
          // lock
-         mutex_lock(&xt[ptrbuf[0]].mutex);
+         mutex_lock(&s_xt[ptrbuf[0]].mutex);
          if ( !ptrbuf[1] ) // targets
          {
            struct xt_target *t;
-           list_for_each_entry(t, &xt[af].target, list)
+           list_for_each_entry(t, &s_xt[ptrbuf[0]].target, list)
            {
              if ( count >= ptrbuf[2] ) break;
              curr->addr = t;
@@ -4002,10 +4000,10 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
            }
          } else { // matches
            struct xt_match *m;
-           list_for_each_entry(m, &xt[af].match, list)
+           list_for_each_entry(m, &s_xt[ptrbuf[0]].match, list)
            {
              if ( count >= ptrbuf[2] ) break;
-             curr->addr = n;
+             curr->addr = m;
              strlcpy(curr->name, m->name, sizeof(curr->name));
              curr->match = (unsigned long)m->match;
              curr->checkentry = (unsigned long)m->checkentry;
@@ -4020,17 +4018,16 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
              // for next iteration
              count++;
              curr++;
+           }
          }
          // unlock
-         mutex_unlock(&xt[ptrbuf[0]].mutex);
+         mutex_unlock(&s_xt[ptrbuf[0]].mutex);
          // copy to user
          kbuf_size = sizeof(unsigned long) + count * sizeof(struct xt_common);
          goto copy_kbuf_count;         
        }
       break; /* IOCTL_GET_NFXT */
-#endif /* CONFIG_NETFILTER_XTABLES */
 
-#ifdef CONFIG_NETFILTER
      case IOCTL_NFIEHOOKS:
         COPY_ARGS(4)
 #ifndef CONFIG_NETFILTER_EGRESS
@@ -7756,8 +7753,6 @@ init_module (void)
   REPORT(s_nf_hook_mutex, "nf_hook_mutex")
   s_nf_log_mutex = (struct mutex *)lkcd_lookup_name("nf_log_mutex");
   REPORT(s_nf_log_mutex, "nf_log_mutex")
-#endif
-#ifdef CONFIG_NETFILTER_XTABLES
   s_xt = (struct xt_af *)lkcd_lookup_name("xt");
   REPORT(s_xt, "xt")
 #endif
