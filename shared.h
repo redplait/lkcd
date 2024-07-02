@@ -477,13 +477,36 @@ struct one_pernet_ops
 //  else long size + N * one_pernet_ops
 #define IOCTL_GET_PERNET_OPS           _IOR(IOCTL_NUM, 0x24, int*)
 
+struct one_rtlink_ops {
+  void *addr;
+  unsigned long alloc, // since 5.14
+   setup,
+   validate,
+   newlink,
+   changelink,
+   dellink,
+   get_size,
+   fill_info,
+   get_xstats_size,
+   fill_xstats,
+   get_num_tx_queues,
+   get_num_rx_queues,
+   slave_changelink,
+   get_slave_size,
+   fill_slave_info,
+   get_link_net, // since 4.0
+   // introduced in 4.7
+   get_linkxstats_size,
+   fill_linkxstats;
+};
+
 // read link ops
 // in params:
 //  0 - address of link_ops list
 //  1 - count
 // out params:
-//   if count is zero - count of netdev ntfy
-//   else long size + N * void*
+//   if count is zero - count of rtnl_link_ops
+//   else long size + N * one_rtlink_ops
 #define IOCTL_GET_LINKS_OPS            _IOR(IOCTL_NUM, 0x25, int*)
 
 struct one_protosw

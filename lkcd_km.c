@@ -4024,7 +4024,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
          mutex_unlock(&s_xt[ptrbuf[0]].mutex);
          // copy to user
          kbuf_size = sizeof(unsigned long) + count * sizeof(struct xt_common);
-         goto copy_kbuf_count;         
+         goto copy_kbuf_count;
        }
       break; /* IOCTL_GET_NFXT */
 
@@ -4469,21 +4469,43 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
         } else {
           struct list_head *l = (struct list_head *)ptrbuf[0];
           const struct rtnl_link_ops *ops;
-          kbuf_size = sizeof(unsigned long) * (1 + ptrbuf[1]);
-          kbuf = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL);
-          if ( !kbuf )
-            return -ENOMEM;
+          ALLOC_KBUF(struct one_rtlink_ops, ptrbuf[1])
           rtnl_lock();
           list_for_each_entry(ops, l, list)
           {
             if ( count >= ptrbuf[1] )
              break;
-            kbuf[1 + count] = (unsigned long)ops;
-            count++;
+            curr->addr = (void *)ops;
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5,14,0)
+            curr->alloc = (unsigned long)ops->alloc;
+#endif
+            curr->setup = (unsigned long)ops->setup;
+            curr->validate = (unsigned long)ops->validate;
+            curr->newlink = (unsigned long)ops->newlink;
+            curr->changelink = (unsigned long)ops->changelink;
+            curr->dellink = (unsigned long)ops->dellink;
+            curr->get_size = (unsigned long)ops->get_size;
+            curr->fill_info = (unsigned long)ops->fill_info;
+            curr->get_xstats_size = (unsigned long)ops->get_xstats_size;
+            curr->fill_xstats = (unsigned long)ops->fill_xstats;
+            curr->get_num_tx_queues = (unsigned long)ops->get_num_tx_queues;
+            curr->get_num_rx_queues = (unsigned long)ops->get_num_rx_queues;
+            curr->slave_changelink = (unsigned long)ops->slave_changelink;
+            curr->get_slave_size = (unsigned long)ops->get_slave_size;
+            curr->fill_slave_info = (unsigned long)ops->fill_slave_info;
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4,0,0)
+            curr->get_link_net = (unsigned long)ops->get_link_net;
+#endif
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4,7,0)
+            curr->get_linkxstats_size = (unsigned long)ops->get_linkxstats_size;
+            curr->fill_linkxstats = (unsigned long)ops->fill_linkxstats;
+#endif
+            // for next iteration
+            count++; curr++;
           }
           rtnl_unlock();
           // copy to user
-          kbuf_size = sizeof(unsigned long) * (count + 1);
+          kbuf_size = sizeof(unsigned long) + count * sizeof(struct one_rtlink_ops);
           goto copy_kbuf_count;
         }
       break; /* IOCTL_GET_LINKS_OPS */
