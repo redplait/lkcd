@@ -7755,6 +7755,8 @@ init_module (void)
   REPORT(s_nf_log_mutex, "nf_log_mutex")
   s_xt = (struct xt_af *)lkcd_lookup_name("xt");
   REPORT(s_xt, "xt")
+  if ( s_xt )
+    s_xt = *(struct xt_af **)s_xt;
 #endif
 #ifdef CONFIG_XFRM
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(5,3,0)
