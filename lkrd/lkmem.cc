@@ -10,6 +10,7 @@
 #include <inttypes.h>
 #include <time.h>
 #include <linux/netlink.h>
+#include <linux/netfilter.h>
 #include <linux/genetlink.h>
 #endif
 
@@ -3698,6 +3699,80 @@ void dump_xfrm(sa64 delta)
   }
 }
 
+void dump_nfxt(unsigned long *buf, int idx, int what, sa64 delta)
+{
+  if ( !buf[0]) return;
+  printf("NF[%d] %s: %ld:\n", idx, what ? "matches" : "targets", buf[0]);
+  xt_common *xc = (xt_common *)(buf + 1);
+  for ( unsigned long i = 0; i < buf[0]; i++, xc++ )
+  {
+    printf(" [%ld] %s hooks %d proto %d family %d addr", i, xc->name, xc->hooks, xc->proto, xc->family);
+    dump_unnamed_kptr((unsigned long)xc->addr, delta, true);
+    if ( xc->match )
+      dump_kptr(xc->match, what ? " match" : " target", delta);
+    if ( xc->checkentry )
+      dump_kptr(xc->checkentry, " checkentry", delta);
+    if ( xc->destroy )
+      dump_kptr(xc->destroy, " destroy", delta);
+    if ( xc->compat_from_user )
+      dump_kptr(xc->compat_from_user, " compat_from_user", delta);
+    if ( xc->compat_to_user )
+      dump_kptr(xc->compat_to_user, " compat_to_user", delta);
+  }
+}
+
+void dump_nfxt(sa64 delta)
+{
+  // lets first calc max count
+  unsigned long max_items = 0;
+  unsigned long args[3];
+  for ( int i = 0; i < NFPROTO_NUMPROTO; i++ )
+  {
+    args[0] = i;
+    args[1] = 0;
+    args[2] = 0;
+    int err = ioctl(g_fd, IOCTL_GET_NFXT, (int *)&args);
+    if ( err ) continue;
+    max_items = std::max(max_items, args[0]);
+    // and the same for matches
+    args[0] = i;
+    args[1] = 1;
+    args[2] = 0;
+    err = ioctl(g_fd, IOCTL_GET_NFXT, (int *)&args);
+    if ( err ) continue;
+    max_items = std::max(max_items, args[0]);
+  }
+  printf("\nnfxt: max %ld\n", max_items);
+  if ( !max_items ) return;
+  // alloc mem
+  size_t size = calc_data_size<xt_common>(max_items);
+  unsigned long *buf = (unsigned long *)malloc(size);
+  if ( !buf ) {
+    printf("dump_nfxt: cannot alloc %lX bytes\n", size);
+    return;
+  }
+  dumb_free<unsigned long> tmp(buf);
+  for ( int i = 0; i < NFPROTO_NUMPROTO; i++ )
+  {
+    buf[0] = i;
+    buf[1] = 0; // targets
+    buf[2] = max_items;
+    int err = ioctl(g_fd, IOCTL_GET_NFXT, (int *)buf);
+    if ( err ) {
+      printf("IOCTL_GET_NFXT targets failed, error %d (%s)\n", errno, strerror(errno));
+    } else if ( buf[0] )
+      dump_nfxt(buf, i, 0, delta);
+    buf[0] = i;
+    buf[1] = 1; // matches
+    buf[2] = max_items;
+    err = ioctl(g_fd, IOCTL_GET_NFXT, (int *)buf);
+    if ( err ) {
+      printf("IOCTL_GET_NFXT matches failed, error %d (%s)\n", errno, strerror(errno));
+    } else if ( buf[0] )
+      dump_nfxt(buf, i, 1, delta);
+  }
+}
+
 void dump_nets(sa64 delta)
 {
   unsigned long cnt = 0;
@@ -5855,6 +5930,7 @@ int main(int argc, char **argv)
      {
        dump_nets(delta);
        dump_xfrm(delta);
+       dump_nfxt(delta);
      }
      if ( -1 != g_fd && opt_p )
      {
