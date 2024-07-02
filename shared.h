@@ -1953,5 +1953,24 @@ struct btf_op {
 //  struct btf_op (undocumented as usually - defined in kernel/bpf/btf.c
 #define IOCTL_GET_BTF                       _IOR(IOCTL_NUM, 0x76, int*)
 
+struct xt_common {
+  void *addr;
+  char name[30]; // XT_EXTENSION_MAXNAMELEN
+  unsigned long match, // in target this called target
+   checkentry, destroy,
+   compat_from_user, compat_to_user; // ifdef CONFIG_COMPAT
+  unsigned int hooks;
+  unsigned short proto;
+  unsigned short family;
+};
+
+// enum netfilter registered targets/matches
+// in params:
+//  0 - idx - up to NFPROTO_NUMPROTO
+//  1 - 0 for targets. 1 for matches
+//  2 - count
+// out params: N + N * xt_common
+#define IOCTL_GET_NFXT                      _IOR(IOCTL_NUM, 0x77, int*)
+
 
 #endif /* LKCD_SHARED_H */

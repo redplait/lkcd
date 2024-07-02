@@ -1,7 +1,25 @@
 #pragma once
 
-// ripped from https://elixir.bootlin.com/linux/v5.11/source/net/netlink/af_netlink.h#L23
+// ripped from https://elixir.bootlin.com/linux/v4.20.17/source/net/netfilter/x_tables.c#L50
+// basically we need 3 field only but to iterate over array of xt we need all
+struct compat_delta {
+    unsigned int offset; /* offset in kernel */
+    int delta; /* delta in 32bit user land */
+};
 
+struct xt_af {
+  struct mutex mutex;
+  struct list_head match;
+  struct list_head target;
+#ifdef CONFIG_COMPAT
+    struct mutex compat_mutex;
+    struct compat_delta *compat_tab;
+    unsigned int number; /* number of slots in compat_tab[] */
+    unsigned int cur; /* number of used slots in compat_tab[] */
+#endif
+};
+
+// ripped from https://elixir.bootlin.com/linux/v5.11/source/net/netlink/af_netlink.h#L23
 struct netlink_sock {
 	/* struct sock has to be the first member of netlink_sock */
 	struct sock		sk;
