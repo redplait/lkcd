@@ -5259,6 +5259,45 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
         }
       break; /* IOCTL_GET_CGRP_ROOTS */
 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5,10,0)
+    case IOCTL_GENL_SMALLOPS:
+       COPY_ARGS(3)
+       // 0 - address of genl_fam_idr 
+       // 1 - address of family
+       // 2 - count
+       if ( !ptrbuf[0] || !ptrbuf[1] || !ptrbuf[2] ) return -EINVAL;
+       else {
+        int found = 0;
+        struct idr *genl = (struct idr *)ptrbuf[0];
+        const struct genl_family *family;
+        unsigned int id;
+        ALLOC_KBUF(struct one_small_genlops, ptrbuf[2])
+        genl_lock();
+        idr_for_each_entry(genl, family, id)
+        {
+          if ( (unsigned long)family != ptrbuf[1] ) continue;
+          found = 1;
+          for ( count = 0; count < ptrbuf[2] && count < family->n_small_ops; count++, curr++ )
+          {
+            curr->addr = (void *)&family->small_ops[count];
+            curr->doit = (unsigned long)family->small_ops[count].doit;
+            curr->dumpit = (unsigned long)family->small_ops[count].dumpit;
+            curr->cmd = family->small_ops[count].cmd;
+            curr->flags = family->small_ops[count].flags;
+          }
+          break;
+        }
+        genl_unlock();
+        if ( !found ) {
+          kfree(kbuf);
+          return -ENOENT;
+        }
+        kbuf_size = sizeof(unsigned long) + count * sizeof(struct one_small_genlops);
+        goto copy_kbuf_count;
+       }
+      break; /* IOCTL_GENL_SMALLOPS */
+#endif
+
     case IOCTL_GET_GENL_FAMILIES:
         COPY_ARGS(2)
         else {

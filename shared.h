@@ -2015,4 +2015,13 @@ struct one_small_genlops {
   unsigned char cmd, flags;
 };
 
+// enum genl small ops
+// in params:
+//  0 - idr address (genl_fam_idr)
+//  1 - addr of genl
+//  2 - size
+// out params: N + N * one_small_genlops
+#define IOCTL_GENL_SMALLOPS                 _IOR(IOCTL_NUM, 0x78, int*)
+
+
 #endif /* LKCD_SHARED_H */
