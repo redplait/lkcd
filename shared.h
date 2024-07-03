@@ -744,10 +744,13 @@ struct one_dyn_event_op
 struct one_genl_family
 {
   void *addr;
-  int id;
+  int id, n_split_ops, n_small_ops;
   char name[GENL_NAMSIZ];
-  void *pre_doit;
-  void *post_doit;
+  unsigned long pre_doit,
+    post_doit,
+    // since 6.8
+    sock_priv_init,
+    sock_priv_destroy;
   // till 5.7.10
   void *mcast_bind;
   void *mcast_unbind;
@@ -2006,5 +2009,10 @@ struct xt_common {
 // out params: N + N * xt_common
 #define IOCTL_GET_NFXT                      _IOR(IOCTL_NUM, 0x77, int*)
 
+struct one_small_genlops {
+  void *addr;
+  unsigned long doit, dumpit;
+  unsigned char cmd, flags;
+};
 
 #endif /* LKCD_SHARED_H */

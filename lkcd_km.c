@@ -5284,8 +5284,12 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(5,2,0)
               curr->policy = (void *)family->policy;
 #endif
-              curr->pre_doit = (void *)family->pre_doit;
-              curr->post_doit = (void *)family->post_doit;
+              curr->pre_doit = (unsigned long)family->pre_doit;
+              curr->post_doit = (unsigned long)family->post_doit;
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6,8,0)
+              curr->sock_priv_init = (unsigned long)family->sock_priv_init;
+              curr->sock_priv_destroy = (unsigned long)family->sock_priv_destroy;
+#endif
 #if LINUX_VERSION_CODE < KERNEL_VERSION(5,7,10) && LINUX_VERSION_CODE >= KERNEL_VERSION(3,19,0)
               curr->mcast_bind = (void *)family->mcast_bind;
               curr->mcast_unbind = (void *)family->mcast_unbind;
@@ -5293,9 +5297,11 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
               curr->ops = (void *)family->ops;
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(5,10,0)
               curr->small_ops = (void *)family->small_ops;
+              curr->n_small_ops = family->n_small_ops;
 #endif
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(6,2,0)
               curr->split_ops = (void *)family->split_ops;
+              curr->n_split_ops = family->n_split_ops;
 #endif
               strlcpy(curr->name, family->name, GENL_NAMSIZ);
               // next iteration
