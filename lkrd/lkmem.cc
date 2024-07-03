@@ -2907,8 +2907,8 @@ void dump_rtnl_af_ops(a64 nca, sa64 delta)
   printf("\nrtnl_af_ops at %p: %ld\n", (void *)(nca + delta), args[0]);
   if ( !args[0] )
     return;
-  unsigned long m = std::max(args[0] + 1, 2UL);
-  unsigned long *buf = (unsigned long *)malloc(m * sizeof(unsigned long));
+  unsigned long m = calc_data_size<one_af_ops>(args[0]);
+  unsigned long *buf = (unsigned long *)malloc(m);
   if ( !buf )
     return;
   dumb_free<unsigned long> tmp(buf);
@@ -2920,9 +2920,23 @@ void dump_rtnl_af_ops(a64 nca, sa64 delta)
     printf("IOCTL_GET_RTNL_AF_OPS failed, error %d (%s)\n", errno, strerror(errno));
     return;
   }
-  for ( size_t j = 0; j < buf[0]; j++ )
+  one_af_ops *curr = (one_af_ops *)(buf + 1);
+  for ( size_t j = 0; j < buf[0]; j++, curr++ )
   {
-    dump_unnamed_kptr(buf[1 + j], delta);
+    printf(" [%ld] addr", j);
+    dump_unnamed_kptr((unsigned long)curr->addr, delta);
+    if ( curr->fill_link_af )
+      dump_kptr(curr->fill_link_af, "  fill_link_af", delta);
+    if ( curr->get_link_af_size )
+      dump_kptr(curr->get_link_af_size, "  get_link_af_size", delta);
+    if ( curr->validate_link_af )
+      dump_kptr(curr->validate_link_af, "  validate_link_af", delta);
+    if ( curr->set_link_af )
+      dump_kptr(curr->set_link_af, "  set_link_af", delta);
+    if ( curr->fill_stats_af )
+      dump_kptr(curr->fill_stats_af, "  fill_stats_af", delta);
+    if ( curr->get_stats_af_size )
+      dump_kptr(curr->get_stats_af_size, "  get_stats_af_size", delta);
   }
 }
 
@@ -2938,8 +2952,8 @@ void dump_link_ops(a64 nca, sa64 delta)
   printf("\nlink_ops at %p: %ld\n", (void *)(nca + delta), args[0]);
   if ( !args[0] )
     return;
-  unsigned long m = std::max(args[0] + 1, 2UL);
-  unsigned long *buf = (unsigned long *)malloc(m * sizeof(unsigned long));
+  unsigned long m = calc_data_size<one_rtlink_ops>(args[0]);
+  unsigned long *buf = (unsigned long *)malloc(m);
   if ( !buf )
     return;
   dumb_free<unsigned long> tmp(buf);
@@ -2951,9 +2965,47 @@ void dump_link_ops(a64 nca, sa64 delta)
     printf("IOCTL_GET_LINKS_OPS failed, error %d (%s)\n", errno, strerror(errno));
     return;
   }
-  for ( size_t j = 0; j < buf[0]; j++ )
+  one_rtlink_ops *curr = (one_rtlink_ops *)(buf + 1);
+  for ( size_t j = 0; j < buf[0]; j++, curr++ )
   {
-    dump_unnamed_kptr(buf[1 + j], delta);
+    printf(" [%ld] addr", j);
+    dump_unnamed_kptr((unsigned long)curr->addr, delta);
+    if ( curr->alloc )
+      dump_kptr(curr->alloc, "  alloc", delta);
+    if ( curr->setup )
+      dump_kptr(curr->setup, "  setup", delta);
+    if ( curr->validate )
+      dump_kptr(curr->validate, "  validate", delta);
+    if ( curr->newlink )
+      dump_kptr(curr->newlink, "  newlink", delta);
+    if ( curr->changelink )
+      dump_kptr(curr->changelink, "  changelink", delta);
+    if ( curr->dellink )
+      dump_kptr(curr->dellink, "  dellink", delta);
+    if ( curr->get_size )
+      dump_kptr(curr->get_size, "  get_size", delta);
+    if ( curr->fill_info )
+      dump_kptr(curr->fill_info, "  fill_info", delta);
+    if ( curr->get_xstats_size )
+      dump_kptr(curr->get_xstats_size, "  get_xstats_size", delta);
+    if ( curr->fill_xstats )
+      dump_kptr(curr->fill_xstats, "  fill_xstats", delta);
+    if ( curr->get_num_tx_queues )
+      dump_kptr(curr->get_num_tx_queues, "  get_num_tx_queues", delta);
+    if ( curr->get_num_rx_queues )
+      dump_kptr(curr->get_num_rx_queues, "  get_num_rx_queues", delta);
+    if ( curr->slave_changelink )
+      dump_kptr(curr->slave_changelink, "  slave_changelink", delta);
+    if ( curr->get_slave_size )
+      dump_kptr(curr->get_slave_size, "  get_slave_size", delta);
+    if ( curr->fill_slave_info )
+      dump_kptr(curr->fill_slave_info, "  fill_slave_info", delta);
+    if ( curr->get_link_net )
+      dump_kptr(curr->get_link_net, "  get_link_net", delta);
+    if ( curr->get_linkxstats_size )
+      dump_kptr(curr->get_linkxstats_size, "  get_linkxstats_size", delta);
+    if ( curr->fill_linkxstats )
+      dump_kptr(curr->fill_linkxstats, "  fill_linkxstats", delta);
   }
 }
 
