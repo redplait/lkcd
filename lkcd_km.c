@@ -4776,21 +4776,27 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
           struct rtnl_af_ops *ops;
           struct list_head *head = (struct list_head *)ptrbuf[0];
           struct list_head *lh;
-          kbuf_size = sizeof(unsigned long) * (ptrbuf[1] + 1);
-          kbuf = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL);
-          if ( !kbuf )
-            return -ENOMEM;
+          ALLOC_KBUF(struct one_af_ops, ptrbuf[1])
           rtnl_lock();
           list_for_each(lh, head)
           {
             if ( count >= ptrbuf[1] )
               break;
             ops = list_entry(lh, struct rtnl_af_ops, list);
-            kbuf[1 + count] = (unsigned long)ops;
-            count++;
+            curr->addr = (void *)ops;
+            curr->fill_link_af = (unsigned long)ops->fill_link_af;
+            curr->get_link_af_size = (unsigned long)ops->get_link_af_size;
+            curr->validate_link_af = (unsigned long)ops->validate_link_af;
+            curr->set_link_af = (unsigned long)ops->set_link_af;
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4,11,0)
+            curr->fill_stats_af = (unsigned long)ops->fill_stats_af;
+            curr->get_stats_af_size = (unsigned long)ops->get_stats_af_size;
+#endif
+            // for next iteration
+            count++; curr++;
           }
           rtnl_unlock();
-          kbuf_size = sizeof(unsigned long) * (count + 1);
+          kbuf_size = sizeof(unsigned long) + count * sizeof(struct one_af_ops);
           goto copy_kbuf_count;
         }
       break; /* IOCTL_GET_RTNL_AF_OPS */

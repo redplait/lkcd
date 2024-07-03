@@ -529,13 +529,24 @@ struct one_protosw
 //  else long size + N * one_protosw
 #define IOCTL_GET_PROTOSW              _IOR(IOCTL_NUM, 0x26, int*)
 
+struct one_af_ops {
+  void *addr;
+  unsigned long fill_link_af,
+   get_link_af_size,
+   validate_link_af,
+   set_link_af,
+   // since 4.11
+   fill_stats_af,
+   get_stats_af_size;
+};
+
 // read rtnl_af_ops
 // in params:
 //  0 - list addr (rtnl_af_ops)
 //  1 - count
 // out params:
 //  if count is zero - count of rtnl_af_ops
-//  else long size + N * void *
+//  else long size + N * one_af_ops
 #define IOCTL_GET_RTNL_AF_OPS          _IOR(IOCTL_NUM, 0x27, int*)
 
 struct one_nltab
