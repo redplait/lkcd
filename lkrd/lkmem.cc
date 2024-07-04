@@ -3158,24 +3158,63 @@ void dump_genl(a64 addr, sa64 delta)
   }
   size = buf[0];
   one_genl_family *curr = (one_genl_family *)(buf + 1);
+  int small_cnt = 0;
+  for ( size_t j = 0; j < size; j++ )
+    small_cnt = std::max(small_cnt, curr[j].n_small_ops);
+  unsigned long *small_buf = nullptr;
+  if ( small_cnt ) {
+    auto small_size = calc_data_size<one_small_genlops>(small_cnt);
+    small_buf = (unsigned long *)malloc(small_size);
+    if ( !small_buf )
+      printf("cannot alloc %lX bytes for small_genlops\n", small_size);
+  }
+  dumb_free<unsigned long> small_tmp(small_buf);
   for ( size_t j = 0; j < size; j++, curr++ )
   {
     printf(" [%ld] at %p id %d %s", j, curr->addr, curr->id, curr->name);
     dump_unnamed_kptr((unsigned long)curr->addr, delta);
     if ( curr->pre_doit )
-      dump_kptr((unsigned long)curr->pre_doit, " pre_doit", delta);
+      dump_kptr(curr->pre_doit, " pre_doit", delta);
     if ( curr->post_doit )
-      dump_kptr((unsigned long)curr->post_doit, " post_doit", delta);
+      dump_kptr(curr->post_doit, " post_doit", delta);
     if ( curr->mcast_bind )
       dump_kptr((unsigned long)curr->mcast_bind, " mcast_bind", delta);
     if ( curr->mcast_unbind )
       dump_kptr((unsigned long)curr->mcast_unbind, " mcast_unbind", delta);
+    if ( curr->sock_priv_init )
+      dump_kptr(curr->sock_priv_init, " sock_priv_init", delta);
+    if ( curr->sock_priv_destroy )
+      dump_kptr(curr->sock_priv_destroy, " sock_priv_destroy", delta);
     if ( curr->ops )
       dump_kptr((unsigned long)curr->ops, " ops", delta);
-    if ( curr->small_ops )
-      dump_kptr((unsigned long)curr->small_ops, " small_ops", delta);
-    if ( curr->split_ops )
-      dump_kptr((unsigned long)curr->split_ops, " split_ops", delta);
+    if ( curr->small_ops ) {
+      printf("  n %d", curr->n_small_ops);
+      dump_kptr((unsigned long)curr->small_ops, "small_ops", delta);
+      if ( small_buf ) {
+        small_buf[0] = addr + delta;
+        small_buf[1] = (unsigned long)curr->addr;
+        small_buf[2] = curr->n_small_ops;
+        err = ioctl(g_fd, IOCTL_GENL_SMALLOPS, (int *)small_buf);
+        if ( err )
+          printf("IOCTL_GENL_SMALLOPS for %d failed, error %d (%s)\n", j, errno, strerror(errno));
+        else {
+          one_small_genlops *sg = (one_small_genlops *)(small_buf + 1);
+          for ( size_t k = 0; k < small_buf[0]; k++, sg++ )
+          {
+            printf("   small[%ld] cmd %X flag %X at", k, sg->cmd, sg->flags);
+            dump_unnamed_kptr((unsigned long)sg->addr, delta);
+            if ( sg->doit )
+              dump_kptr(sg->doit, "   doit", delta);
+            if ( sg->dumpit )
+              dump_kptr(sg->dumpit, "   dumpit", delta);
+          }
+        }
+      }
+    }
+    if ( curr->split_ops ) {
+      printf("  n %d", curr->n_split_ops);
+      dump_kptr((unsigned long)curr->split_ops, "split_ops", delta);
+    }
   }
 }
 
