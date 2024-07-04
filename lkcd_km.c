@@ -136,6 +136,7 @@ const char program_name[] = "lkcd";
 #define strlcpy strscpy
 #endif
 
+static unsigned int *s_fib_notifier_net_id = NULL;
 static struct mm_struct *s_init_mm = 0;
 #ifdef __x86_64__
 typedef pte_t *(*my_lookup_address)(unsigned long address, unsigned int *level);
@@ -1835,6 +1836,10 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
 #ifdef CONFIG_BPF_EVENTS
             curr->num_bpf_raw_events = mod->num_bpf_raw_events;
             curr->bpf_raw_events = (unsigned long)mod->bpf_raw_events;
+#endif
+#ifdef CONFIG_DEBUG_INFO_BTF_MODULES
+            curr->btf_data = (unsigned long)mod->btf_data;
+            curr->btf_data_size = mod->btf_data_size;
 #endif
 #ifdef CONFIG_EVENT_TRACING
             curr->num_trace_events = mod->num_trace_events;
@@ -7775,6 +7780,8 @@ init_module (void)
   s_purge_vmap_area_lock = (spinlock_t *)lkcd_lookup_name("purge_vmap_area_lock");
   REPORT(s_purge_vmap_area_lock, "purge_vmap_area_lock")
 #endif
+  s_fib_notifier_net_id = (unsigned int *)lkcd_lookup_name("fib_notifier_net_id");
+  REPORT(s_fib_notifier_net_id, "fib_notifier_net_id")
   s_init_mm = (struct mm_struct *)lkcd_lookup_name("init_mm");
   REPORT(s_init_mm, "init_mm")
   s_sys_table = (void **)lkcd_lookup_name(_GN(sys_call_table));
