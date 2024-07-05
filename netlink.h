@@ -1,5 +1,13 @@
 #pragma once
 
+// ripped from https://elixir.bootlin.com/linux/v5.18.19/source/net/core/fib_notifier.c#L13
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5,4,0)
+struct fib_notifier_net {
+  struct list_head fib_notifier_ops;
+  struct atomic_notifier_head fib_chain;
+};
+#endif
+
 // ripped from https://elixir.bootlin.com/linux/v4.20.17/source/net/netfilter/x_tables.c#L50
 // basically we need 3 field only but to iterate over array of xt we need all
 struct compat_delta {
