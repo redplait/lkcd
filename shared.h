@@ -1449,6 +1449,20 @@ struct one_fib_rule
 // N + N * one_fib_rule
 #define IOCTL_FIB_RULES                 _IOR(IOCTL_NUM, 0x72, int*)
 
+struct one_fib_ntfy {
+  void *addr;
+  unsigned long fib_seq_read, fib_dump;
+  int family;
+};
+
+// read fib_notifier_ops - since 4.14
+// in params:
+//  0 - address of net from IOCTL_GET_NETS
+//  1 - count
+// out params:
+// N + N * one_fib_ntfy
+#define IOCTL_FIB_NTFY                 _IOR(IOCTL_NUM, 0x79, int*)
+
 /*
  * keys ioclts if CONFIG_NETFILTER presents
  */

@@ -4607,6 +4607,56 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
 #endif
       break; /* IOCTL_ENUM_NFT_AF */
 
+     case IOCTL_FIB_NTFY:
+        if ( !s_net )
+          return -ENOCSI;
+        // read net addr & count
+        COPY_ARGS(2)
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4,14,0) || LINUX_VERSION_CODE >= KERNEL_VERSION(5,4,0)
+      return -EPROTO;
+#else
+        else {
+          struct net *net;
+          struct fib_notifier_ops *fno;
+          if ( !ptrbuf[1] ) // just count nft_af_info on some net
+          {
+            net = peek_net(ptrbuf[0]);
+            if ( !net )
+            {
+              up_read(s_net);
+              return -ENODEV;
+            }
+            list_for_each_entry(fno, &net->fib_notifier_ops, list) count++;
+            up_read(s_net);
+            goto copy_count;
+          } else {
+            ALLOC_KBUF(struct one_fib_ntfy, ptrbuf[1])
+            net = peek_net(ptrbuf[0]);
+            if ( !net )
+            {
+              up_read(s_net);
+              kfree(kbuf);
+              return -ENODEV;
+            }
+            list_for_each_entry(fno, &net->fib_notifier_ops, list)
+            {
+              if ( count >= ptrbuf[1] ) break;
+              curr->addr = (void *)fno;
+              curr->family = fno->family;
+              curr->fib_seq_read = (unsigned long)fno->fib_seq_read;
+              curr->fib_dump = (unsigned long)fno->fib_dump;
+              // for next iteration
+              count++; curr++;
+            }
+            up_read(s_net);
+            // copy to user
+            kbuf_size = sizeof(unsigned long) + count * sizeof(struct one_fib_ntfy);
+            goto copy_kbuf_count;
+          }
+        }
+#endif
+      break /* IOCTL_FIB_NTFY */;
+
      case IOCTL_FIB_RULES:
         // check pre-req
         if ( !s_net ) return -ENOCSI;
