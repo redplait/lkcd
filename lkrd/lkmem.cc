@@ -3544,6 +3544,43 @@ void dump_nf_hooks(sa64 delta, const char *pfx, unsigned long *d)
   }
 }
 
+void dump_fib_ntfy(void *net, sa64 delta)
+{
+  unsigned long args[2] = { (unsigned long)net, 0 };
+  int err = ioctl(g_fd, IOCTL_FIB_NTFY, (int *)&args);
+  if ( err )
+  {
+    if ( errno != 71 /* EPROTO */)
+      printf("IOCTL_FIB_NTFY count for %p failed, error %d (%s)\n", net, errno, strerror(errno));
+    return;
+  }
+  if ( !args[0] ) return;
+  auto size = calc_data_size<one_fib_ntfy>(args[0]);
+  unsigned long *buf = (unsigned long *)malloc(size);
+  if ( !buf )
+    return;
+  dumb_free<unsigned long> tmp(buf);
+  buf[0] = (unsigned long)net;
+  buf[1] = args[0];
+  err = ioctl(g_fd, IOCTL_FIB_NTFY, (int *)buf);
+  if ( err )
+  {
+    printf("IOCTL_FIB_NTFY for %p failed, error %d (%s)\n", net, errno, strerror(errno));
+    return;
+  }
+  one_fib_ntfy *curr = (one_fib_ntfy *)(buf + 1);
+  printf("  fib_notifier_ops: %ld\n", buf[0]);
+  for ( unsigned long i = 0; i < buf[0]; i++, curr++ )
+  {
+    printf("   [%ld] family %d addr", i, curr->family);
+    dump_unnamed_kptr((unsigned long)curr->addr, delta, true);
+    if ( curr->fib_seq_read )
+      dump_kptr(curr->fib_seq_read, "    fib_seq_read", delta);
+    if ( curr->fib_dump )
+      dump_kptr(curr->fib_dump, "    fib_dump", delta);
+  }
+}
+
 void dump_fb_rules(void *net, unsigned long cnt, unsigned long *buf, sa64 delta)
 {
   buf[0] = (unsigned long)net;
@@ -3938,6 +3975,8 @@ void dump_nets(sa64 delta)
       printf(" netns_bpf[1]: %p\n", sb->progs[1]);
     if ( sb->bpf_cnt[1] )
       printf(" bpf_cnt[1]: %ld\n", sb->bpf_cnt[1]);
+    // fib ntfy
+    dump_fib_ntfy(sb->addr, delta);
     // fib rules
     if ( sb->rules_cnt ) {
       printf(" rules_cnt: %ld\n", sb->rules_cnt);
@@ -5373,6 +5412,10 @@ void dump_mods(sa64 delta, int opt_t)
     {
       dump_kptr(curr->ei_funcs, "ei_funcs", 0);
       printf(" num_ei_funcs: %ld\n", curr->num_ei_funcs);
+    }
+    if ( curr->btf_data ) {
+      printf(" btf_data_size %lX at", curr->btf_data_size);
+      dump_unnamed_kptr(curr->btf_data, delta);
     }
   }
 }
