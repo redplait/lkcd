@@ -1301,6 +1301,22 @@ static struct net *peek_net(unsigned long addr)
   return NULL;
 }
 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5,4,0)
+static noinline void *my_net_generic(const struct net *net, unsigned int id)
+{
+	struct net_generic *ng;
+	void *ptr = NULL;
+
+	rcu_read_lock();
+	ng = rcu_dereference(net->gen);
+  if ( ng )
+	  ptr = ng->ptr[id];
+	rcu_read_unlock();
+
+	return ptr;
+}
+#endif
+
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(6,4,0)
 static unsigned int module_total_size(struct module *mod)
 {
@@ -4612,6 +4628,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
           return -ENOCSI;
         // read net addr & count
         COPY_ARGS(2)
+        if ( !ptrbuf[0] ) return -EINVAL;
 #if LINUX_VERSION_CODE < KERNEL_VERSION(4,14,0)
         return -EPROTO;
 #elif LINUX_VERSION_CODE >= KERNEL_VERSION(5,4,0)
@@ -4623,7 +4640,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
           struct net *net;
           struct fib_notifier_ops *fno;
           struct fib_notifier_net *fn_net;
-          if ( !ptrbuf[1] ) // just count nft_af_info on some net
+          if ( !ptrbuf[1] ) // just count fib_notifier_ops on given net
           {
             net = peek_net(ptrbuf[0]);
             if ( !net )
@@ -4631,7 +4648,12 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
               up_read(s_net);
               return -ENODEV;
             }
-            fno = net_generic(net, *s_fib_notifier_net_id);
+            fn_net = (struct fib_notifier_net *)my_net_generic(net, *s_fib_notifier_net_id);
+            if ( !fn_net )
+            {
+              up_read(s_net);
+              goto copy_count;
+            }
             rcu_read_lock();
             list_for_each_entry(fno, &fn_net->fib_notifier_ops, list) count++;
             rcu_read_unlock();
@@ -4646,7 +4668,13 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
               kfree(kbuf);
               return -ENODEV;
             }
-            fno = net_generic(net, *s_fib_notifier_net_id);
+            fn_net = (struct fib_notifier_net *)my_net_generic(net, *s_fib_notifier_net_id);
+            if ( !fn_net )
+            {
+              up_read(s_net);
+              kfree(kbuf);
+              goto copy_count;
+            }
             rcu_read_lock();
             list_for_each_entry(fno, &fn_net->fib_notifier_ops, list)
             {
