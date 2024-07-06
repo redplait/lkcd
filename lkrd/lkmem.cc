@@ -3055,14 +3055,21 @@ void dump_pernet_ops(a64 nca, a64 plock, sa64 delta)
   }
   dump_data2arg<one_pernet_ops>(nca, plock, delta, IOCTL_GET_PERNET_OPS, "pernet_ops", "IOCTL_GET_PERNET_OPS", "pernet_ops",
    [=](size_t idx, const one_pernet_ops *sb) {
-    printf(" [%ld] at %p", idx, sb->addr);
+    printf(" [%ld] size %lx at %p", idx, sb->size, sb->addr);
     dump_unnamed_kptr((unsigned long)sb->addr, delta);
     if ( sb->init )
      dump_kptr((unsigned long)sb->init, " init", delta);
+    if ( sb->pre_exit )
+      dump_kptr((unsigned long)sb->pre_exit, " pre_exit", delta);
     if ( sb->exit )
      dump_kptr((unsigned long)sb->exit, " exit", delta);
     if ( sb->exit_batch )
      dump_kptr((unsigned long)sb->exit_batch, " exit_batch", delta);
+    if ( sb->id ) {
+      printf("  id %d at", sb->id_value);
+      dump_unnamed_kptr((unsigned long)sb->id, delta, true);
+    }
+
    }
   );
 }
