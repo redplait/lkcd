@@ -71,13 +71,17 @@
 #>    lui     $2,%hi($LCXX)
 #>    addiu   $4,$2,%lo($LCXX)
 # just move LC into code section
+#
+# Sharing literals. Lets assume we have literal LCX referred from several functions f1 .. fn (n > 1)
+# if any of f1..fn is non-discardable then we cannot move LCX
+# otherwise we could put it in .init.rodata
 
 use strict;
 use warnings;
 use Carp;
 use Getopt::Std;
 
-use vars qw/$opt_D $opt_F $opt_d $opt_f $opt_g $opt_i $opt_l $opt_M $opt_m $opt_s $opt_v $opt_w/;
+use vars qw/$opt_D $opt_F $opt_d $opt_f $opt_g $opt_i $opt_l $opt_M $opt_m $opt_r $opt_s $opt_v $opt_w/;
 # restriction on offset
 my $g_limit = 2048;
 
@@ -95,6 +99,7 @@ Options:
  -l - dump literals
  -M - mips arch
  -m - try to detect adrp/add pairs even with interleved movs, extremely dangerous
+ -r - name of .init.rodata section
  -s section name
  -v - verbose mode
  -w - don't rewrite original file
@@ -238,14 +243,22 @@ sub add_lref {
 sub dump_labels {
   my $fobj = shift;
   my $lh = $fobj->[3]; # ref to LC hashmap
+  my $fh = $fobj->[4]; # ref to functiions map
   while( my ($key, $value) = each %$lh) {
    my $rsize = scalar keys %{ $value->[2] };
    printf("%s: %d refs\n", $key, $rsize);
    # dump refs to this label
    if ( $rsize ) {
+     my $can_mov = ($rsize > 1) ? 1 : 0;
      foreach my $who ( keys %{ $value->[2] } ) {
        printf(" xref from %s\n", $who);
+       if ( exists $fh->{$who} && $fh->{$who}->[4] ) {
+        ;
+       } else {
+        $can_mov = 0;
+       }
      }
+     printf(" can be moved\n") if ( $can_mov );
    }
    # dump body
    for ( my $i = $value->[0]; $i < $value->[1]; $i++ ) {
@@ -260,6 +273,34 @@ sub dump_label {
  for ( my $i = $lv->[0]; $i < $lv->[1]; $i++ ) {
    printf($fh "%s\n", $fobj->[2]->[$i]->[2]);
  }
+}
+
+# mark literal as belonging to $opt_r section
+sub move_literal {
+ my($fobj, $v) = @_;
+ my $sref = $fobj->[2];
+ # lets try to find section or .rdata within body of this label
+ my $s_line = -1;
+ for ( my $i = $v->[0]; $i < $v->[1]; $i++ )
+ {
+   my $str = $sref->[$i]->[2];
+   printf("m> %s\n", $str);
+   if ( $str =~ /^\s*\.section\s+(\.?[\.\w]+)/ ) {
+     $s_line = $i;
+     last;
+   }
+ }
+ if ( -1 == $s_line ) {
+   # ok, no section name. we can insert .section $opt_r in head of first line
+   my $str = $sref->[ $v->[0] ]->[2];
+   $sref->[ $v->[0] ]->[2] = sprintf("\t.section %s\n", $opt_r) . $str;
+   return 1;
+ } else {
+   # replace s_line with .section $opt_r
+   $sref->[$s_line]->[2] = sprintf("\t.section %s\n", $opt_r);
+   return 1;
+ }
+ return 0;
 }
 
 # mark label lname for deleting
@@ -654,6 +695,29 @@ sub read_s
   return $res;
 }
 
+# try collect literals referred only from discardable functions
+sub try_move {
+ my $fobj = shift;
+ my $lh = $fobj->[3]; # ref to LC hashmap
+ my $fh = $fobj->[4]; # ref to funcs map
+ my $res = 0;
+  while( my ($key, $value) = each %$lh) {
+   my $rsize = scalar keys %{ $value->[2] };
+   next if ( $rsize < 2 ); # lc with only ref will be processed in apatch sub
+   # check if this literal referred only from allowed set of functions
+   my $can_mov = 0;
+   foreach my $who ( keys %{ $value->[2] } ) {
+     if ( exists $fh->{$who} && $fh->{$who}->[4] ) {
+      $can_mov++;
+     } 
+   }
+   next if ( $can_mov != $rsize );
+   printf("move %s into %s\n", $key, $opt_r);
+   $res += move_literal($fobj, $value);
+ }
+ return $res;
+}
+
 # main workhorse
 sub apatch {
  my $fobj = shift;
@@ -727,7 +791,7 @@ sub apatch {
 }
 
 ### main
-my $status = getopts("DdfgilMmvwF:s:");
+my $status = getopts("DdfgilMmvwF:r:s:");
 HELP_MESSAGE() if ( !$status );
 HELP_MESSAGE() if ( $#ARGV == -1 );
 exit(2) if ( defined($opt_F) && !read_F() );
@@ -753,11 +817,13 @@ foreach my $fname ( @ARGV )
   if ( $res )
   {
     my $rewrite = 1;
+    my $moved = 0;
     $rewrite = 0 if ( defined $opt_w );
+    $moved = try_move($fobj) if ( defined($opt_r) );
     my $patched = apatch($fobj);
-    if ( $patched ) {
+    if ( $patched || $moved ) {
       dump_patch($fobj, $rewrite);
-      printf("patched %d ops\n", $patched) if ( defined($opt_v) );
+      printf("moved %d, patched %d ops\n", $moved, $patched) if ( defined($opt_v) );
     }
   }
 }
