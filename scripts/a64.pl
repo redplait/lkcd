@@ -249,16 +249,14 @@ sub dump_labels {
    printf("%s: %d refs\n", $key, $rsize);
    # dump refs to this label
    if ( $rsize ) {
-     my $can_mov = ($rsize > 1) ? 1 : 0;
+     my $can_mov = 0;
      foreach my $who ( keys %{ $value->[2] } ) {
        printf(" xref from %s\n", $who);
        if ( exists $fh->{$who} && $fh->{$who}->[4] ) {
-        ;
-       } else {
-        $can_mov = 0;
+         $can_mov++;
        }
      }
-     printf(" can be moved\n") if ( $can_mov );
+     printf(" can be moved\n") if ( $rsize > 1 and $can_mov == $rsize );
    }
    # dump body
    for ( my $i = $value->[0]; $i < $value->[1]; $i++ ) {
@@ -284,7 +282,7 @@ sub move_literal {
  for ( my $i = $v->[0]; $i < $v->[1]; $i++ )
  {
    my $str = $sref->[$i]->[2];
-   printf("m> %s\n", $str);
+   printf("m> %s\n", $str) if ( defined($opt_D) );
    if ( $str =~ /^\s*\.section\s+(\.?[\.\w]+)/ ) {
      $s_line = $i;
      last;
@@ -709,7 +707,7 @@ sub try_move {
    foreach my $who ( keys %{ $value->[2] } ) {
      if ( exists $fh->{$who} && $fh->{$who}->[4] ) {
       $can_mov++;
-     } 
+     }
    }
    next if ( $can_mov != $rsize );
    printf("move %s into %s\n", $key, $opt_r);
