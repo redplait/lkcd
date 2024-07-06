@@ -136,7 +136,9 @@ const char program_name[] = "lkcd";
 #define strlcpy strscpy
 #endif
 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5,4,0)
 static unsigned int *s_fib_notifier_net_id = NULL;
+#endif
 static struct mm_struct *s_init_mm = 0;
 #ifdef __x86_64__
 typedef pte_t *(*my_lookup_address)(unsigned long address, unsigned int *level);
@@ -4557,8 +4559,14 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
               break;
             curr->addr = (void *)ops;
             curr->init = (void *)ops->init;
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4,0,0)
+            curr->pre_exit = (void *)ops->pre_exit;
+#endif
             curr->exit = (void *)ops->exit;
             curr->exit_batch = (void *)ops->exit_batch;
+            curr->id = ops->id;
+            if ( ops->id ) curr->id_value = *ops->id;
+            curr->size = ops->size;
             curr++;
             kbuf[0]++;
           }
@@ -7909,8 +7917,10 @@ init_module (void)
   s_purge_vmap_area_lock = (spinlock_t *)lkcd_lookup_name("purge_vmap_area_lock");
   REPORT(s_purge_vmap_area_lock, "purge_vmap_area_lock")
 #endif
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5,4,0)
   s_fib_notifier_net_id = (unsigned int *)lkcd_lookup_name("fib_notifier_net_id");
   REPORT(s_fib_notifier_net_id, "fib_notifier_net_id")
+#endif
   s_init_mm = (struct mm_struct *)lkcd_lookup_name("init_mm");
   REPORT(s_init_mm, "init_mm")
   s_sys_table = (void **)lkcd_lookup_name(_GN(sys_call_table));

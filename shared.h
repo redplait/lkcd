@@ -462,9 +462,9 @@ struct one_sock_diag
 struct one_pernet_ops
 {
   void *addr;
-  void *init;
-  void *exit;
-  void *exit_batch;
+  void *init, *exit, *pre_exit, *exit_batch;
+  unsigned int *id, id_value;
+  size_t size;
 };
 
 // read pernet ops
