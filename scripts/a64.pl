@@ -72,9 +72,18 @@
 #>    addiu   $4,$2,%lo($LCXX)
 # just move LC into code section
 #
-# Sharing literals. Lets assume we have literal LCX referred from several functions f1 .. fn (n > 1)
-# if any of f1..fn is non-discardable then we cannot move LCX
-# otherwise we could put it in .init.rodata
+# Sharing literals processing logic: lets assume we have literal LCX referred from several functions f1 .. fn (n > 1)
+#  (case when n == 1 will be processed in function apatch)
+#  if any of f1..fn is non-discardable then we cannot move LCX
+#  otherwise we could put it in .init.rodata
+# But there is another problem with moving. For example if we have typical input like
+#> .section .rdata
+#> .LCi ...
+#> .LCj <- need to move it
+#> .LCk ...
+# then adding directive .section $opt_r as first string into .LCj will lead to moving .LCk into this section too
+# As possible solution we can collect all moved literals, mark it as deleted and put in one big block 
+#  with only directive .section at head for example before first .section directive
 
 use strict;
 use warnings;
@@ -82,7 +91,7 @@ use Carp;
 use Getopt::Std;
 
 use vars qw/$opt_D $opt_F $opt_d $opt_f $opt_g $opt_i $opt_l $opt_M $opt_m $opt_r $opt_s $opt_v $opt_w/;
-# restriction on offset
+# restriction on arm64 offset
 my $g_limit = 2048;
 
 sub HELP_MESSAGE()
@@ -99,7 +108,7 @@ Options:
  -l - dump literals
  -M - mips arch
  -m - try to detect adrp/add pairs even with interleved movs, extremely dangerous
- -r - name of .init.rodata section
+ -r - name of .init.rodata section for moving shared literals
  -s section name
  -v - verbose mode
  -w - don't rewrite original file
@@ -154,7 +163,7 @@ sub dump_bad_opcodes {
 }
 
 # check if we know that interbed opcode is safe and don't use dreg
-sub check_mov {
+sub check_a64_mov {
  my($str, $dreg) = @_;
  return 0 if ( $str !~ /^\s*mov\s+(.*)$/ );
  foreach ( split(/[\s,]+/, $1) ) {
@@ -172,6 +181,7 @@ sub check_mov {
 # 4 - ref to functions hash, key - function name, value - see add_func
 # 5 - ref to hash of globals, key - name
 # 6 - ref to hash of symbols size, key - name, value - number
+# 7 - ref to array of moved literals, filled in mov
 sub make_fobj
 {
   my $fn = shift;
@@ -181,7 +191,7 @@ sub make_fobj
     carp("cannot open $fn");
     return undef;
   }
-  return [ $fh, $fn, \@res, \%l_c, \%f_h, \%g_h, \%s_h ];
+  return [ $fh, $fn, \@res, \%l_c, \%f_h, \%g_h, \%s_h, [] ];
 }
 
 # fixme - there are probably others sections for literal constants
@@ -195,12 +205,20 @@ sub is_rsection {
 
 # each stored string is array where indexes
 # 0 - skip line if non-zero
-# 1 - for instructions inside function - offset from start, for end of function wnere we add moved parts -2
+# 1 - for instructions inside function - offset from start
+#  for end of function wnere we add moved parts -2
+#  for first .section directive -3 as placeholder to put whole block of moved literals
 # 2 - string itself
 sub put_string {
   my($fobj, $str) = @_;
   my $aref = $fobj->[2];
   push @$aref, [ 0, -1, $str ];
+}
+
+sub put_marker {
+  my($fobj, $str) = @_;
+  my $aref = $fobj->[2];
+  push @$aref, [ 0, -3, $str ];
 }
 
 sub put_end_instr {
@@ -277,28 +295,17 @@ sub dump_label {
 sub move_literal {
  my($fobj, $v) = @_;
  my $sref = $fobj->[2];
- # lets try to find section or .rdata within body of this label
- my $s_line = -1;
+ my $mref = $fobj->[7];
+ # check if this literal already marked
+ return 0 if ( $sref->[ $v->[0] ]->[0] );
+ # store $v into array $fobj->[7]
+ push @$mref, $v;
  for ( my $i = $v->[0]; $i < $v->[1]; $i++ )
  {
-   my $str = $sref->[$i]->[2];
-   printf("m> %s\n", $str) if ( defined($opt_D) );
-   if ( $str =~ /^\s*\.section\s+(\.?[\.\w]+)/ ) {
-     $s_line = $i;
-     last;
-   }
+   $sref->[$i]->[0] = 1;
+   printf("m> %s\n", $sref->[$i]->[2]) if ( defined($opt_D) );
  }
- if ( -1 == $s_line ) {
-   # ok, no section name. we can insert .section $opt_r in head of first line
-   my $str = $sref->[ $v->[0] ]->[2];
-   $sref->[ $v->[0] ]->[2] = sprintf("\t.section %s\n", $opt_r) . $str;
-   return 1;
- } else {
-   # replace s_line with .section $opt_r
-   $sref->[$s_line]->[2] = sprintf("\t.section %s\n", $opt_r);
-   return 1;
- }
- return 0;
+ return 1;
 }
 
 # mark label lname for deleting
@@ -466,11 +473,18 @@ sub dump_patch
     return 0;
   }
   my $arr = $fobj->[2];
+  my $mref = $fobj->[7];
   foreach $str ( @{ $arr } )
   {
     my $put_align = 0;
     next if ( $str->[0] );
-    if ( -2 == $str->[1] ) { # dump addendum before .cfi_endproc
+    if ( defined($mref) and -3 == $str->[1] ) { # dump block of moved literals
+      printf($fh "\t.section %s\n", $opt_r);
+      foreach my $ml ( @$mref ) {
+         dump_label($fobj, $fh, $ml);
+      }
+      undef $mref;
+    } elsif ( -2 == $str->[1] ) { # dump addendum before .cfi_endproc
       my $ar = $str->[3];
       if ( defined $ar ) {
         foreach my $ml ( @$ar ) {
@@ -506,6 +520,7 @@ sub read_s
   my $gh = $fobj->[5];
   my $sh = $fobj->[6];
   my $res = 0;
+  my $first_section = 0;
   my($str, $func_name, $section, $l_name, $l_num, $fdata);
   my $state = 0;
   my $in_rs = 0;
@@ -529,7 +544,17 @@ sub read_s
       $section = $1;
 # printf("section %s\n", $section);
       $in_rs = is_rsection($section);
-      put_string($fobj, $str); next;
+      if ( !$first_section ) {
+        $first_section++;
+        if ( defined $opt_r ) {
+          put_marker($fobj, $str);
+        } else {
+          put_string($fobj, $str);
+        }
+      } else {
+        put_string($fobj, $str);
+      }
+      next;
     }
     if ( $str =~ /^\s*\.text/ )
     {
@@ -637,7 +662,7 @@ sub read_s
           }
           next;
         }
-        if ( defined($opt_M) ) {
+        if ( defined($opt_M) ) { # mips case - lui reg, %hi($LC)
           if ( $str =~ /^\s*lui\s+(\S+)\,\%hi\((\S+)\)$/ )
           {
             $fx_line = $line - 1;
@@ -649,7 +674,7 @@ sub read_s
           }
           next;
         }
-        # check for adrp reg, label
+        # AArch64: check for adrp reg, label
         if ( $str =~ /^\s*adrp\s+(\w+),\s*(\S+)$/ )
         {
           $l_state = 1;
@@ -666,7 +691,7 @@ sub read_s
           # check for add reg, reg, :lo12:label
           if ( $str !~ /^\s*add\s+(\w+),\s*(\w+),\s*:lo12:(\S+)$/ ) {
             add_bad_opcode($str);
-            $l_state = 1 if ( defined($opt_m) && check_mov($str, $fx_reg) );
+            $l_state = 1 if ( defined($opt_m) && check_a64_mov($str, $fx_reg) );
             next;
           }
           next if ( $fx_reg ne $2 );  # second reg in add must be the same as first in adrp
