@@ -75,15 +75,15 @@
 # Sharing literals processing logic: lets assume we have literal LCX referred from several functions f1 .. fn (n > 1)
 #  (case when n == 1 will be processed in function apatch)
 #  if any of f1..fn is non-discardable then we cannot move LCX
-#  otherwise we could put it in .init.rodata
+#  otherwise we could put it in .init.rodata (or whatever contained in $opt_r)
 # But there is another problem with moving. For example if we have typical input like
 #> .section .rdata
 #> .LCi ...
-#> .LCj <- need to move it
+#> .LCj <- need to move this literal
 #> .LCk ...
-# then adding directive .section $opt_r as first string into .LCj will lead to moving .LCk into this section too
-# As possible solution we can collect all moved literals, mark it as deleted and put in one big block 
-#  with only directive .section at head for example before first .section directive
+# then adding ".section $opt_r" as first string into .LCj will lead to moving .LCk into this section too
+# As possible solution we can collect all moved literals, mark them as deleted and put in one big block
+#  headed with single ".section $opt_r" for example before first .section directive
 
 use strict;
 use warnings;
@@ -140,7 +140,7 @@ sub allowed_func {
  return exists $g_funcfilter{$fname};
 };
 
-# global stat for interbed opcodes
+# global stat for interleaved bad opcodes
 my %g_inter;
 
 sub add_bad_opcode {
@@ -173,7 +173,7 @@ sub check_a64_mov {
 }
 
 # file.s read logic
-# object is just ref to array with indexes
+# fobject is just ref to array with indexes
 # 0 - fh
 # 1 - filename, used in dump_patch
 # 2 - ref to array with file content
@@ -181,7 +181,7 @@ sub check_a64_mov {
 # 4 - ref to functions hash, key - function name, value - see add_func
 # 5 - ref to hash of globals, key - name
 # 6 - ref to hash of symbols size, key - name, value - number
-# 7 - ref to array of moved literals, filled in mov
+# 7 - ref to array of moved literals, filled in mov_literal
 sub make_fobj
 {
   my $fn = shift;
