@@ -308,6 +308,18 @@ sub move_literal {
  return 1;
 }
 
+# mark literal as belonging to $opt_r section
+# unlike move_literal we have here name of literal and must check if it exists
+sub try_move_literal {
+  my($fobj, $lname) = @_;
+  my $lh = $fobj->[3]; # ref to LC hashmap
+  if ( !exists( $lh->{$lname} ) ) {
+    carp("no label $lname");
+    return 0;
+  }
+  return move_literal($fobj, $lh->{$lname});
+}
+
 # mark label lname for deleting
 sub mark_label {
   my($fobj, $lname) = @_;
@@ -791,6 +803,8 @@ sub apatch {
        my $diff = $curr_fsize - $curr_moff;
        if ( $diff > $g_limit ) {
          printf("skip %s bcs diff %X is too high, curr_size %X, off %X\n", $rname->[0], $diff, $curr_fsize, $curr_moff);
+         # probably we can just move this literal into $opt_r section
+         $res += try_move_literal($fobj, $rname->[0]);
          next;
        }
      }
