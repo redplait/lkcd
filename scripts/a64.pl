@@ -84,6 +84,7 @@
 # then adding ".section $opt_r" as first string into .LCj will lead to moving .LCk into this section too
 # As possible solution we can collect all moved literals, mark them as deleted and put in one big block
 #  headed with single ".section $opt_r" for example before first .section directive
+# If there was no .sections directives - we can put block with moved literals before first .text or function
 
 use strict;
 use warnings;
@@ -306,6 +307,22 @@ sub move_literal {
    printf("m> %s\n", $sref->[$i]->[2]) if ( defined($opt_D) );
  }
  return 1;
+}
+
+sub find_marker3 {
+  my $fobj = shift;
+  my $sref = $fobj->[2];
+  foreach my $s ( @$sref )
+  {
+    if ( $s->[2] =~ /^\s*\.text/ ||
+         $s->[2] =~ /^\s*\.rdata/ )
+    {
+      $s->[1] = -3;
+      return 1;
+    }
+  }
+  carp("cannot find marker to insert blovk of moved literals");
+  return 0;
 }
 
 # mark literal as belonging to $opt_r section
@@ -724,6 +741,8 @@ sub read_s
     }
     put_string($fobj, $str);
   }
+  # check that we have marker where insert block of moved literals
+  find_marker3($fobj) if ( defined $opt_r && !$first_section );
   # close file
   close $fh;
   $fobj->[0] = undef;
@@ -744,7 +763,7 @@ sub try_move {
    foreach my $who ( keys %{ $value->[2] } ) {
      if ( exists $fh->{$who} && $fh->{$who}->[4] ) {
       $can_mov++;
-     }
+     } else { last; } # if there is at least one function in non-discardable memory reffered to this literal - we can skip it
    }
    next if ( $can_mov != $rsize );
    printf("move %s into %s\n", $key, $opt_r);
