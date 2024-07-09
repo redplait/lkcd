@@ -508,11 +508,14 @@ sub dump_patch
     my $put_align = 0;
     next if ( $str->[0] );
     if ( defined($mref) and -3 == $str->[1] ) { # dump block of moved literals
-      printf($fh "\t.section %s\n", $opt_r);
-      foreach my $ml ( @$mref ) {
-         dump_label($fobj, $fh, $ml);
+      my $msize = scalar @$mref;
+      if ( $msize ) {
+        printf($fh "\t.section %s\n", $opt_r);
+        foreach my $ml ( @$mref ) {
+           dump_label($fobj, $fh, $ml);
+        }
+        undef $mref;
       }
-      undef $mref;
     } elsif ( -2 == $str->[1] ) { # dump addendum before .cfi_endproc
       my $ar = $str->[3];
       if ( defined $ar ) {
