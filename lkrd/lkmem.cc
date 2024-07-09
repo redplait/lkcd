@@ -1959,6 +1959,9 @@ static const char *const bpf_map_type_names[] = {
  "BPF_MAP_TYPE_INODE_STORAGE",
  "BPF_MAP_TYPE_TASK_STORAGE",
  "BPF_MAP_TYPE_BLOOM_FILTER",
+ "BPF_MAP_TYPE_USER_RINGBUF",
+ "BPF_MAP_TYPE_CGRP_STORAGE",
+ "BPF_MAP_TYPE_ARENA",
 };
 
 static const char *get_bpf_map_type_name(int idx)
