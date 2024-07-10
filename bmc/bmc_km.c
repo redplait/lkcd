@@ -7,6 +7,7 @@
 #include <linux/wait.h>
 #include <linux/poll.h>
 #include <linux/bpf.h>
+#include <linux/sched/clock.h>
 #include <linux/miscdevice.h>
 #include "shared.h"
 
@@ -176,7 +177,8 @@ unsigned long lkcd_lookup_name(const char *name)
 
 // driver machinery
 static atomic_t s_open_count = ATOMIC_INIT(0); // allow open device in exclusive mode
-struct bpf_map *s_map = NULL;
+static struct bpf_map *s_map = NULL;
+static int kprobe_installed = 0;
 // polling ripped from https://embetronicx.com/tutorials/linux/device-drivers/poll-linux-example-device-driver/
 DECLARE_WAIT_QUEUE_HEAD(wait_queue_etx_data);
 // bfp maps
@@ -193,8 +195,43 @@ static int open_bmc(struct inode *inode, struct file *file)
   return 0;
 }
 
+static int pexit_pre(struct kprobe *p, struct pt_regs *regs)
+{
+  if ( s_map ) {
+    int err = 0;
+    struct proc_dead pd;
+    pd.timestamp = local_clock();
+    pd.exit_code = current->exit_code;
+    // write to map - ripped from https://elixir.bootlin.com/linux/v5.18.19/source/kernel/bpf/syscall.c#L178
+    rcu_read_lock();
+    err = s_map->ops->map_update_elem(s_map, &current->pid, &pd, BPF_NOEXIST);
+    rcu_read_unlock();
+    if ( !err ) wake_up(&wait_queue_etx_data);
+  }
+  return 0;
+}
+
+static struct kprobe pexit_kp = {
+    .pre_handler = pexit_pre,
+    .symbol_name = "do_exit",
+};
+
+static int report_map(void)
+{
+  int res;
+  printk("map %p key_size %d value_size %d\n", s_map, s_map->key_size, s_map->value_size);
+  res = register_kprobe(&pexit_kp);
+  if ( !res )
+    kprobe_installed = 1;
+  return res;
+}
+
 static int close_bmc(struct inode *inode, struct file *file)
 {
+  if ( kprobe_installed ) {
+    unregister_kprobe(&pexit_kp);
+    kprobe_installed = 0;
+  }
   if ( s_map ) {
     bpf_map_put(s_map);
     s_map = NULL;
@@ -202,11 +239,6 @@ static int close_bmc(struct inode *inode, struct file *file)
   atomic_dec(&s_open_count);
   module_put(THIS_MODULE);
   return 0;
-}
-
-static void report_map(void)
-{
-  printk("map %p key_size %d value_size %d\n", s_map, s_map->key_size, s_map->value_size);
 }
 
 static long bmc_ioctl(struct file *file, unsigned int ioctl_num, unsigned long ioctl_param)
@@ -221,7 +253,7 @@ static long bmc_ioctl(struct file *file, unsigned int ioctl_num, unsigned long i
       COPY_ARG
       s_map = s_get_map(ptrbuf);
       if (IS_ERR(s_map)) return PTR_ERR(s_map);
-      report_map();
+      return report_map();
      break;
 
     case IOCTL_BY_ID:
@@ -245,7 +277,7 @@ static long bmc_ioctl(struct file *file, unsigned int ioctl_num, unsigned long i
         // unlock
         spin_unlock_bh(block);
         if ( !s_map ) return -ENOENT;
-        report_map();
+        return report_map();
       }
      break;
 
