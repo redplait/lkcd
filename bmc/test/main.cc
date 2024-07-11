@@ -7,7 +7,7 @@
 #include <signal.h>
 #include <poll.h>
 
-// those stupid morons event can't make their shitcode compilable
+// those stupid morons even can't make their shitcode compilable
 // https://github.com/libbpf/libbpf/issues/249
 // on my ubuntu with g++ v12 it gives
 // /usr/include/bpf/bpf.h:252:6: error: use of enum ‘bpf_stats_type’ without previous declaration
