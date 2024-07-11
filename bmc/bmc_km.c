@@ -253,6 +253,19 @@ static int close_bmc(struct inode *inode, struct file *file)
   return 0;
 }
 
+static void read_user_string(char *name, unsigned long ioctl_param, int max_len)
+{
+  int i;
+  char ch, *temp = (char *) ioctl_param;
+  get_user(ch, temp++);
+  name[0] = ch;
+  for (i = 1; ch && i < max_len - 1; i++, temp++)
+  {
+    get_user(ch, temp);
+    name[i] = ch;
+  }
+}
+
 static long bmc_ioctl(struct file *file, unsigned int ioctl_num, unsigned long ioctl_param)
 {
   unsigned long ptrbuf;
@@ -276,15 +289,31 @@ static long bmc_ioctl(struct file *file, unsigned int ioctl_num, unsigned long i
       if ( s_map ) return -EAGAIN;
       if ( !bmaps || !block ) return -ENOCSI;
       COPY_ARG
+      // lock
+      spin_lock_bh(block);
+      s_map = idr_find(bmaps, (u32)ptrbuf);
+      if ( s_map )
+        atomic64_inc(&s_map->refcnt);
+      // unlock
+      spin_unlock_bh(block);
+      if ( !s_map ) return -ENOENT;
+      return report_map();
+     break;
+
+    case IOCTL_BY_NAME:
+      if ( s_map ) return -EAGAIN;
+      if ( !bmaps || !block ) return -ENOCSI;
       else { // ripped from lkcd IOCTL_GET_BPF_MAPS
+        char name[MAX_MAP_NAME];
         unsigned int id;
         struct bpf_map *map;
+        read_user_string(name, ioctl_param, MAX_MAP_NAME);
         idr_preload(GFP_KERNEL);
         // lock
         spin_lock_bh(block);
         idr_for_each_entry(bmaps, map, id)
         {
-          if ( id == ptrbuf ) {
+          if ( !strncmp(name, map->name, MAX_MAP_NAME) ) {
             s_map = map;
             atomic64_inc(&s_map->refcnt);
             break;
