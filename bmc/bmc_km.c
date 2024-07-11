@@ -201,7 +201,12 @@ static int pexit_pre(struct kprobe *p, struct pt_regs *regs)
     int err = 0;
     struct proc_dead pd;
     pd.timestamp = local_clock();
+    // in do_exit exit_code is first arg, on x86_64 it stored in rdi
+#ifdef __x86_64__
+    pd.exit_code = regs->di;
+#else
     pd.exit_code = current->exit_code;
+#endif
     // write to map - ripped from https://elixir.bootlin.com/linux/v5.18.19/source/kernel/bpf/syscall.c#L178
     rcu_read_lock();
     err = s_map->ops->map_update_elem(s_map, &current->pid, &pd, BPF_NOEXIST);
