@@ -207,6 +207,7 @@ static int pexit_pre(struct kprobe *p, struct pt_regs *regs)
     err = s_map->ops->map_update_elem(s_map, &current->pid, &pd, BPF_NOEXIST);
     rcu_read_unlock();
     if ( !err ) wake_up(&wait_queue_etx_data);
+    else printk("update failed, pid %d err %d\n", current->pid, err);
   }
   return 0;
 }
@@ -219,7 +220,13 @@ static struct kprobe pexit_kp = {
 static int report_map(void)
 {
   int res;
+  // it would be good idea to check sizes of key & value here to make sure we have map
+  // compatible with shared.h!proc_dead structure
   printk("map %p key_size %d value_size %d\n", s_map, s_map->key_size, s_map->value_size);
+  if ( s_map->value_size != sizeof(struct proc_dead) ) {
+    printk("bad map value_size %d must be %d\n", s_map->value_size, (int)sizeof(struct proc_dead));
+    return -EINVAL;
+  }
   res = register_kprobe(&pexit_kp);
   if ( !res )
     kprobe_installed = 1;
@@ -228,8 +235,13 @@ static int report_map(void)
 
 static int close_bmc(struct inode *inode, struct file *file)
 {
+  printk("close called, kprobe %d s_map %p\n", kprobe_installed, s_map);
   if ( kprobe_installed ) {
     unregister_kprobe(&pexit_kp);
+    // renew kprobe for next registration
+    memset(&pexit_kp, 0, sizeof(pexit_kp));
+    pexit_kp.pre_handler = pexit_pre;
+    pexit_kp.symbol_name = "do_exit";
     kprobe_installed = 0;
   }
   if ( s_map ) {
@@ -252,7 +264,11 @@ static long bmc_ioctl(struct file *file, unsigned int ioctl_num, unsigned long i
       if ( !s_get_map ) return -ENOCSI;
       COPY_ARG
       s_map = s_get_map(ptrbuf);
-      if (IS_ERR(s_map)) return PTR_ERR(s_map);
+      if (IS_ERR(s_map)) {
+        long res = PTR_ERR(s_map);
+        printk("get_map failed, err %ld\n", res);
+        return res;
+      }
       return report_map();
      break;
 
