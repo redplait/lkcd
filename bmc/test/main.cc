@@ -61,19 +61,28 @@ int main(int argc, char **argv)
     if ( res ) {
      // check what we have
      if ( poller[0].revents ) {
-       if ( !key )
-         bpf_map_get_next_key(fd, &key, &key);
-       res = bpf_map_get_next_key(fd, &key, &next_key);
-       if ( !res ) {
+       int res_key = 0;
+       if ( !key ) {
+         res_key = bpf_map_get_next_key(fd, &key, &key);
+         if ( res_key ) // wtf - no prev and next key
+           continue;
+       }
+       while(1)
+       {
+         res_key = bpf_map_get_next_key(fd, &key, &next_key);
          proc_dead value;
          res = bpf_map_lookup_elem(fd, &key, &value);
          if ( !res ) {
            printf("key %d exit_code %d clock %ld\n", key, value.exit_code, value.timestamp);
            bpf_map_delete_elem(fd, &key);
+         } else
+           break;
+         if ( res_key ) {
+           key = 0;
+           break;
          }
          key = next_key;
-       } else
-         key = 0;
+       }
      } else if ( poller[1].revents )
        break;
     } else {
