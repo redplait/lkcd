@@ -901,6 +901,7 @@ struct one_cgroup
   void *prog_array[CG_BPF_MAX];
   unsigned long prog_array_cnt[CG_BPF_MAX];
   unsigned int bpf_flags[CG_BPF_MAX];
+  unsigned long bpf_release_func;
 };
 
 struct one_group_root

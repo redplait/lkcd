@@ -1250,6 +1250,8 @@ static void fill_one_cgroup(struct one_cgroup *grp, struct cgroup_subsys_state *
       grp->prog_array_cnt[i] = 0;
     grp->bpf_flags[i] = cg->bpf.flags[i];
   }
+  // copy release_work func
+  grp->bpf_release_func = (unsigned long)cg->bpf.release_work.func;
 #endif
 }
 

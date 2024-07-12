@@ -35,7 +35,7 @@ int main(int argc, char **argv)
   printf("map fd %d\n", fd);
   int drv_fd = open("/dev/bmc", 0);
   if ( -1 == drv_fd ) {
-    printf("open bnc failed, error %d (%s)\n", errno, strerror(errno));
+    printf("open bmc failed, error %d (%s)\n", errno, strerror(errno));
     return 0;
   }
   // pass fd to driver sharing bpf map
