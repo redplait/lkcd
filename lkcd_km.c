@@ -1252,6 +1252,14 @@ static void fill_one_cgroup(struct one_cgroup *grp, struct cgroup_subsys_state *
   }
   // copy release_work func
   grp->bpf_release_func = (unsigned long)cg->bpf.release_work.func;
+  // calc count of attached bpf_cgroup_storage
+  {
+    // ripped from cgroup_bpf_release
+    struct list_head *storages = &cg->bpf.storages;
+    struct bpf_cgroup_storage *storage, *stmp;
+    list_for_each_entry_safe(storage, stmp, storages, list_cg)
+      grp->stg_cnt++;
+  }
 #endif
 }
 
