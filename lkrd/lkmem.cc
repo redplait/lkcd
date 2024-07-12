@@ -2643,6 +2643,10 @@ void dump_cgroup(const one_cgroup *cg, sa64 delta, unsigned long a1, unsigned lo
   }
   if ( !has_bpf )
     return;
+  if ( cg->bpf_release_func )
+    dump_kptr(cg->bpf_release_func, "bpf.release_agent.work", delta);
+  if ( cg->stg_cnt )
+    printf(" BPF stg count: %d\n", cg->stg_cnt);
   printf(" cgroup BPF:\n");
   for ( i = 0; i < CG_BPF_MAX; i++ )
   {
