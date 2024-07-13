@@ -190,13 +190,12 @@ struct one_kprobe
 // in param 0 - 1 to install, 0 to remove
 #define IOCTL_TEST_UPROBE              _IOR(IOCTL_NUM, 0x15, int*)
 
-// get cnt of uprobes (from uprobes_tree)
+// get cnt of delayed uprobes
 // in params:
-//  0 - uprobes_tree address
-//  1 - uprobes_treelock address
+//  0 - size
 // out params:
-//  0 - cnt
-#define IOCTL_CNT_UPROBES              _IOR(IOCTL_NUM, 0x16, int*)
+//  N + N * one_uprobe
+#define IOCTL_DELAYED_UPROBES              _IOR(IOCTL_NUM, 0x16, int*)
 
 struct one_uprobe
 {
@@ -214,7 +213,7 @@ struct one_uprobe
 // in params:
 //  0 - uprobes_tree address
 //  1 - uprobes_treelock address
-//  2 - cnt (gathered with IOCTL_CNT_UPROBES)
+//  2 - cnt (or zero to get count)
 // out params - long size + N * one_uprobe
 #define IOCTL_UPROBES                  _IOR(IOCTL_NUM, 0x17, int*)
 

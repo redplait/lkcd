@@ -959,6 +959,9 @@ typedef void (*put_uprobe)(struct und_uprobe *uprobe);
 static find_uprobe find_uprobe_ptr = 0;
 static get_uprobe  get_uprobe_ptr =  0;
 static put_uprobe  put_uprobe_ptr =  0;
+// delayed uprobes
+static struct list_head *s_delayed_uprobe_list = NULL;
+static struct mutex *s_delayed_uprobe_lock = NULL;
 
 static struct und_uprobe *my_get_uprobe(struct und_uprobe *uprobe)
 {
@@ -3200,23 +3203,6 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
       break; /* IOCTL_GET_SUPERBLOCKS */
 
 #ifdef CONFIG_UPROBES
-     case IOCTL_CNT_UPROBES:
-       COPY_ARGS(2)
-       else {
-         struct rb_root *root = (struct rb_root *)ptrbuf[0];
-         spinlock_t *lock = (spinlock_t *)ptrbuf[1];
-         struct rb_node *iter;
-         // lock
-         spin_lock(lock);
-         // traverse tree
-         for ( iter = rb_first(root); iter != NULL; iter = rb_next(iter) )
-           count++;
-         // unlock
-         spin_unlock(lock);
-         goto copy_count;
-       }
-       break; /* IOCTL_CNT_UPROBES */
-
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(4,15,0)
      case IOCTL_TRACE_UPROBE_BPFS:
         if ( !bpf_prog_array_length_ptr )
@@ -3352,9 +3338,20 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
 
      case IOCTL_UPROBES:
        COPY_ARGS(3)
-       if ( !ptrbuf[2] )
-         return -EINVAL;
-       else {
+       if ( !ptrbuf[2] ) {
+         // calc count of uprobes
+         struct rb_root *root = (struct rb_root *)ptrbuf[0];
+         spinlock_t *lock = (spinlock_t *)ptrbuf[1];
+         struct rb_node *iter;
+         // lock
+         spin_lock(lock);
+         // traverse tree
+         for ( iter = rb_first(root); iter != NULL; iter = rb_next(iter) )
+           count++;
+         // unlock
+         spin_unlock(lock);
+         goto copy_count;
+       } else {
          struct rb_root *root = (struct rb_root *)ptrbuf[0];
          spinlock_t *lock = (spinlock_t *)ptrbuf[1];
          struct rb_node *iter;
@@ -8142,6 +8139,10 @@ init_module (void)
   if ( !get_uprobe_ptr ) get_uprobe_ptr = my_get_uprobe;
   put_uprobe_ptr = (put_uprobe)lkcd_lookup_name("put_uprobe");
   REPORT(put_uprobe_ptr, "put_uprobe")
+  s_delayed_uprobe_list = (struct list_head *)lkcd_lookup_name("delayed_uprobe_list");
+  REPORT(s_delayed_uprobe_list, "delayed_uprobe_list")
+  s_delayed_uprobe_lock = (struct mutex *)lkcd_lookup_name("delayed_uprobe_lock");
+  REPORT(s_delayed_uprobe_lock, "delayed_uprobe_lock")
 #endif /* CONFIG_UPROBES */
 #ifdef CONFIG_DYNAMIC_DEBUG
   s_ddebug_tables = (struct list_head *)lkcd_lookup_name("ddebug_tables");
