@@ -963,6 +963,32 @@ static put_uprobe  put_uprobe_ptr =  0;
 static struct list_head *s_delayed_uprobe_list = NULL;
 static struct mutex *s_delayed_uprobe_lock = NULL;
 
+static void copy1uprobe(struct und_uprobe *up, struct one_uprobe *curr)
+{
+  struct uprobe_consumer **con;
+  curr->addr = up;
+  curr->inode = up->inode;
+  curr->ref_ctr_offset = up->ref_ctr_offset;
+  curr->offset = up->offset;
+  curr->i_no = 0;
+  curr->flags = up->flags;
+  // try get filename from inode
+  curr->name[0] = 0;
+  if ( up->inode )
+  {
+    struct dentry *de = d_find_any_alias(up->inode);
+    curr->i_no = up->inode->i_ino;
+    if ( de )
+      dentry_path_raw(de, curr->name, sizeof(curr->name));
+  }
+  // calc count of consumers
+  curr->cons_cnt = 0;
+  down_read(&up->consumer_rwsem);
+  for (con = &up->consumers; *con; con = &(*con)->next)
+    curr->cons_cnt++;
+  up_read(&up->consumer_rwsem);
+}
+
 static struct und_uprobe *my_get_uprobe(struct und_uprobe *uprobe)
 {
 	refcount_inc(&uprobe->ref);
@@ -3361,29 +3387,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
          // traverse tree
          for ( iter = rb_first(root); iter != NULL && count < ptrbuf[2]; iter = rb_next(iter), count++ )
          {
-           struct uprobe_consumer **con;
-           struct und_uprobe *up = rb_entry(iter, struct und_uprobe, rb_node);
-           curr[count].addr = up;
-           curr[count].inode = up->inode;
-           curr[count].ref_ctr_offset = up->ref_ctr_offset;
-           curr[count].offset = up->offset;
-           curr[count].i_no = 0;
-           curr[count].flags = up->flags;
-           // try get filename from inode
-           curr[count].name[0] = 0;
-           if ( up->inode )
-           {
-             struct dentry *de = d_find_any_alias(up->inode);
-             curr[count].i_no = up->inode->i_ino;
-             if ( de )
-               dentry_path_raw(de, curr[count].name, sizeof(curr[count].name));
-           }
-           // calc count of consumers
-           curr[count].cons_cnt = 0;
-           down_read(&up->consumer_rwsem);
-           for (con = &up->consumers; *con; con = &(*con)->next)
-             curr[count].cons_cnt++;
-           up_read(&up->consumer_rwsem);
+           copy1uprobe(rb_entry(iter, struct und_uprobe, rb_node), &curr[count]);
          }
          // unlock
          spin_unlock(lock);
@@ -3392,6 +3396,37 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
          goto copy_kbuf_count;
       }
       break; /* IOCTL_UPROBES */
+
+     case IOCTL_DELAYED_UPROBES:
+       COPY_ARG
+       if ( !s_delayed_uprobe_list || !s_delayed_uprobe_lock ) return -ENOCSI;
+       if ( !ptrbuf[0] ) {
+         // calc count of delayed uprobes
+         struct delayed_uprobe *du;
+         mutex_lock(s_delayed_uprobe_lock);
+         list_for_each_entry(du, s_delayed_uprobe_list, list) {
+          if ( du->uprobe ) count++;
+         }
+         mutex_unlock(s_delayed_uprobe_lock);
+         goto copy_count;
+       } else {
+         struct delayed_uprobe *du;
+         ALLOC_KBUF(struct one_uprobe, ptrbuf[0])
+         // lock
+         mutex_lock(s_delayed_uprobe_lock);
+         // traverse
+         list_for_each_entry(du, s_delayed_uprobe_list, list) {
+          if ( count >= ptrbuf[0] ) break;
+          if ( du->uprobe )
+            copy1uprobe(du->uprobe, &curr[count]);
+         }
+         // unlock
+         mutex_unlock(s_delayed_uprobe_lock);
+         // copy to user
+         kbuf_size = sizeof(unsigned long) + count * sizeof(struct one_uprobe);
+         goto copy_kbuf_count;
+       }
+      break;
 
      case IOCTL_TEST_UPROBE:
        COPY_ARG
