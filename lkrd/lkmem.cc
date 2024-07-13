@@ -2750,48 +2750,9 @@ void dump_groups(sa64 delta)
   }
 }
 
-void dump_uprobes(sa64 delta)
+void dump_uprobes(unsigned long *buf, unsigned long a1, unsigned long a2, sa64 delta)
 {
   unsigned long ud = get_addr("uprobe_dispatcher");
-  unsigned long a1 = get_addr("uprobes_tree");
-  if ( !a1 )
-  {
-    printf("cannot find uprobes_tree\n");
-    return;
-  }
-  unsigned long a2 = get_addr("uprobes_treelock");
-  if ( !a2 )
-  {
-    printf("cannot find uprobes_treelock\n");
-    return;
-  }
-  unsigned long params[2] = { a1 + delta, a2 + delta };
-  int err = ioctl(g_fd, IOCTL_CNT_UPROBES, (int *)&params);
-  if ( err )
-  {
-    printf("IOCTL_CNT_UPROBES count failed, error %d (%s)\n", errno, strerror(errno));
-    return;
-  }
-  printf("uprobes: %ld\n", params[0]);
-  if ( !params[0] )
-    return;
-  size_t size = calc_data_size<one_uprobe>(params[0]);
-  unsigned long *buf = (unsigned long *)malloc(size);
-  if ( !buf )
-  {
-    printf("cannot alloc buffer for uprobes, len %lX\n", size);
-    return;
-  }
-  dumb_free<unsigned long> tmp(buf);
-  buf[0] = a1 + delta;
-  buf[1] = a2 + delta;
-  buf[2] = params[0];
-  err = ioctl(g_fd, IOCTL_UPROBES, (int *)buf);
-  if ( err )
-  {
-    printf("IOCTL_UPROBES failed, error %d (%s)\n", errno, strerror(errno));
-    return;
-  }
   one_uprobe *up = (one_uprobe *)(buf + 1);
   for ( auto cnt = 0; cnt < buf[0]; cnt++ )
   {
@@ -2808,11 +2769,11 @@ void dump_uprobes(sa64 delta)
       }
       dumb_free<unsigned long> tmp2(cbuf);
       // form params for IOCTL_CNT_UPROBES
-      cbuf[0] = a1 + delta;
-      cbuf[1] = a2 + delta;
+      cbuf[0] = a1;
+      cbuf[1] = a2;
       cbuf[2] = (unsigned long)up[cnt].addr;
       cbuf[3] = up[cnt].cons_cnt;
-      err = ioctl(g_fd, IOCTL_UPROBES_CONS, (int *)cbuf);
+      int err = ioctl(g_fd, IOCTL_UPROBES_CONS, (int *)cbuf);
       if ( err )
       {
         printf("IOCTL_UPROBES_CONS for %p failed, error %d (%s)\n", up[cnt].addr, errno, strerror(errno));
@@ -2843,8 +2804,8 @@ void dump_uprobes(sa64 delta)
         if ( !cbuf )
           continue;
         dumb_free<unsigned long> tmp3(cbuf);
-        cbuf[0] = a1 + delta;
-        cbuf[1] = a2 + delta;
+        cbuf[0] = a1;
+        cbuf[1] = a2;
         cbuf[2] = (unsigned long)up[cnt].addr;
         cbuf[3] = (unsigned long)uc[cnt2].addr;
         err = ioctl(g_fd, IOCTL_TRACE_UPROBE, (int *)cbuf);
@@ -2853,10 +2814,81 @@ void dump_uprobes(sa64 delta)
           printf("IOCTL_TRACE_UPROBE for %p failed, error %d (%s)\n", up[cnt].addr, errno, strerror(errno));
           continue;
         }
-        uprobe_args ua { a1 + delta, a2 + delta, (unsigned long)up[cnt].addr, (unsigned long)uc[cnt2].addr };
+        uprobe_args ua { a1, a2, (unsigned long)up[cnt].addr, (unsigned long)uc[cnt2].addr };
         dump_trace_event_call(cnt2, (one_trace_event_call *)cbuf, delta, &ua);
       }
   }
+}
+
+void dump_uprobes(sa64 delta)
+{
+  unsigned long a1 = get_addr("uprobes_tree");
+  if ( !a1 )
+  {
+    printf("cannot find uprobes_tree\n");
+    return;
+  }
+  unsigned long a2 = get_addr("uprobes_treelock");
+  if ( !a2 )
+  {
+    printf("cannot find uprobes_treelock\n");
+    return;
+  }
+  unsigned long params[3] = { a1 + delta, a2 + delta, 0 };
+  int err = ioctl(g_fd, IOCTL_UPROBES, (int *)&params);
+  if ( err )
+  {
+    printf("IOCTL_UPROBES count failed, error %d (%s)\n", errno, strerror(errno));
+    return;
+  }
+  printf("\nuprobes: %ld\n", params[0]);
+  if ( params[0] )
+  {
+    size_t size = calc_data_size<one_uprobe>(params[0]);
+    unsigned long *buf = (unsigned long *)malloc(size);
+    if ( !buf )
+    {
+      printf("cannot alloc buffer for uprobes, len %lX\n", size);
+      return;
+    }
+    dumb_free<unsigned long> tmp(buf);
+    buf[0] = a1 + delta;
+    buf[1] = a2 + delta;
+    buf[2] = params[0];
+    err = ioctl(g_fd, IOCTL_UPROBES, (int *)buf);
+    if ( err )
+    {
+      printf("IOCTL_UPROBES failed, error %d (%s)\n", errno, strerror(errno));
+      return;
+    }
+    dump_uprobes(buf, a1 + delta, a2 + delta, delta);
+  }
+  // dump delayed uprobes
+  params[0] = 0;
+  err = ioctl(g_fd, IOCTL_DELAYED_UPROBES, (int *)params);
+  if ( err )
+  {
+    printf("IOCTL_DELAYED_UPROBES count failed, error %d (%s)\n", errno, strerror(errno));
+    return;
+  }
+  printf("\ndelayed uprobes: %ld\n", params[0]);
+  if ( !params[0] ) return;
+  size_t size = calc_data_size<one_uprobe>(params[0]);
+  unsigned long *buf = (unsigned long *)malloc(size);
+  if ( !buf )
+  {
+    printf("cannot alloc buffer for delayed uprobes, len %lX\n", size);
+    return;
+  }
+  dumb_free<unsigned long> tmp(buf);
+  buf[0] = params[0];
+  err = ioctl(g_fd, IOCTL_DELAYED_UPROBES, (int *)buf);
+  if ( err )
+  {
+    printf("IOCTL_DELAYED_UPROBES failed, error %d (%s)\n", errno, strerror(errno));
+    return;
+  }
+  dump_uprobes(buf, a1 + delta, a2 + delta, delta);
 }
 
 void dump_protosw(a64 list, a64 lock, sa64 delta, const char *what)
