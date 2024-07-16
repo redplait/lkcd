@@ -2504,6 +2504,9 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
           struct task_struct *task;
           struct callback_head **pprev, *work;
           unsigned long flags;
+#ifdef CONFIG_PERF_EVENTS
+          struct perf_event *event;
+#endif
 
           rcu_read_lock();
           task = pid_task(p, PIDTYPE_PID);
@@ -2538,6 +2541,15 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
           ti.seccomp_filter = task->seccomp.filter;
 #else
           ti.seccomp_filter = 0;
+#endif
+          ti.perf_event_cnt = 0;
+#ifdef CONFIG_PERF_EVENTS
+          ti.perf_event_ctxp = task->perf_event_ctxp;
+          mutex_lock(&task->perf_event_mutex);
+          list_for_each_entry(event, &current->perf_event_list, owner_entry) ti.perf_event_cnt++;
+          mutex_unlock(&task->perf_event_mutex); 
+#else
+          ti.perf_event_ctxp = NULL;
 #endif
           ti.works_count = 0;
           pprev = &task->task_works;

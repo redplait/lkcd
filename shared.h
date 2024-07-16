@@ -1553,6 +1553,9 @@ struct one_task_info
   unsigned int ptrace;
   unsigned long works_count;
   void *seccomp_filter;
+  // perf events
+  void *perf_event_ctxp;
+  unsigned long perf_event_cnt;
 };
 
 // get task info
