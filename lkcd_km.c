@@ -2546,7 +2546,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
 #ifdef CONFIG_PERF_EVENTS
           ti.perf_event_ctxp = task->perf_event_ctxp;
           mutex_lock(&task->perf_event_mutex);
-          list_for_each_entry(event, &current->perf_event_list, owner_entry) ti.perf_event_cnt++;
+          list_for_each_entry(event, &task->perf_event_list, owner_entry) ti.perf_event_cnt++;
           mutex_unlock(&task->perf_event_mutex); 
 #else
           ti.perf_event_ctxp = NULL;
