@@ -2457,38 +2457,108 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
     case IOCTL_TASK_WORKS:
       COPY_ARGS(2)
       if ((pid_t)(ptrbuf[0]) <= 0) return -EINVAL;
-      if ( !ptrbuf[1] ) goto copy_count;
-      else {
-        unsigned long flags;
-        struct task_struct *task;
-        struct callback_head **pprev, *work;
-        struct pid *p = find_get_pid((pid_t)(ptrbuf[0]));
-        if ( !p) return -ESRCH;
-        kbuf_size = sizeof(unsigned long) * (1 + ptrbuf[1]);
-        kbuf = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL);
-        if ( !kbuf ) return -ENOMEM;
-        rcu_read_lock();
-        task = pid_task(p, PIDTYPE_PID);
-        if ( !task ) {
+      if ( !ptrbuf[2] ) {
+        if ( !ptrbuf[1] ) goto copy_count;
+        else {
+          unsigned long flags;
+          struct task_struct *task;
+          struct callback_head **pprev, *work;
+          struct pid *p = find_get_pid((pid_t)(ptrbuf[0]));
+          if ( !p) return -ESRCH;
+          kbuf_size = sizeof(unsigned long) * (1 + ptrbuf[1]);
+          kbuf = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL);
+          if ( !kbuf ) return -ENOMEM;
+          rcu_read_lock();
+          task = pid_task(p, PIDTYPE_PID);
+          if ( !task ) {
+            rcu_read_unlock();
+            kfree(kbuf);
+            put_pid(p);
+            return -ESRCH;
+          }
+          pprev = &task->task_works;
+          raw_spin_lock_irqsave(&task->pi_lock, flags);
+          while ((work = READ_ONCE(*pprev))) {
+            if ( count >= ptrbuf[1] ) break;
+            pprev = &work->next;
+            kbuf[count + 1] = (unsigned long)work->func;
+            count++;
+          }
+          raw_spin_unlock_irqrestore(&task->pi_lock, flags);
           rcu_read_unlock();
-          kfree(kbuf);
           put_pid(p);
-          return -ESRCH;
+          // copy to user
+          kbuf_size = sizeof(unsigned long) * (1 + count);
+          goto copy_kbuf_count;
+        } 
+      } else if ( ptrbuf[2] == 1 ) {
+#ifdef CONFIG_PERF_EVENTS
+        if ( !ptrbuf[1] ) goto copy_count;
+#else
+        return -EBADRQC;
+#endif
+      } else if ( ptrbuf[2] == 2 ) {
+#ifdef CONFIG_SCHED_MM_CID
+        struct task_struct *task;
+        unsigned long flags;
+        struct callback_head *pprev, *work;
+        struct pid *p = find_get_pid((pid_t)(ptrbuf[0]));
+        if ( !p ) return -ESRCH;
+        if ( !ptrbuf[1] ) {
+          // calc size
+          rcu_read_lock();
+          task = pid_task(p, PIDTYPE_PID);
+          if ( !task ) {
+            rcu_read_unlock();
+            put_pid(p);
+            return -ESRCH;
+          }
+          pprev = &task->cid_work;
+          if ( pprev->next != pprev )
+          {
+            raw_spin_lock_irqsave(&task->pi_lock, flags);
+            while ((work = READ_ONCE(pprev))) {
+              pprev = work->next;
+              count++;
+            }
+            raw_spin_unlock_irqrestore(&task->pi_lock, flags);
+          }
+          rcu_read_unlock();
+          put_pid(p);
+          goto copy_count;
+        } else {
+          kbuf_size = sizeof(unsigned long) * (1 + ptrbuf[1]);
+          kbuf = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL);
+          if ( !kbuf ) return -ENOMEM;
+          rcu_read_lock();
+          task = pid_task(p, PIDTYPE_PID);
+          if ( !task ) {
+            rcu_read_unlock();
+            kfree(kbuf);
+            put_pid(p);
+            return -ESRCH;
+          }
+          pprev = &task->cid_work;
+          if ( pprev->next != pprev )
+          {
+            raw_spin_lock_irqsave(&task->pi_lock, flags);
+            while ((work = READ_ONCE(pprev))) {
+              if ( count >= ptrbuf[1] ) break;
+              pprev = work->next;
+              kbuf[count + 1] = (unsigned long)work->func;
+              count++;
+            }
+            raw_spin_unlock_irqrestore(&task->pi_lock, flags);
+          }
+          rcu_read_unlock();
+          put_pid(p);
+          // copy to user
+          kbuf_size = sizeof(unsigned long) * (1 + count);
+          goto copy_kbuf_count;
         }
-        pprev = &task->task_works;
-        raw_spin_lock_irqsave(&task->pi_lock, flags);
-        while ((work = READ_ONCE(*pprev))) {
-          if ( count >= ptrbuf[1] ) break;
-          pprev = &work->next;
-          kbuf[count + 1] = (unsigned long)work->func;
-          count++;
-        }
-        raw_spin_unlock_irqrestore(&task->pi_lock, flags);
-        rcu_read_unlock();
-        put_pid(p);
-        // copy to user
-        kbuf_size = sizeof(unsigned long) * (1 + count);
-        goto copy_kbuf_count;
+#else
+        return -EBADRQC;
+#endif
       }
      break; /* IOCTL_TASK_WORKS */
 

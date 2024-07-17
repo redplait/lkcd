@@ -1569,7 +1569,13 @@ struct one_task_info
 // in params:
 //  0 - pid
 //  1 - size
-// out params: N + N * void*
+//  2 - kind:
+//   0 - works
+//   1 - perf events
+//   2 - cid_work
+// out params:
+// kind 0: N + N * void*
+// kind 2: N + N * void*
 #define IOCTL_TASK_WORKS                   _IOR(IOCTL_NUM, 0x67, int*)
 
 // test mmap
