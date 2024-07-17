@@ -5790,16 +5790,22 @@ void dump_task(sa64 delta, int pid)
   printf("PID %d at %p\n", pid, ti.addr);
   printf(" thread.flags: %lX\n", ti.thread_flags);
   printf(" flags: %lX\n", ti.flags);
+  if ( ti.perf_event_ctxp ) {
+    printf(" perf_event_ctxp at");
+    dump_unnamed_kptr((unsigned long)ti.perf_event_ctxp, delta, true);
+  }
+  if ( ti.perf_event_cnt ) printf(" perf_event_cnt: %ld\n", ti.perf_event_cnt);
   if ( ti.io_uring ) dump_kptr2((unsigned long)ti.io_uring, "io_uring", delta);
   if ( ti.ptrace ) printf(" ptrace: %lX\n", ti.ptrace);
   if ( ti.works_count ) {
     printf(" works_count: %ld\n", ti.works_count);
-    size_t ksize = sizeof(unsigned long) * (1 + ti.works_count);
+    size_t ksize = sizeof(unsigned long) * std::max(3UL, 1 + ti.works_count);
     unsigned long *kbuf = (unsigned long *)malloc(ksize);
     if ( kbuf )
     {
       kbuf[0] = pid;
       kbuf[1] = ti.works_count;
+      kbuf[2] = 0; // task works
       err = ioctl(g_fd, IOCTL_TASK_WORKS, (int *)kbuf);
       if ( err )
       {
