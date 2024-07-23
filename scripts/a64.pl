@@ -67,14 +67,14 @@
 # and without sizes
 # function ends with
 #> .end
-# also like x86 you can't patch opcodes:
+# also like x86 you shouldn't patch opcodes:
 #>    lui     $2,%hi($LCXX)
 #>    addiu   $4,$2,%lo($LCXX)
-# just move LC into code section
+# just move LC into code/$opt_r section
 #
 # Sharing literals processing logic: lets assume we have literal LCX referred from several functions f1 .. fn (n > 1)
 #  (case when n == 1 will be processed in function apatch)
-#  if any of f1..fn is non-discardable then we cannot move LCX
+#  if any of f1..fn located in non-discardable section then we cannot move LCX
 #  otherwise we could put it in .init.rodata (or whatever contained in $opt_r)
 # But there is another problem with moving. For example if we have typical input like
 #> .section .rdata
@@ -84,7 +84,7 @@
 # then adding ".section $opt_r" as first string into .LCj will lead to moving .LCk into this section too
 # As possible solution we can collect all moved literals, mark them as deleted and put in one big block
 #  headed with single ".section $opt_r" for example before first .section directive
-# If there was no .sections directives - we can put block with moved literals before first .text or function
+# If there was no .sections directives - we can put block with moved literals before first .text or function directive
 
 use strict;
 use warnings;
@@ -92,7 +92,7 @@ use Carp;
 use Getopt::Std;
 
 use vars qw/$opt_D $opt_F $opt_d $opt_f $opt_g $opt_i $opt_l $opt_M $opt_m $opt_r $opt_s $opt_v $opt_w/;
-# restriction on arm64 offset
+# limit on arm64 offset
 my $g_limit = 2048;
 
 sub HELP_MESSAGE()
