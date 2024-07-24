@@ -70,14 +70,16 @@ class kotest
   public:
    ~kotest();
    int open(const char *);
-   void process_relocs(int);
+   size_t process_relocs(int, bool);
    void dump_symbols(int show_refs = 0) const;
    inline int is_mips() const
    {
     auto m = reader.get_machine();
     return m == EM_MIPS;
    }
-   size_t s_moved_size = 0;
+   size_t s_moved_size = 0,
+    s_total_size = 0, // size of all loadable sections
+    s_disc_size = 0; // size of discardable sections
   protected:
    void fix_add(unsigned rtype, Elf_Sxword &add);
    void hdump(asymbol *sym);
@@ -474,7 +476,7 @@ void kotest::process_relocs(int sidx, section *s)
   }
 }
 
-void kotest::process_relocs(int ds)
+size_t kotest::process_relocs(int ds, bool csv)
 {
   for ( int i = 0; i < n_sec; ++i )
   {
@@ -508,7 +510,8 @@ void kotest::process_relocs(int ds)
     if ( s->is_bss && !g_with_bss ) continue;
     gain += calc_loss(s);
   }
-  if ( gain ) printf("Total possibly gain %ld bytes\n", gain);
+  if ( gain && !csv ) printf("Total possibly gain %ld bytes\n", gain);
+  return gain;
 }
 
 void kotest::dump_symbols(int show_refs) const
@@ -567,9 +570,12 @@ int kotest::open(const char *fname)
     auto s_fl = sec->get_flags();
     if ( s_fl & 6 /* ALLOC | READ */ )
     {
+      s_total_size += sec->get_size();
       sects[i] = new asection;
       sects[i]->s = i;
       sects[i]->discard = is_discardable(sec->get_name().c_str());
+      if ( sects[i]->discard )
+       s_disc_size += sec->get_size();
       sects[i]->allowed = is_allowed(sec->get_name().c_str());
       sects[i]->is_bss = (sec->get_type() == SHT_NOBITS);
       if ( sects[i]->discard ) num_disc++;
@@ -682,6 +688,7 @@ void usage(const char *prog)
   printf("%s usage: [options] lkm ...\n", prog);
   printf("Options:\n");
   printf("-b - with .bss section (NOBITS)\n");
+  printf("-c - make CSV file, arg is filename\n");
   printf("-d - debug mode\n");
   printf("-f - fix symbol size when zero (like on mips)\n");
   printf("-h - hexdump\n");
@@ -692,15 +699,19 @@ void usage(const char *prog)
 int main(int argc, char **argv)
 {
   int ds = 0, c;
+  FILE *f_csv = nullptr;
   while(1)
   {
-    c = getopt(argc, argv, "Sbdfhv");
+    c = getopt(argc, argv, "Sbdfhvc:");
     if ( c == -1 ) break;
     switch(c)
     {
       case 'S': ds = 1;
         break;
       case 'b': g_with_bss = 1;
+        break;
+      case 'c': f_csv = fopen(optarg, "a+");
+         if ( !f_csv ) fprintf(stderr, "cannot open %s, error %d (%s)\n", optarg, errno, strerror(errno));
         break;
       case 'd': g_debug = 1;
         break;
@@ -718,9 +729,15 @@ int main(int argc, char **argv)
   {
     kotest kt;
     if ( !kt.open(argv[i]) ) continue;
-    printf("%s:\n", argv[i]);
+    if ( !f_csv ) printf("%s:\n", argv[i]);
     if ( ds ) kt.dump_symbols();
-    kt.process_relocs(ds);
-    if ( kt.s_moved_size ) printf("Size of moveable sections %ld\n", kt.s_moved_size);
+    auto gain = kt.process_relocs(ds, f_csv != nullptr);
+    if ( f_csv ) {
+      // dump in CSV total driver size, size of discardable sections, size of potentially discardable sections and gain
+      fprintf(f_csv, "%ld, %ld, %ld, %ld\n", kt.s_total_size, kt.s_disc_size, kt.s_moved_size, gain);
+    } else {
+      if ( kt.s_moved_size ) printf("Size of moveable sections %ld\n", kt.s_moved_size);
+    }
   }
+  if ( f_csv ) fclose(f_csv);
 }
