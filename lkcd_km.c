@@ -2467,7 +2467,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
           if ( !p) return -ESRCH;
           kbuf_size = sizeof(unsigned long) * (1 + ptrbuf[1]);
           kbuf = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL);
-          if ( !kbuf ) return -ENOMEM;
+          if ( !kbuf ) { put_pid(p); return -ENOMEM; }
           rcu_read_lock();
           task = pid_task(p, PIDTYPE_PID);
           if ( !task ) {
@@ -2494,6 +2494,57 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
       } else if ( ptrbuf[2] == 1 ) {
 #ifdef CONFIG_PERF_EVENTS
         if ( !ptrbuf[1] ) goto copy_count;
+        else {
+          struct one_perf_event *curr;
+          struct perf_event *event;
+          struct task_struct *task;
+          struct pid *p = find_get_pid((pid_t)(ptrbuf[0]));
+          if ( !p) return -ESRCH;
+          kbuf_size = sizeof(unsigned long) + (sizeof(struct one_perf_event) * ptrbuf[1]);
+          kbuf = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL | __GFP_ZERO);
+          if ( !kbuf ) { put_pid(p); return -ENOMEM; }
+          curr = (struct one_perf_event *)(kbuf + 1);
+          rcu_read_lock();
+          task = pid_task(p, PIDTYPE_PID);
+          if ( !task ) {
+            rcu_read_unlock();
+            kfree(kbuf);
+            put_pid(p);
+            return -ESRCH;
+          }
+          mutex_lock(&task->perf_event_mutex);
+          list_for_each_entry(event, &task->perf_event_list, owner_entry)
+          {
+            if ( count >= ptrbuf[1] ) break;
+            curr->addr = event;
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4,9,0)
+            curr->event_caps = event->event_caps;
+            curr->group_caps = event->group_caps;
+#endif
+            curr->attach_state = event->attach_state;
+            curr->id = event->id;
+            curr->pmu = (unsigned long)event->pmu;
+            curr->destroy = (unsigned long)event->destroy;
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4,1,0)
+            curr->clock = (unsigned long)event->clock;
+#endif
+            curr->overflow_handler = (unsigned long)event->overflow_handler;
+#if defined(CONFIG_BPF_SYSCALL) && LINUX_VERSION_CODE >= KERNEL_VERSION(4,9,0)
+            curr->bpf = event->prog;
+            if ( event->prog && event->prog->aux )
+              curr->bpf_id = event->prog->aux->id;
+#endif
+            // for next iteration
+            count++; curr++;
+          }
+          mutex_unlock(&task->perf_event_mutex);
+          // unlock
+          rcu_read_unlock();
+          put_pid(p);
+          // copy to user
+          kbuf_size = sizeof(unsigned long) + count * sizeof(struct one_perf_event);
+          goto copy_kbuf_count;
+        }
 #else
         return -EBADRQC;
 #endif
@@ -2529,7 +2580,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
         } else {
           kbuf_size = sizeof(unsigned long) * (1 + ptrbuf[1]);
           kbuf = (unsigned long *)kmalloc(kbuf_size, GFP_KERNEL);
-          if ( !kbuf ) return -ENOMEM;
+          if ( !kbuf ) { put_pid(p); return -ENOMEM; }
           rcu_read_lock();
           task = pid_task(p, PIDTYPE_PID);
           if ( !task ) {

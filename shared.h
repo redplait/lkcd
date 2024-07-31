@@ -1558,6 +1558,18 @@ struct one_task_info
   unsigned long perf_event_cnt;
 };
 
+struct one_perf_event {
+  void *addr;
+  int event_caps, group_caps;
+  unsigned int attach_state;
+  unsigned long id, pmu, destroy, clock, overflow_handler;
+  // bpf were introduced since 4.9
+  void *bpf;
+  unsigned int bpf_id;
+  // bpf cookie since 5.15
+  unsigned long bpf_cookie;
+};
+
 // get task info
 // in params:
 //  0 - pid
@@ -1575,6 +1587,7 @@ struct one_task_info
 //   2 - cid_work
 // out params:
 // kind 0: N + N * void*
+// kind 1: N + N * one_perf_event
 // kind 2: N + N * void*
 #define IOCTL_TASK_WORKS                   _IOR(IOCTL_NUM, 0x67, int*)
 
