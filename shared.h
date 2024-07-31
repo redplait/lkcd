@@ -1562,7 +1562,7 @@ struct one_perf_event {
   void *addr;
   int event_caps, group_caps;
   unsigned int attach_state;
-  unsigned long id, pmu, destroy, clock, overflow_handler;
+  unsigned long id, pmu, destroy, clock, overflow_handler, tp_event;
   // bpf were introduced since 4.9
   void *bpf;
   unsigned int bpf_id;

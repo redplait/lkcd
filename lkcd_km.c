@@ -2525,6 +2525,9 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
             curr->id = event->id;
             curr->pmu = (unsigned long)event->pmu;
             curr->destroy = (unsigned long)event->destroy;
+#ifdef CONFIG_EVENT_TRACING
+            curr->tp_event = (unsigned long)event->tp_event;
+#endif
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(4,1,0)
             curr->clock = (unsigned long)event->clock;
 #endif
