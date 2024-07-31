@@ -2455,7 +2455,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
      break; /* IOCTL_TEST_MPROTECT */
 
     case IOCTL_TASK_WORKS:
-      COPY_ARGS(2)
+      COPY_ARGS(3)
       if ((pid_t)(ptrbuf[0]) <= 0) return -EINVAL;
       if ( !ptrbuf[2] ) {
         if ( !ptrbuf[1] ) goto copy_count;
