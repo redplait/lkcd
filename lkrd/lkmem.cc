@@ -5777,6 +5777,43 @@ void scan_vmem(sa64 delta)
   s_vmaps.clear();
 }
 
+void dump_task_perf_events(int pid, unsigned long cnt, sa64 delta)
+{
+  size_t size = sizeof(unsigned long) + cnt * sizeof(one_perf_event);
+  unsigned long *buf = (unsigned long *)malloc(size);
+  if ( !buf ) return;
+  dumb_free<unsigned long> tmp(buf);
+  buf[0] = pid;
+  buf[1] = cnt;
+  buf[2] = 1;
+  int err = ioctl(g_fd, IOCTL_TASK_WORKS, (int *)buf);
+  if ( err )
+  {
+    printf("IOCTL_TASK_WORKS(1) for PID %d failed, errno %d (%s)\n", pid, errno, strerror(errno));
+    return;
+  }
+  // HexDump((unsigned char *)buf, size);
+  one_perf_event *curr = (one_perf_event *)(buf + 1);
+  for ( unsigned long l = 0; l < buf[0] && l < cnt; ++l, ++curr )
+  {
+    printf(" perf_event[%ld]: %p id %ld attach_state %ld\n", l, curr->addr, curr->id, curr->attach_state);
+    if ( curr->event_caps || curr->group_caps )
+      printf("  event_caps %d group_caps %d\n", curr->event_caps, curr->group_caps);
+    if ( curr->pmu )
+     dump_kptr2((unsigned long)curr->pmu, " pmu", delta);
+    if ( curr->destroy )
+     dump_kptr2((unsigned long)curr->destroy, " destroy", delta);
+    if ( curr->clock )
+     dump_kptr2((unsigned long)curr->clock, " clock", delta);
+    if ( curr->overflow_handler )
+     dump_kptr2((unsigned long)curr->overflow_handler, " overflow_handler", delta);
+    if ( curr->tp_event )
+     dump_kptr2((unsigned long)curr->tp_event, " tp_event", delta);
+    if ( curr->bpf )
+     printf("  bpf %p bpf_id %ld\n", curr->bpf, curr->bpf_id);
+  }
+}
+
 void dump_task(sa64 delta, int pid)
 {
   one_task_info ti;
@@ -5794,7 +5831,10 @@ void dump_task(sa64 delta, int pid)
     printf(" perf_event_ctxp at");
     dump_unnamed_kptr((unsigned long)ti.perf_event_ctxp, delta, true);
   }
-  if ( ti.perf_event_cnt ) printf(" perf_event_cnt: %ld\n", ti.perf_event_cnt);
+  if ( ti.perf_event_cnt ) {
+    printf(" perf_event_cnt: %ld\n", ti.perf_event_cnt);
+    dump_task_perf_events(pid, ti.perf_event_cnt, delta);
+  }
   if ( ti.io_uring ) dump_kptr2((unsigned long)ti.io_uring, "io_uring", delta);
   if ( ti.ptrace ) printf(" ptrace: %lX\n", ti.ptrace);
   if ( ti.works_count ) {
