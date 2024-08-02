@@ -2063,5 +2063,16 @@ struct one_small_genlops {
 // out params: N + N * one_small_genlops
 #define IOCTL_GENL_SMALLOPS                 _IOR(IOCTL_NUM, 0x78, int*)
 
+struct perf_cbs {
+  unsigned long state, // since 5.17
+    is_in_guest,  // till 5.17
+    is_user_mode, // till 5.17
+    get_guest_ip, // get_ip since 5.17
+    handle_intel_pt_intr; // since 5.2
+};
+
+// read perf_guest_cbs (when CONFIG_GUEST_PERF_EVENTS)
+#define IOCTL_PERF_CBS                      _IOR(IOCTL_NUM, 0x7a, int*)
+
 
 #endif /* LKCD_SHARED_H */

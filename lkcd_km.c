@@ -237,6 +237,10 @@ static spinlock_t *s_sysrq_key_table_lock = 0;
 static struct sysrq_key_op **s_sysrq_key_table = 0;
 #endif
 
+#ifdef CONFIG_GUEST_PERF_EVENTS
+struct perf_guest_info_callbacks **s_perf_guest_cbs = 0;
+#endif
+
 typedef int (*my_mprotect_pkey)(unsigned long start, size_t len, unsigned long prot, int pkey);
 static my_mprotect_pkey s_mprotect = 0;
 
@@ -7821,6 +7825,32 @@ bad_p:
      break; /* IOCTL_VMEM_SCAN */
 #endif /* CONFIG_PGTABLE_LEVELS */
 
+#ifdef CONFIG_GUEST_PERF_EVENTS
+    case IOCTL_PERF_CBS:
+       if ( !s_perf_guest_cbs || !*s_perf_guest_cbs ) return -ENOCSI;
+       else {
+        struct perf_cbs out_pc;
+        memset(&out_pc, 0, sizeof(out_pc));
+        rcu_read_lock();
+        // copy logic
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5,2,0)
+        out_pc.handle_intel_pt_intr = (unsigned long)(*s_perf_guest_cbs)->handle_intel_pt_intr;
+#endif
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5,17,0)
+        out_pc.is_in_quest = (unsigned long)(*s_perf_guest_cbs)->is_in_quest;
+        out_pc.is_user_mode = (unsigned long)(*s_perf_guest_cbs)->is_user_mode;
+        out_pc.get_guest_ip = (unsigned long)(*s_perf_guest_cbs)->get_guest_ip;
+#else
+        out_pc.state = (unsigned long)(*s_perf_guest_cbs)->state;
+        out_pc.get_guest_ip = (unsigned long)(*s_perf_guest_cbs)->get_ip;
+#endif
+        rcu_read_unlock();
+        if (copy_to_user((void*)ioctl_param, (void*)&out_pc, sizeof(out_pc)) > 0)
+          return -EFAULT;
+       }
+      break; /* IOCTL_PERF_CBS */
+#endif
+
     case IOCTL_SYS_TABLE:
       if ( !s_sys_table ) return -ENOCSI;
       COPY_ARG
@@ -7837,7 +7867,6 @@ bad_p:
          return -EFAULT;
       }
      break; /* IOCTL_SYS_TABLE */
-
 
     case IOCTL_PATCH_KTEXT1:
       if ( !s_patch_text ) return -ENOCSI;
@@ -8327,6 +8356,10 @@ init_module (void)
   s_sysrq_key_table = (struct sysrq_key_op **)lkcd_lookup_name("sysrq_key_table");
   REPORT(s_sysrq_key_table, "sysrq_key_table")
 #endif /* CONFIG_MAGIC_SYSRQ */
+#ifdef CONFIG_GUEST_PERF_EVENTS
+  s_perf_guest_cbs = (struct perf_guest_info_callbacks **)lkcd_lookup_name("perf_guest_cbs");
+  REPORT(s_perf_guest_cbs, "perf_guest_cbs")
+#endif
 #ifdef HAS_ARM64_THUNKS
   bti_thunks_lock_ro();
 #endif
