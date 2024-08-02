@@ -1390,6 +1390,27 @@ void dump_trace_exports(a64 list, a64 lock, sa64 delta)
   );
 }
 
+void dump_perf_guest_cbs(sa64 delta)
+{
+  perf_cbs pc;
+  int err = ioctl(g_fd, IOCTL_PERF_CBS, (int *)&pc);
+  if ( err )
+  {
+    printf("IOCTL_PERF_CBS failed, error %d (%s)\n", errno, strerror(errno));
+    return;
+  }
+  if ( pc.state )
+    dump_kptr(pc.state, "state", delta);
+  if ( pc.is_in_guest )
+    dump_kptr(pc.is_in_guest, "is_in_guest", delta);
+  if ( pc.is_user_mode )
+    dump_kptr(pc.is_user_mode, "is_user_mode", delta);
+  if ( pc.get_guest_ip )
+    dump_kptr(pc.get_guest_ip, "get_guest_ip", delta);
+  if ( pc.handle_intel_pt_intr )
+    dump_kptr(pc.handle_intel_pt_intr, "handle_intel_pt_intr", delta);
+}
+
 void dump_pmus(a64 list, a64 lock, sa64 delta)
 {
   if ( !list )
@@ -1405,7 +1426,7 @@ void dump_pmus(a64 list, a64 lock, sa64 delta)
   dump_data2arg<one_pmu>(list, lock, delta, IOCTL_GET_PMUS, "pmus", "IOCTL_GET_PMUS", "pmus",
    [=](size_t idx, const one_pmu *curr) {
      printf(" [%ld] type %X capabilities %X at ", idx, curr->type, curr->capabilities);
-     dump_unnamed_kptr((unsigned long)curr->addr, delta);
+     dump_unnamed_kptr((unsigned long)curr->addr, delta, true);
      if ( curr->pmu_enable )
        dump_kptr((unsigned long)curr->pmu_enable, "  pmu_enable", delta);
      if ( curr->pmu_disable )
@@ -6434,6 +6455,8 @@ end:
            auto idr = get_addr("pmu_idr");
            auto m = get_addr("pmus_lock");
            dump_pmus(idr, m, delta);
+           // perf_guest_cbs
+           dump_perf_guest_cbs(delta);
            // registered trace_event_calls
            dump_registered_trace_event_calls(delta);
            // event cmds
