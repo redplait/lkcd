@@ -1656,12 +1656,31 @@ static void copy_akcipher(struct one_kcalgo *curr, struct crypto_alg *q)
 }
 #endif
 
-// functions to check NX on some page
-// arc has __PAGE_EXECUTE
+// functions to check NX of some page
+// arc has _PAGE_EXECUTE
 // loongarch has _PAGE_NO_EXEC
 // powerpc has _PAGE_EXEC
 // s390 hash _PAGE_NOEXEC
+// as usually API is inconsistent - some archs define pte_exec function
+// but there are no pgd_exec/p4d_exec/pud_exec/pmd_exec
+// on other hand mips & loongarch has pte_no_exec - and again for pte only
 #ifdef CONFIG_PGTABLE_LEVELS
+// return 1 if pte marked as no execute
+static inline int pte_nx(pte_t *p)
+{
+#ifdef __x86_64__
+ return pte_flags(*p) & _PAGE_NX ? 1 : 0;
+#elif defined(__LINUX_ARM_ARCH__) || defined(CONFIG_PPC64) || defined(CONFIG_RISCV)
+ return !pte_exec(*p);
+#elif defined(CONFIG_LOONGARCH) || defined(CONFIG_MIPS)
+ return pte_no_exec(*p);
+#elif defined(CONFIG_ARM64)
+ return _PAGE_KERNEL_EXEC != (pte_val(*p) & _PAGE_KERNEL_EXEC) ? 1 : 0;
+#else
+ return 0;
+#endif
+}
+
 static inline int pgd_nx(pgd_t *p)
 {
 #ifdef __x86_64__
@@ -1669,7 +1688,7 @@ static inline int pgd_nx(pgd_t *p)
 #elif defined(CONFIG_ARM64)
  return _PAGE_KERNEL_EXEC != (pgd_val(*p) & _PAGE_KERNEL_EXEC) ? 1 : 0;
 #else
- return 0;
+ return pte_nx((pte_t *)p);
 #endif
 }
 
@@ -1680,7 +1699,7 @@ static inline int p4d_nx(p4d_t *p)
 #elif defined(CONFIG_ARM64)
  return _PAGE_KERNEL_EXEC != (p4d_val(*p) & _PAGE_KERNEL_EXEC) ? 1 : 0;
 #else
- return 0;
+ return pte_nx((pte_t *)p);
 #endif
 }
 
@@ -1691,7 +1710,7 @@ static inline int pud_nx(pud_t *p)
 #elif defined(CONFIG_ARM64)
  return _PAGE_KERNEL_EXEC != (pud_val(*p) & _PAGE_KERNEL_EXEC) ? 1 : 0;
 #else
- return 0;
+ return pte_nx((pte_t *)p);
 #endif
 }
 
@@ -1702,18 +1721,7 @@ static inline int pmd_nx(pmd_t *p)
 #elif defined(CONFIG_ARM64)
  return _PAGE_KERNEL_EXEC != (pmd_val(*p) & _PAGE_KERNEL_EXEC) ? 1 : 0;
 #else
- return 0;
-#endif
-}
-
-static inline int pte_nx(pte_t *p)
-{
-#ifdef __x86_64__
- return pte_flags(*p) & _PAGE_NX ? 1 : 0;
-#elif defined(CONFIG_ARM64)
- return _PAGE_KERNEL_EXEC != (pte_val(*p) & _PAGE_KERNEL_EXEC) ? 1 : 0;
-#else
- return 0;
+ return pte_nx((pte_t *)p);
 #endif
 }
 #endif
