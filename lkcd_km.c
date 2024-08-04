@@ -237,7 +237,7 @@ static spinlock_t *s_sysrq_key_table_lock = 0;
 static struct sysrq_key_op **s_sysrq_key_table = 0;
 #endif
 
-#ifdef CONFIG_GUEST_PERF_EVENTS
+#ifdef CONFIG_PERF_EVENTS
 struct perf_guest_info_callbacks **s_perf_guest_cbs = 0;
 #endif
 
@@ -7833,9 +7833,10 @@ bad_p:
      break; /* IOCTL_VMEM_SCAN */
 #endif /* CONFIG_PGTABLE_LEVELS */
 
-#ifdef CONFIG_GUEST_PERF_EVENTS
+#ifdef CONFIG_PERF_EVENTS
     case IOCTL_PERF_CBS:
-       if ( !s_perf_guest_cbs || !*s_perf_guest_cbs ) return -ENOCSI;
+       if ( !s_perf_guest_cbs ) return -ENOCSI;
+       if ( !*s_perf_guest_cbs ) return -ENODATA;
        else {
         struct perf_cbs out_pc;
         memset(&out_pc, 0, sizeof(out_pc));
@@ -7845,7 +7846,7 @@ bad_p:
         out_pc.handle_intel_pt_intr = (unsigned long)(*s_perf_guest_cbs)->handle_intel_pt_intr;
 #endif
 #if LINUX_VERSION_CODE < KERNEL_VERSION(5,17,0)
-        out_pc.is_in_quest = (unsigned long)(*s_perf_guest_cbs)->is_in_quest;
+        out_pc.is_in_guest = (unsigned long)(*s_perf_guest_cbs)->is_in_guest;
         out_pc.is_user_mode = (unsigned long)(*s_perf_guest_cbs)->is_user_mode;
         out_pc.get_guest_ip = (unsigned long)(*s_perf_guest_cbs)->get_guest_ip;
 #else
@@ -8364,7 +8365,7 @@ init_module (void)
   s_sysrq_key_table = (struct sysrq_key_op **)lkcd_lookup_name("sysrq_key_table");
   REPORT(s_sysrq_key_table, "sysrq_key_table")
 #endif /* CONFIG_MAGIC_SYSRQ */
-#ifdef CONFIG_GUEST_PERF_EVENTS
+#ifdef CONFIG_PERF_EVENTS
   s_perf_guest_cbs = (struct perf_guest_info_callbacks **)lkcd_lookup_name("perf_guest_cbs");
   REPORT(s_perf_guest_cbs, "perf_guest_cbs")
 #endif
