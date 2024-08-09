@@ -124,6 +124,18 @@ int main(int argc, char **argv)
   off = bd->find_kfunc_set_tab_off(kf);
   if ( off )
     printf("kfunc_set_tab offset %d\n", off);
+  // find trace_event_call.filter offset
+  int event_foff = 0;
+  entry = get_addr("trace_remove_event_call");
+  auto free_evt = get_addr("free_event_filter");
+  if ( !entry )
+    printf("cannot find trace_remove_event_call\n");
+  else if ( !free_evt )
+    printf("cannot find trace_remove_event_call\n");
+  else
+    event_foff = bd->process_trace_remove_event_call(entry, free_evt);
+  if ( event_foff )
+    printf("trace_event_call.filter offset %d\n", event_foff);
   // cleanup
   if ( bd != NULL )
     delete bd;
