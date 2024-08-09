@@ -202,9 +202,7 @@ int arm64_disasm::process_kfunc_set_tab_off(a64 addr)
       break;
     // check first LDR reg, [x0 + off]
     if ( is_ldr() && AD_REG_X0 == get_reg(1) )
-    {
-      return m_dis.operands[2].op_imm.bits;
-    }
+      return kfunc_set_tab_off = m_dis.operands[2].op_imm.bits;
   }
   return 0;
 }

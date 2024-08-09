@@ -52,7 +52,15 @@ class dis_base
       return_notifier_list = m_return_notifier_list;
       return (m_return_notifier_list != 0) && (m_this_cpu_off != 0);
     }
+    inline int get_kfunc_set_tab() const
+    {
+      return kfunc_set_tab_off;
+    }
     // interface of disasm
+    virtual int find_kfunc_set_tab_off(a64 addr)
+    {
+      return 0;
+    }
     virtual int find_return_notifier_list(a64 addr)
     {
       return 0;
@@ -105,4 +113,6 @@ class dis_base
     unsigned long m_return_notifier_list; // from fire_user_return_notifiers
     // security_hook_heads
     a64 m_security_hook_heads;
+    // btf->kfunc_set_tab offset - from btf_free_kfunc_set_tab
+    int kfunc_set_tab_off = 0;
 };
