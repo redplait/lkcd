@@ -191,7 +191,7 @@ a64 arm64_disasm::process_bpf_target(a64 addr, a64 mlock)
   return 0;
 }
 
-int arm64_disasm::process_kfunc_set_tab_off(a64 addr)
+int arm64_disasm::find_kfunc_set_tab_off(a64 addr)
 {
   PBYTE psp = uconv(addr);
   if ( !setup(psp) )
@@ -200,9 +200,12 @@ int arm64_disasm::process_kfunc_set_tab_off(a64 addr)
   {
     if ( !disasm() || is_ret() )
       break;
+//    printf("%s\n", m_dis.decoded);
     // check first LDR reg, [x0 + off]
     if ( is_ldr() && AD_REG_X0 == get_reg(1) )
+    {
       return kfunc_set_tab_off = m_dis.operands[2].op_imm.bits;
+    }
   }
   return 0;
 }
