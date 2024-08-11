@@ -2074,5 +2074,22 @@ struct perf_cbs {
 // read perf_guest_cbs (when CONFIG_GUEST_PERF_EVENTS)
 #define IOCTL_PERF_CBS                      _IOR(IOCTL_NUM, 0x7a, int*)
 
+struct one_bpf_verops {
+  void *addr;
+  unsigned long get_func_proto,
+   is_valid_access,
+   gen_prologue, // since 4.9
+   gen_ld_abs,   // since 4.18
+   convert_ctx_access, // since 4.1
+   btf_struct_access;  // since 5.6
+  int idx;
+};
+
+// read bpf_verifier_ops (since 4.15, before bpf_prog_types, till 4.11 - list of bpf_prog_type_list)
+// in params:
+//  0 - count
+// out params: N + N * one_bpf_verops
+#define IOCTL_BPF_VEROPS                    _IOR(IOCTL_NUM, 0x7b, int*)
+
 
 #endif /* LKCD_SHARED_H */

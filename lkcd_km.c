@@ -515,11 +515,56 @@ static struct undoc_btf_ops **s_kind_ops = NULL;
 // bpf_prog_put was not exported till 4.1
 typedef void (*my_bpf_prog_put)(struct bpf_prog *prog);
 my_bpf_prog_put s_bpf_prog_put = 0;
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4,15,0)
+static const char *s_verops = "bpf_verifier_ops";
+#else
+static const char *s_verops = "bpf_prog_types";
+#endif
+#if LINUX_VERSION_CODE > KERNEL_VERSION(4,11,0)
+static const struct bpf_verifier_ops ***s_bpf_verifier_ops = NULL;
+
+#if LINUX_VERSION_CODE > KERNEL_VERSION(5,4,0)
+#define BPF_PROG_TYPE(_id, _name, prog_ctx_type, kern_ctx_type) [_id] = 1,
+#else
+#define BPF_PROG_TYPE(_id, _ops) [_id] = 1,
+#endif
+
+#define BPF_MAP_TYPE(_id, _ops)
+#define BPF_LINK_TYPE(_id, _name)
+const char s_bpf_verops[] = {
+#include <linux/bpf_types.h>
+};
+#undef BPF_PROG_TYPE
+#undef BPF_MAP_TYPE
+#undef BPF_LINK_TYPE
+
+#else
+static struct list_head *s_bpf_prog_types = NULL;
 #endif
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(4,15,0)
 typedef int (*kcgroup_bpf_detach)(struct cgroup *cgrp, struct bpf_prog *prog, enum bpf_attach_type type);
 static kcgroup_bpf_detach cgroup_bpf_detach_ptr = 0;
 #endif
+
+static void copy_bpf_verops(struct one_bpf_verops *to, const struct bpf_verifier_ops *op)
+{
+  to->addr = (void *)op;
+  to->get_func_proto = (unsigned long)op->get_func_proto;
+  to->is_valid_access = (unsigned long)op->is_valid_access;
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4,1,0)
+  to->convert_ctx_access = (unsigned long)op->convert_ctx_access;
+#endif
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4,9,0)
+  to->gen_prologue = (unsigned long)op->gen_prologue;
+#endif
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4,18,0)
+  to->gen_ld_abs = (unsigned long)op->gen_ld_abs;
+#endif
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5,6,0)
+  to->btf_struct_access = (unsigned long)op->btf_struct_access;
+#endif
+}
+#endif /* CONFIG_BPF */
 
 // kernfs_node_from_dentry is not exported
 typedef struct kernfs_node *(*krnf_node_type)(struct dentry *dentry);
@@ -5760,6 +5805,56 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
 #endif
 
 #ifdef CONFIG_BPF
+    case IOCTL_BPF_VEROPS:
+#if LINUX_VERSION_CODE > KERNEL_VERSION(4,11,0)
+     if ( !s_bpf_verifier_ops )
+#else
+     if ( !s_bpf_prog_types )
+#endif
+       return -ENOCSI;
+     COPY_ARG
+     if ( !ptrbuf[0] ) {
+      // calc count
+#if LINUX_VERSION_CODE <= KERNEL_VERSION(4,11,0)
+       struct bpf_prog_type_list *tl;
+       list_for_each_entry(tl, s_bpf_prog_types, list_node) count++;
+#else
+       int i;
+       for ( i = 0; i < ARRAY_SIZE(s_bpf_verops); i++ ) 
+         if ( (*s_bpf_verifier_ops)[i] ) count++;
+#endif
+       goto copy_count;
+     } else {
+#if LINUX_VERSION_CODE <= KERNEL_VERSION(4,11,0)
+       struct bpf_prog_type_list *tl;
+#else
+       int i;
+#endif
+       ALLOC_KBUF(struct one_bpf_verops, ptrbuf[0])
+#if LINUX_VERSION_CODE <= KERNEL_VERSION(4,11,0)
+       list_for_each_entry(tl, s_bpf_prog_types, list_node) {
+        if ( count >= ptrbuf[0] ) break;
+        curr->idx = tl->type;
+        copy_bpf_verops(curr, tl->ops);
+        // for next iteration
+        curr++; count++;
+       }
+#else
+       for ( i = 0; i < ARRAY_SIZE(s_bpf_verops); i++ ) {
+         if ( !(*s_bpf_verifier_ops)[i] ) continue;
+         if ( count >= ptrbuf[0] ) break;
+         curr->idx = i;
+        copy_bpf_verops(curr, (*s_bpf_verifier_ops)[i]);
+        // for next iteration
+        curr++; count++;
+       }
+#endif
+       // copy to user
+       kbuf_size = sizeof(unsigned long) + count * sizeof(struct one_bpf_verops);
+       goto copy_kbuf_count;
+     }
+     break; /* IOCTL_BPF_VEROPS */
+
     case IOCTL_GET_BTF:
 #if LINUX_VERSION_CODE < KERNEL_VERSION(4,18,0)
       return -EBADRQC;
@@ -8290,6 +8385,13 @@ init_module (void)
   s_bpf_event_mutex = (struct mutex *)lkcd_lookup_name("bpf_event_mutex");
   REPORT(s_bpf_event_mutex, "bpf_event_mutex")
   SYM_LOAD("bpf_prog_put", my_bpf_prog_put, s_bpf_prog_put)
+#if LINUX_VERSION_CODE > KERNEL_VERSION(4,11,0)
+  s_bpf_verifier_ops = (const struct bpf_verifier_ops ***)lkcd_lookup_name(s_verops);
+  REPORT(s_bpf_verifier_ops, s_verops)
+#else
+  s_bpf_prog_types = (struct list_head *)lkcd_lookup_name(s_verops);
+  REPORT(s_bpf_prog_types, s_verops)
+#endif
 #endif
   s_tracepoints_mutex = (struct mutex *)lkcd_lookup_name("tracepoints_mutex");
   REPORT(s_tracepoints_mutex, "tracepoints_mutex")
