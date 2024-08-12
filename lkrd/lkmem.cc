@@ -1149,6 +1149,70 @@ void dump_data2arg(a64 list, a64 lock, sa64 delta, int code, const char *header,
     apply_for_each<T>(buf, func);
 }
 
+// ripped from https://elixir.bootlin.com/linux/v5.11/source/include/uapi/linux/bpf.h#L171
+static const char *const bpf_prog_type_names[] = {
+ "BPF_PROG_TYPE_UNSPEC",
+ "BPF_PROG_TYPE_SOCKET_FILTER",
+ "BPF_PROG_TYPE_KPROBE",
+ "BPF_PROG_TYPE_SCHED_CLS",
+ "BPF_PROG_TYPE_SCHED_ACT",
+ "BPF_PROG_TYPE_TRACEPOINT",
+ "BPF_PROG_TYPE_XDP",
+ "BPF_PROG_TYPE_PERF_EVENT",
+ "BPF_PROG_TYPE_CGROUP_SKB",
+ "BPF_PROG_TYPE_CGROUP_SOCK",
+ "BPF_PROG_TYPE_LWT_IN",
+ "BPF_PROG_TYPE_LWT_OUT",
+ "BPF_PROG_TYPE_LWT_XMIT",
+ "BPF_PROG_TYPE_SOCK_OPS",
+ "BPF_PROG_TYPE_SK_SKB",
+ "BPF_PROG_TYPE_CGROUP_DEVICE",
+ "BPF_PROG_TYPE_SK_MSG",
+ "BPF_PROG_TYPE_RAW_TRACEPOINT",
+ "BPF_PROG_TYPE_CGROUP_SOCK_ADDR",
+ "BPF_PROG_TYPE_LWT_SEG6LOCAL",
+ "BPF_PROG_TYPE_LIRC_MODE2",
+ "BPF_PROG_TYPE_SK_REUSEPORT",
+ "BPF_PROG_TYPE_FLOW_DISSECTOR",
+ "BPF_PROG_TYPE_CGROUP_SYSCTL",
+ "BPF_PROG_TYPE_RAW_TRACEPOINT_WRITABLE",
+ "BPF_PROG_TYPE_CGROUP_SOCKOPT",
+ "BPF_PROG_TYPE_TRACING",
+ "BPF_PROG_TYPE_STRUCT_OPS",
+ "BPF_PROG_TYPE_EXT",
+ "BPF_PROG_TYPE_LSM",
+ "BPF_PROG_TYPE_SK_LOOKUP",
+ "BPF_PROG_TYPE_SYSCALL",
+ "BPF_PROG_TYPE_NETFILTER",
+};
+
+static const char *get_bpf_prog_type_name(int idx)
+{
+  if ( idx >= sizeof(bpf_prog_type_names) / sizeof(bpf_prog_type_names[0]) )
+    return "";
+  return bpf_prog_type_names[idx];
+}
+
+void dump_verops(sa64 delta)
+{
+  dump_data_noarg<one_bpf_verops>(delta, IOCTL_BPF_VEROPS, "IOCTL_BPF_VEROPS", "bpf_verifier_ops",
+   [=](size_t idx, const one_bpf_verops *vp) {
+    auto pt = get_bpf_prog_type_name(vp->idx);
+    if ( *pt )
+      printf("[%ld] type %s at", idx, pt);
+    else
+      printf("[%ld] type %d at", idx, vp->idx);
+    dump_unnamed_kptr((unsigned long)vp->addr, delta, true);
+    if ( vp->get_func_proto ) dump_kptr(vp->get_func_proto, " get_func_proto", delta);
+    if ( vp->is_valid_access ) dump_kptr(vp->is_valid_access, " is_valid_access", delta);
+    if ( vp->gen_prologue ) dump_kptr(vp->gen_prologue, " gen_prologue", delta);
+    if ( vp->gen_ld_abs ) dump_kptr(vp->gen_ld_abs, " gen_ld_abs", delta);
+    if ( vp->convert_ctx_access ) dump_kptr(vp->convert_ctx_access, " convert_ctx_access", delta);
+    if ( vp->btf_struct_access ) dump_kptr(vp->btf_struct_access, " btf_struct_access", delta);
+   }
+  );
+}
+
 void dump_struct_ops(sa64 delta)
 {
   unsigned long cnt = -1;
@@ -1158,7 +1222,7 @@ void dump_struct_ops(sa64 delta)
     printf("IOCTL_GET_BTF cnt failed, error %d (%s)\n", errno, strerror(errno));
     return;
   }
-  printf("NR_BTF_KINDS: %ld\n", cnt);
+  printf("\nNR_BTF_KINDS: %ld\n", cnt);
   btf_op ops;
   unsigned long *arg = (unsigned long *)&ops;
   for ( unsigned long i = 0; i < cnt; i++ )
@@ -1488,50 +1552,6 @@ void dump_event_cmds(a64 list, a64 lock, sa64 delta)
       dump_kptr((unsigned long)curr->get_trigger_ops, "  get_trigger_ops", delta);
    }
   );
-}
-
-// ripped from https://elixir.bootlin.com/linux/v5.11/source/include/uapi/linux/bpf.h#L171
-static const char *const bpf_prog_type_names[] = {
- "BPF_PROG_TYPE_UNSPEC",
- "BPF_PROG_TYPE_SOCKET_FILTER",
- "BPF_PROG_TYPE_KPROBE",
- "BPF_PROG_TYPE_SCHED_CLS",
- "BPF_PROG_TYPE_SCHED_ACT",
- "BPF_PROG_TYPE_TRACEPOINT",
- "BPF_PROG_TYPE_XDP",
- "BPF_PROG_TYPE_PERF_EVENT",
- "BPF_PROG_TYPE_CGROUP_SKB",
- "BPF_PROG_TYPE_CGROUP_SOCK",
- "BPF_PROG_TYPE_LWT_IN",
- "BPF_PROG_TYPE_LWT_OUT",
- "BPF_PROG_TYPE_LWT_XMIT",
- "BPF_PROG_TYPE_SOCK_OPS",
- "BPF_PROG_TYPE_SK_SKB",
- "BPF_PROG_TYPE_CGROUP_DEVICE",
- "BPF_PROG_TYPE_SK_MSG",
- "BPF_PROG_TYPE_RAW_TRACEPOINT",
- "BPF_PROG_TYPE_CGROUP_SOCK_ADDR",
- "BPF_PROG_TYPE_LWT_SEG6LOCAL",
- "BPF_PROG_TYPE_LIRC_MODE2",
- "BPF_PROG_TYPE_SK_REUSEPORT",
- "BPF_PROG_TYPE_FLOW_DISSECTOR",
- "BPF_PROG_TYPE_CGROUP_SYSCTL",
- "BPF_PROG_TYPE_RAW_TRACEPOINT_WRITABLE",
- "BPF_PROG_TYPE_CGROUP_SOCKOPT",
- "BPF_PROG_TYPE_TRACING",
- "BPF_PROG_TYPE_STRUCT_OPS",
- "BPF_PROG_TYPE_EXT",
- "BPF_PROG_TYPE_LSM",
- "BPF_PROG_TYPE_SK_LOOKUP",
- "BPF_PROG_TYPE_SYSCALL",
- "BPF_PROG_TYPE_NETFILTER",
-};
-
-static const char *get_bpf_prog_type_name(int idx)
-{
-  if ( idx >= sizeof(bpf_prog_type_names) / sizeof(bpf_prog_type_names[0]) )
-    return "";
-  return bpf_prog_type_names[idx];
 }
 
 // ripped from https://elixir.bootlin.com/linux/v5.18/source/include/uapi/linux/bpf.h#L957
@@ -6514,7 +6534,10 @@ end:
          dump_sysrq_keys(delta);
        }
        if ( opt_B ) // read BTF struct_ops
+       {
+          dump_verops(delta);
           dump_struct_ops(delta);
+       }
        if ( opt_d )
        {
           dis_base *bd = NULL;
