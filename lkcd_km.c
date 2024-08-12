@@ -521,7 +521,7 @@ static const char *s_verops = "bpf_verifier_ops";
 static const char *s_verops = "bpf_prog_types";
 #endif
 #if LINUX_VERSION_CODE > KERNEL_VERSION(4,11,0)
-static const struct bpf_verifier_ops ***s_bpf_verifier_ops = NULL;
+static const struct bpf_verifier_ops **s_bpf_verifier_ops = NULL;
 
 #if LINUX_VERSION_CODE > KERNEL_VERSION(5,4,0)
 #define BPF_PROG_TYPE(_id, _name, prog_ctx_type, kern_ctx_type) [_id] = 1,
@@ -5821,7 +5821,7 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
 #else
        int i;
        for ( i = 0; i < ARRAY_SIZE(s_bpf_verops); i++ ) 
-         if ( (*s_bpf_verifier_ops)[i] ) count++;
+         if ( s_bpf_verifier_ops[i] ) count++;
 #endif
        goto copy_count;
      } else {
@@ -5841,12 +5841,12 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
        }
 #else
        for ( i = 0; i < ARRAY_SIZE(s_bpf_verops); i++ ) {
-         if ( !(*s_bpf_verifier_ops)[i] ) continue;
+         if ( !s_bpf_verifier_ops[i]) continue;
          if ( count >= ptrbuf[0] ) break;
          curr->idx = i;
-        copy_bpf_verops(curr, (*s_bpf_verifier_ops)[i]);
-        // for next iteration
-        curr++; count++;
+         copy_bpf_verops(curr,s_bpf_verifier_ops[i]);
+         // for next iteration
+         curr++; count++;
        }
 #endif
        // copy to user
@@ -8386,7 +8386,7 @@ init_module (void)
   REPORT(s_bpf_event_mutex, "bpf_event_mutex")
   SYM_LOAD("bpf_prog_put", my_bpf_prog_put, s_bpf_prog_put)
 #if LINUX_VERSION_CODE > KERNEL_VERSION(4,11,0)
-  s_bpf_verifier_ops = (const struct bpf_verifier_ops ***)lkcd_lookup_name(s_verops);
+  s_bpf_verifier_ops = (const struct bpf_verifier_ops **)lkcd_lookup_name(s_verops);
   REPORT(s_bpf_verifier_ops, s_verops)
 #else
   s_bpf_prog_types = (struct list_head *)lkcd_lookup_name(s_verops);
