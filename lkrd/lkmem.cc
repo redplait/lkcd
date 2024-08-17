@@ -6647,7 +6647,7 @@ end:
             if ( !entry )
               printf("cannot find trace_remove_event_call\n");
             else if ( !free_evt )
-              printf("cannot find trace_remove_event_call\n");
+              printf("cannot find free_event_filter\n");
             else
               g_event_foff = bd->process_trace_remove_event_call(entry, free_evt);
           }

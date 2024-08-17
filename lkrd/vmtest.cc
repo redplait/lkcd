@@ -20,7 +20,7 @@ int main(int argc, char **argv)
   }
   Elf64_Addr text_start = 0;
   Elf_Xword text_size = 0;
-  section *text_section = NULL, *data_section = NULL;
+  section *text_section = NULL, *data_section = NULL, *bss_section = NULL;
   elfio reader;
   if ( !reader.load( argv[1] ) )
   {
@@ -50,6 +50,13 @@ int main(int argc, char **argv)
      if ( sec->get_name() == ".data" )
      {
        data_section = sec;
+       continue;
+     }
+     if ( (sec->get_type() & SHT_NOBITS) && 
+          (sec->get_name() == ".bss" )
+        )
+     {
+       bss_section = sec;
        continue;
      }
   }
@@ -121,7 +128,9 @@ int main(int argc, char **argv)
    printf("dont know how process machine %d, endianess %d\n", m, reader.get_encoding());
    return 1;
   }
-  // bpf_targer
+  if ( bss_section )
+    bd->set_bss(bss_section->get_address(), bss_section->get_size());
+  // bpf_target
   auto entry = get_addr("bpf_iter_reg_target");
   auto mlock = get_addr("mutex_lock");
   a64 bpf_target = 0;
@@ -148,7 +157,7 @@ int main(int argc, char **argv)
   if ( !entry )
     printf("cannot find trace_remove_event_call\n");
   else if ( !free_evt )
-    printf("cannot find trace_remove_event_call\n");
+    printf("cannot find free_event_filter\n");
   else
     event_foff = bd->process_trace_remove_event_call(entry, free_evt);
   if ( event_foff )
