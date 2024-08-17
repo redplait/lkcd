@@ -5,9 +5,12 @@
 #include "x64_disasm.h"
 #include "arm64_disasm.h"
 #include "arm64relocs.h"
+#include "mips_disasm.h"
 #include "thunks.inc"
 
 using namespace ELFIO;
+
+int g_opt_d = 0;
 
 int main(int argc, char **argv)
 {
@@ -88,7 +91,7 @@ int main(int argc, char **argv)
     bd = ad;
   } else if ( m == EM_X86_64 )
   {
-    x64_disasm *x64 = new x64_disasm(text_start, text_size, text_section->get_data(), 
+    x64_disasm *x64 = new x64_disasm(text_start, text_size, text_section->get_data(),
        data_section->get_address(), data_section->get_size());
     // x86_64 specific init
     for ( auto &c: s_x64_thunks )
@@ -100,8 +103,22 @@ int main(int argc, char **argv)
          x64->set_indirect_thunk(thunk_addr, c.reg);
     }
    bd = x64;
+  } else if ( m == EM_MIPS )
+  {
+    g_opt_d = 1;
+    mips_disasm *md = new mips_disasm(reader.get_encoding() == ELFDATA2MSB,
+       reader.get_class() == ELFCLASS32 ? 32 : 64,
+       text_start, text_size, text_section->get_data(),
+       data_section->get_address(), data_section->get_size());
+    a64 addr = get_addr("__stack_chk_fail");
+    // mips specific init
+    if ( addr )
+      md->add_noreturn(addr);
+    else
+      fprintf(stderr, "cannot find __stack_chk_fail\n");
+    bd = md;
   } else {
-   printf("dont know how process machine %d\n", m);
+   printf("dont know how process machine %d, endianess %d\n", m, reader.get_encoding());
    return 1;
   }
   // bpf_targer
@@ -136,6 +153,21 @@ int main(int argc, char **argv)
     event_foff = bd->process_trace_remove_event_call(entry, free_evt);
   if ( event_foff )
     printf("trace_event_call.filter offset %d\n", event_foff);
+  auto list_head = get_addr("security_hook_heads");
+  if ( !list_head )
+    printf("cannot find security_hook_heads\n");
+  else {
+    bd->set_shook(list_head);
+    auto test = get_addr("security_bpf_map_free");
+    if ( test )
+    {
+      std::vector<lsm_hook> v(1);
+      v[0].addr = test;
+      int res = bd->process_sl(v);
+      if ( res )
+        printf("security_bpf_map_free list: %p\n", v[0].list);
+    }
+  }
   // cleanup
   if ( bd != NULL )
     delete bd;

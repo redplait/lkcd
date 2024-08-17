@@ -71,7 +71,7 @@ int mountinfo::read(std::string &fname)
 #endif
     m_map[id] = c;
   }
-  return 0;  
+  return 0;
 }
 
 static mountinfo s_mountinfo;

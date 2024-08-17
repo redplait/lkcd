@@ -17,6 +17,7 @@ struct lsm_hook
     addr = 0;
     list = 0;
   }
+  lsm_hook() = default;
 };
 
 class dis_base
