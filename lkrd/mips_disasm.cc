@@ -60,6 +60,30 @@ int mips_disasm::process_sl(lsm_hook &sl)
 
 a64 mips_disasm::process_bpf_target(a64 addr, a64 mlock)
 {
+  mdis md(m_bigend, mv);
+  if ( !setup(uconv(addr), &md) )
+    return 0;
+  mips_regs regs;
+  int state = 0; // 1 after jal mlock
+  while( md.disasm() )
+  {
+    a64 caddr = 0;
+    if ( !state && md.is_jal(caddr) )
+    {
+      if ( mlock == caddr ) {
+        state = 1;
+        continue;
+      }
+    } else if ( state )
+    {
+      if ( md.handle(regs) && md.inst.operation == mips::MIPS_LW )
+      {
+        auto v = regs.get(md.inst.operands[0].reg);
+        if ( v && in_data(v) )
+          return v;
+      }
+    }
+  }
   return 0;
 }
 

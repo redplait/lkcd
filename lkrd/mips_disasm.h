@@ -3,8 +3,6 @@
 #include "mips/mips.h"
 #include <bitset>
 
-typedef unsigned char *PBYTE;
-
 extern int g_opt_d;
 
 // for handling lui/lw pairs
@@ -62,6 +60,15 @@ struct mdis {
      case mips::MIPS_B:
      case mips::MIPS_JR:
       return 1;
+   }
+   return 0;
+ }
+ int is_jal(a64 &ja) const
+ {
+   if ( inst.operation == mips::MIPS_JAL && inst.operands[0].operandClass == mips::OperandClass::LABEL )
+   {
+     ja = (a64)inst.operands[0].immediate;
+     return 1;
    }
    return 0;
  }

@@ -10,7 +10,6 @@ typedef __int64  reg64_t;
 #else
 typedef long  reg64_t;
 #endif /* _MSC_VER */
-typedef unsigned char *PBYTE;
 
 struct arm_reg
 {

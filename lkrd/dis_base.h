@@ -5,6 +5,8 @@
 #include <string>
 #include "types.h"
 
+typedef unsigned char *PBYTE;
+
 struct lsm_hook
 {
   std::string name;
