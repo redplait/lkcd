@@ -215,6 +215,8 @@ struct bpf_func_proto s_read, s_read_str, s_mapu, s_ringsubmit;
 // static unsigned long patch_size;
 static struct bpf_verifier_ops **s_bpf_verifier_ops = NULL,
  *s_trace_original = NULL,
+ *s_probe_original = NULL,
+ s_probe_patched,
  s_trace_patched;
 __initconst static const char *s_verops =
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(4,15,0)
@@ -243,6 +245,7 @@ static void unpatch(void)
   else {
     unsigned long old_cr0 = reset_wp();
     s_bpf_verifier_ops[BPF_PROG_TYPE_TRACING] = s_trace_original;
+    s_bpf_verifier_ops[BPF_PROG_TYPE_KPROBE] = s_probe_original;
     patched = 0;
     set_cr0(old_cr0);
     s_bpf_verifier_ops = NULL;
@@ -266,6 +269,26 @@ static const struct bpf_func_proto *my_func_proto(enum bpf_func_id func_id, cons
   }
 }
 
+static const struct bpf_func_proto *my_probe_func_proto(enum bpf_func_id func_id, const struct bpf_prog *prog)
+{
+  // BPF_TRACE_UPROBE_MULTI was introduced in 6.6
+  // if ( prog->expected_attach_type == BPF_TRACE_UPROBE_MULTI )
+  switch(func_id)
+  {
+    case BPF_FUNC_map_update_elem:
+      return &s_mapu;
+    case BPF_FUNC_probe_read_user:
+      return &s_read;
+    case BPF_FUNC_probe_read_user_str:
+      return &s_read_str;
+    case BPF_FUNC_ringbuf_submit:
+      return &s_ringsubmit;
+    default:
+      return s_probe_original->get_func_proto(func_id, prog);
+  }
+  return s_probe_original->get_func_proto(func_id, prog);
+}
+
 extern u64 tracing_snapshot_cond_enable(u64 r1, u64 r2, u64 r3, u64 r4, u64 r5);
 
 __init static int patch(void)
@@ -273,9 +296,12 @@ __init static int patch(void)
   unsigned long old_cr0;
   int i;
   s_trace_original = s_bpf_verifier_ops[BPF_PROG_TYPE_TRACING];
-  if ( !s_trace_original ) return -EFAULT;
+  s_probe_original = s_bpf_verifier_ops[BPF_PROG_TYPE_KPROBE];
+  if ( !s_trace_original || !s_probe_original ) return -EFAULT;
   memcpy(&s_trace_patched, s_trace_original, sizeof(s_trace_patched));
+  memcpy(&s_probe_patched, s_probe_original, sizeof(s_probe_patched));
   s_trace_patched.get_func_proto = my_func_proto;
+  s_probe_patched.get_func_proto = my_probe_func_proto;
   // collect protos
   for ( i = 0; i < ARRAY_SIZE(s_protos); i++ )
   {
@@ -295,6 +321,7 @@ __init static int patch(void)
   }
   old_cr0 = reset_wp();
   s_bpf_verifier_ops[BPF_PROG_TYPE_TRACING] = &s_trace_patched;
+  s_bpf_verifier_ops[BPF_PROG_TYPE_KPROBE] = &s_probe_patched;
   patched = 1;
   set_cr0(old_cr0);
   return 0;
