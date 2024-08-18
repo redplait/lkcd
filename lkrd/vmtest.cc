@@ -188,19 +188,32 @@ int main(int argc, char **argv)
       printf("trace_event_call.filter offset %d\n", event_foff);
   }
   // lsm
-  auto list_head = get_addr("security_hook_heads");
-  if ( !list_head )
-    rcf("security_hook_heads");
-  else {
-    bd->set_shook(list_head);
-    auto test = get_addr("security_bpf_map_free");
-    if ( test )
-    {
-      std::vector<lsm_hook> v(1);
-      v[0].addr = test;
-      int res = bd->process_sl(v);
+  if ( opt_l )
+  {
+    auto list_head = get_addr("security_hook_heads");
+    if ( !list_head )
+      rcf("security_hook_heads");
+    else {
+      bd->set_shook(list_head);
+#include "lsm.inc"
+      int res = 0;
+      for ( auto &sl: s_hooks )
+      {
+        std::string sl_name = "security_";
+        sl_name += sl.name;
+        sl.addr = get_addr(sl_name.c_str());
+        if ( sl.addr ) res++;
+      }
       if ( res )
-        printf("security_bpf_map_free list: %p\n", v[0].list);
+        res = bd->process_sl(s_hooks);
+      // dump results
+      if ( res ) {
+        for ( auto &sl: s_hooks )
+        {
+          if ( !sl.list ) continue;
+          printf("%s: %p\n", sl.name.c_str(), (void *)sl.list);
+        }
+      }
     }
   }
   // cleanup
