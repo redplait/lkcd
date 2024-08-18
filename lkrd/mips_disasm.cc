@@ -22,6 +22,14 @@ int mdis::handle(mips_regs &r)
   return 0;
 }
 
+int mips_disasm::setup(a64 addr, mdis *md)
+{
+  if ( addr < m_text_base ) return 0;
+  if ( addr >= m_text_base + m_text_size ) return 0;
+  auto psp = uconv(addr);
+  return setup(psp, md);
+}
+
 int mips_disasm::setup(PBYTE psp, mdis *md)
 {
   const PBYTE end = (const PBYTE)(m_text + m_text_size);
@@ -40,7 +48,7 @@ int mips_disasm::process(a64 addr, std::map<a64, a64> &, std::set<a64> &out_res)
 int mips_disasm::process_sl(lsm_hook &sl)
 {
   mdis md(m_bigend, mv);
-  if ( !setup(uconv(sl.addr), &md) )
+  if ( !setup(sl.addr, &md) )
     return 0;
   mips_regs regs;
   while( md.disasm() )
@@ -61,7 +69,7 @@ int mips_disasm::process_sl(lsm_hook &sl)
 a64 mips_disasm::process_bpf_target(a64 addr, a64 mlock)
 {
   mdis md(m_bigend, mv);
-  if ( !setup(uconv(addr), &md) )
+  if ( !setup(addr, &md) )
     return 0;
   mips_regs regs;
   int state = 0; // 1 after jal mlock
@@ -95,7 +103,7 @@ int mips_disasm::process_trace_remove_event_call(a64 addr, a64 free_event_filter
 int mips_disasm::find_kfunc_set_tab_off(a64 addr)
 {
   mdis md(m_bigend, mv);
-  if ( !setup(uconv(addr), &md) )
+  if ( !setup(addr, &md) )
     return 0;
   while( md.disasm() )
   {

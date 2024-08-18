@@ -122,6 +122,7 @@ class mips_disasm: public dis_base
       return 1;
     }
     int setup(PBYTE psp, mdis *);
+    int setup(a64 addr, mdis *);
     int m_bigend = 0;
     mips::MipsVersion mv;
     // set of __noreturn functions
