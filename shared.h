@@ -2091,5 +2091,15 @@ struct one_bpf_verops {
 // out params: N + N * one_bpf_verops
 #define IOCTL_BPF_VEROPS                    _IOR(IOCTL_NUM, 0x7b, int*)
 
+struct one_avc {
+  unsigned long cb;
+  int events;
+};
+
+// read avc_callbacks (when CONFIG_SECURITY_SELINUX)
+// in params:
+//  0 - count
+// out params: N + N * one_avc
+#define IOCTL_AVC_CBS                       _IOR(IOCTL_NUM, 0x7c, int*)
 
 #endif /* LKCD_SHARED_H */

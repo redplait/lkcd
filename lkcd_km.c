@@ -201,6 +201,9 @@ static spinlock_t *s_xfrm_translator_lock = 0;
 static struct xfrm_translator **s_xfrm_translator = 0;
 #endif
 #endif /* CONFIG_XFRM */
+#ifdef CONFIG_SECURITY_SELINUX
+static struct avc_callback_node **s_avc_callbacks = NULL;
+#endif
 #ifdef CONFIG_KEYS
 typedef struct key *(*my_key_lookup)(key_serial_t id);
 static my_key_lookup f_key_lookup = 0;
@@ -6734,6 +6737,33 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
      }
      break; /* IOCTL_ENUM_CALGO */
 
+#ifdef CONFIG_SECURITY_SELINUX
+    case IOCTL_AVC_CBS:
+      if ( !s_avc_callbacks ) return -ENOCSI;
+      COPY_ARG
+      else {
+        struct avc_callback_node *c;
+        if ( !ptrbuf[0] ) {
+          // calc count
+          for (c = *s_avc_callbacks; c; c = c->next) count++;
+          goto copy_count; 
+        } else {
+          ALLOC_KBUF(struct one_avc, ptrbuf[0])
+          for (c = *s_avc_callbacks; c; c = c->next)
+          {
+            if ( count >= ptrbuf[0] ) break;
+            curr->cb = (unsigned long)c->callback;
+            curr->events = c->events;
+            // for next iteration
+            count++; curr++;
+          }
+          kbuf_size = sizeof(unsigned long) + sizeof(struct one_avc) * count;
+          goto copy_kbuf_count;
+        }
+      }
+     break; /* IOCTL_AVC_CBS */
+#endif
+
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(4,2,0)
     case IOCTL_GET_LSM_HOOKS:
      COPY_ARGS(2)
@@ -8470,6 +8500,10 @@ init_module (void)
 #ifdef CONFIG_PERF_EVENTS
   s_perf_guest_cbs = (struct perf_guest_info_callbacks **)lkcd_lookup_name("perf_guest_cbs");
   REPORT(s_perf_guest_cbs, "perf_guest_cbs")
+#endif
+#ifdef CONFIG_SECURITY_SELINUX
+  s_avc_callbacks = (struct avc_callback_node **)lkcd_lookup_name("avc_callbacks");
+  REPORT(s_avc_callbacks, "avc_callbacks")
 #endif
 #ifdef HAS_ARM64_THUNKS
   bti_thunks_lock_ro();

@@ -1,3 +1,10 @@
+// ripped from security/selinux/avc.c
+struct avc_callback_node {
+    int (*callback) (u32 event);
+    u32 events;
+    struct avc_callback_node *next;
+};
+
 // ripped from https://elixir.bootlin.com/linux/v6.9-rc4/source/drivers/base/base.h#L42
 struct subsys_private {
     struct kset subsys;
