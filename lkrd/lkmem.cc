@@ -1949,6 +1949,15 @@ int read_dev_handlers(void *addr, unsigned long len, sa64 delta, std::map<void *
   return 1;
 }
 
+void dump_avc_cbs(sa64 delta)
+{
+  dump_data_noarg<one_avc>(delta, IOCTL_AVC_CBS, "IOCTL_AVC_CBS", "avc callbacks",
+   [&](size_t idx, const one_avc *id) {
+    printf(" [%ld] events %X at", idx, id->events);
+    dump_unnamed_kptr(id->cb, delta);
+   });
+}
+
 void dump_sysrq_keys(sa64 delta)
 {
   dump_data_noarg<one_sysrq_key>(delta, IOCTL_SYSRQ_KEYS, "IOCTL_SYSRQ_KEYS", "sysrq key handlers",
@@ -6260,6 +6269,7 @@ end:
          dump_input_handlers(delta, hmap);
          dump_input_devs(delta, hmap);
          dump_sysrq_keys(delta);
+         dump_avc_cbs(delta);
        }
        if ( opt_B ) // read BTF struct_ops
        {
