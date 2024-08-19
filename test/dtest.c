@@ -77,6 +77,7 @@ static const struct chains a_chains[] = {
  { "register_vt_notifier", "vt_notifier_list" },
  { "amd_iommu_register_ppr_notifier", "ppr_notifier" },
  { "power_supply_reg_notifier", "power_supply_notifier" },
+ { "register_sys_off_handler", "power_off_handler_list" },
  { "register_netevent_notifier", "netevent_notif_chain" },
  { "register_inet6addr_notifier", "inet6addr_chain" },
  { "register_dcbevent_notifier", "dcbevent_notif_chain" },
