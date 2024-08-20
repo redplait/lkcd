@@ -15,6 +15,8 @@ Small pet project to find and dump some linux kernel guts like
 * security hooks (-d -S options)
 * keys (-K options)
 * eBPF programs (-c -B options, to disasm use also -d)
+* bpf_verifier_ops (see https://redplait.blogspot.com/2024/08/bpfverifierops.html)
+* ebpf kind_ops (see https://redplait.blogspot.com/2024/07/dumping-ebpf-kindops.html)
 * cgroups (-g options)
 * registered consoles (-C options)
 * input_devs & their handlers (-S option) (see http://redplait.blogspot.com/2024/05/linux-input-handles.html)
