@@ -65,6 +65,7 @@ static const struct chains b_chains[] = {
  { "register_switchdev_blocking_notifier", "switchdev_blocking_notif_chain" },
  { "of_reconfig_notifier_register", "of_reconfig_chain" },
  { "of_overlay_notifier_register", "overlay_notify_chain" },
+ { "mce_register_notifier", "mce_notifier_list" },
 };
 
 // registered with atomic_notifier_chain_register
@@ -87,6 +88,7 @@ static const struct chains a_chains[] = {
  { "imx_scu_irq_register_notifier", "imx_scu_irq_notifier_chain" },
  { "pl320_ipc_register_notifier", "ipc_notifier" },
  { "register_dcbevent_notifier", "dcbevent_notif_chain" },
+ { "opal_message_notifier_register", "opal_msg_notifier_head" },
 };
 
 // registered with srcu_notifier_chain_register
