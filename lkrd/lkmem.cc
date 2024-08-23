@@ -80,6 +80,16 @@ inline void margin(int idx) {
   for ( int i = 0; i < idx; i++ ) putc(' ', stdout);
 }
 
+void rcf(const char *name)
+{
+  fprintf(stderr, "cannot find %s\n", name);
+}
+
+void rcf(const char *fname, const char *name)
+{
+  fprintf(stderr, "%s: cannot find %s\n", fname, name);
+}
+
 static a64 s_security_hook_heads = 0;
 
 #include "lsm.inc"
@@ -1005,12 +1015,12 @@ void dump_devfreq_ntfy(a64 list, a64 lock, sa64 delta)
 {
   if ( !list )
   {
-    printf("cannot find devfreq_list\n");
+    rcf("dump_devfreq_ntfy", "devfreq_list");
     return;
   }
   if ( !lock )
   {
-    printf("cannot find devfreq_list_lock\n");
+    rcf("dump_devfreq_ntfy", "devfreq_list_lock");
     return;
   }
   dump_data2arg<clk_ntfy>(list, lock, delta, READ_DEVFREQ_NTFY, "devfreq_list", "READ_DEVFREQ_NTFY", "clk_ntfy",
@@ -1025,12 +1035,12 @@ void dump_clk_ntfy(a64 list, a64 lock, sa64 delta)
 {
   if ( !list )
   {
-    printf("cannot find clk_notifier_list\n");
+    rcf("dump_clk_ntfy", "clk_notifier_list");
     return;
   }
   if ( !lock )
   {
-    printf("cannot find prepare_lock\n");
+    rcf("dump_clk_ntfy", "prepare_lock");
     return;
   }
   dump_data2arg<clk_ntfy>(list, lock, delta, READ_CLK_NTFY, "clk_notifier_list", "READ_CLK_NTFY", "clk_ntfy",
@@ -1045,12 +1055,12 @@ void dump_ftrace_ops(a64 list, a64 lock, sa64 delta)
 {
   if ( !list )
   {
-    printf("cannot find ftrace_ops_list\n");
+    rcf("dump_ftrace_ops", "ftrace_ops_list");
     return;
   }
   if ( !lock )
   {
-    printf("cannot find ftrace_lock\n");
+    rcf("dump_ftrace_ops", "ftrace_lock");
     return;
   }
   dump_data2arg<one_ftrace_ops>(list, lock, delta, IOCTL_GET_FTRACE_OPS, "ftrace_ops_list", "IOCTL_GET_FTRACE_OPS", "ftrace_ops",
@@ -1069,12 +1079,12 @@ void dump_dynamic_events(a64 list, a64 lock, sa64 delta)
 {
   if ( !list )
   {
-    printf("cannot find dyn_event_list\n");
+    rcf("dump_dynamic_events", "dyn_event_list");
     return;
   }
   if ( !lock )
   {
-    printf("cannot find event_mutex\n");
+    rcf("dump_dynamic_events", "event_mutex");
     return;
   }
   dump_data2arg<one_tracepoint_func>(list, lock, delta, IOCTL_GET_DYN_EVENTS, "dyn_event_list", "IOCTL_GET_DYN_EVENTS", "dyn_event_list",
@@ -1091,12 +1101,12 @@ void dump_dynevents_ops(a64 list, a64 lock, sa64 delta)
 {
   if ( !list )
   {
-    printf("cannot find dyn_event_ops_list\n");
+    rcf("dump_dynevents_ops", "dyn_event_ops_list");
     return;
   }
   if ( !lock )
   {
-    printf("cannot find dyn_event_ops_mutex\n");
+    rcf("dump_dynevents_ops", "dyn_event_ops_mutex");
     return;
   }
   dump_data2arg<one_dyn_event_op>(list, lock, delta, IOCTL_GET_DYN_EVT_OPS, "dyn_event_ops_list", "IOCTL_GET_DYN_EVT_OPS", "dynevents_ops",
@@ -1121,12 +1131,12 @@ void dump_tracefunc_cmds(a64 list, a64 lock, sa64 delta)
 {
   if ( !list )
   {
-    printf("cannot find ftrace_commands\n");
+    rcf("dump_tracefunc_cmds", "ftrace_commands");
     return;
   }
   if ( !lock )
   {
-    printf("cannot find ftrace_cmd_mutex\n");
+    rcf("dump_tracefunc_cmds", "ftrace_cmd_mutex");
     return;
   }
   dump_data2arg<one_tracefunc_cmd>(list, lock, delta, IOCTL_GET_FTRACE_CMDS, "ftrace_commands", "IOCTL_GET_FTRACE_CMDS", "ftrace_func_commands", 
@@ -1143,12 +1153,12 @@ void dump_trace_exports(a64 list, a64 lock, sa64 delta)
 {
   if ( !list )
   {
-    printf("cannot find ftrace_exports_list\n");
+    rcf("dump_trace_exports", "ftrace_exports_list");
     return;
   }
   if ( !lock )
   {
-    printf("cannot find ftrace_export_lock\n");
+    rcf("dump_trace_exports", "ftrace_export_lock");
     return;
   }
   dump_data2arg<one_trace_export>(list, lock, delta, IOCTL_GET_TRACE_EXPORTS, "trace_exports", "IOCTL_GET_TRACE_EXPORTS", "trace_exports",
@@ -1186,12 +1196,12 @@ void dump_pmus(a64 list, a64 lock, sa64 delta)
 {
   if ( !list )
   {
-    printf("cannot find pmu_idr\n");
+    rcf("dump_pmus", "pmu_idr");
     return;
   }
   if ( !lock )
   {
-    printf("cannot find pmus_lock\n");
+    rcf("dump_pmus", "pmus_lock");
     return;
   }
   dump_data2arg<one_pmu>(list, lock, delta, IOCTL_GET_PMUS, "pmus", "IOCTL_GET_PMUS", "pmus",
@@ -1254,12 +1264,12 @@ void dump_event_cmds(a64 list, a64 lock, sa64 delta)
 {
   if ( !list )
   {
-    printf("cannot find trigger_commands\n");
+    rcf("dump_event_cmds", "trigger_commands");
     return;
   }
   if ( !lock )
   {
-    printf("cannot find trigger_cmd_mutex\n");
+    rcf("dump_event_cmds", "trigger_cmd_mutex");
     return;
   }
   dump_data2arg<one_event_command>(list, lock, delta, IOCTL_GET_EVENT_CMDS, "trigger_commands", "IOCTL_GET_EVENT_CMDS", "trigger_commands",
@@ -1489,12 +1499,12 @@ void dump_bpf_ksyms(a64 list, a64 lock, sa64 delta)
 {
   if ( !list )
   {
-    printf("cannot find bpf_kallsyms\n");
+    rcf("dump_bpf_ksyms", "bpf_kallsyms");
     return;
   }
   if ( !lock )
   {
-    printf("cannot find bpf_lock\n");
+    rcf("dump_bpf_ksyms", "bpf_lock");
     return;
   }
   dump_data2arg<one_bpf_ksym>(list, lock, delta, IOCTL_GET_BPF_KSYMS, "bpf_kallsyms", "IOCTL_GET_BPF_KSYMS", "bpf_ksyms",
@@ -1515,12 +1525,12 @@ void dump_bpf_progs(a64 list, a64 lock, sa64 delta, std::map<void *, std::string
 {
   if ( !list )
   {
-    printf("cannot find prog_idr\n");
+    rcf("dump_bpf_progs", "prog_idr");
     return;
   }
   if ( !lock )
   {
-    printf("cannot find prog_idr_lock\n");
+    rcf("dump_bpf_progs", "prog_idr_lock");
     return;
   }
   dump_data2arg<one_bpf_prog>(list, lock, delta, IOCTL_GET_BPF_PROGS, "prog_idr", "IOCTL_GET_BPF_PROGS", "bpf_progs",
@@ -1758,12 +1768,12 @@ void dump_bpf_links(a64 list, a64 lock, sa64 delta)
 {
   if ( !list )
   {
-    printf("cannot find link_idr\n");
+    rcf("dump_bpf_links", "link_idr");
     return;
   }
   if ( !lock )
   {
-    printf("cannot find link_idr_lock\n");
+    rcf("dump_bpf_links", "link_idr_lock");
     return;
   }
   dump_data2arg<one_bpf_links>(list, lock, delta, IOCTL_GET_BPF_LINKS, "link_idr", "IOCTL_GET_BPF_LINKS", "bpf_links",
@@ -1859,12 +1869,12 @@ void _dump_bpf_raw_events(a64 start, a64 end, sa64 delta, int code, const char *
 {
   if ( !start )
   {
-    printf("cannot find __start__bpf_raw_tp\n");
+    rcf("__start__bpf_raw_tp");
     return;
   }
   if ( !end )
   {
-    printf("cannot find __stop__bpf_raw_tp\n");
+    rcf("__stop__bpf_raw_tp");
     return;
   }
   dump_data2arg<one_bpf_raw_event>(start, end, delta, code, "bpf_raw_tps", code_name, "bpf_raw_tps",
@@ -1893,12 +1903,12 @@ void dump_bpf_maps(a64 list, a64 lock, sa64 delta, std::map<void *, std::string>
 {
   if ( !list )
   {
-    printf("cannot find map_idr\n");
+    rcf("dump_bpf_maps", "map_idr");
     return;
   }
   if ( !lock )
   {
-    printf("cannot find map_idr_lock\n");
+    rcf("dump_bpf_maps", "map_idr_lock");
     return;
   }
   dump_data2arg<one_bpf_map>(list, lock, delta, IOCTL_GET_BPF_MAPS, "bpf_maps", "IOCTL_GET_BPF_MAPS", "bpf_maps",
@@ -2201,12 +2211,12 @@ void dump_ckalgos(a64 list, a64 lock, sa64 delta)
 {
   if ( !list )
   {
-    printf("cannot find crypto_alg_list\n");
+    rcf("dump_ckalgos", "crypto_alg_list");
     return;
   }
   if ( !lock )
   {
-    printf("cannot find crypto_alg_sem\n");
+    rcf("dump_ckalgos", "crypto_alg_sem");
     return;
   }
   dump_data2arg<one_kcalgo>(list, lock, delta, IOCTL_ENUM_CALGO, "crypto_algos", "IOCTL_ENUM_CALGO", "crypto_algo",
@@ -2281,12 +2291,12 @@ void dump_bpf_targets(a64 list, a64 lock, sa64 delta)
 {
   if ( !list )
   {
-    printf("cannot find targets\n");
+    rcf("dump_bpf_targets", "targets");
     return;
   }
   if ( !lock )
   {
-    printf("cannot find targets_mutex\n");
+    rcf("dump_bpf_targets", "targets_mutex");
     return;
   }
   dump_data2arg<one_bpf_reg>(list, lock, delta, IOCTL_GET_BPF_REGS, "bpf_iter_reg", "IOCTL_GET_BPF_REGS", "bpf_regs",
@@ -2452,13 +2462,13 @@ void dump_groups(sa64 delta)
   unsigned long a1 = get_addr("cgroup_hierarchy_idr");
   if ( !a1 )
   {
-    printf("cannot find cgroup_hierarchy_idr\n");
+    rcf("dump_groups", "cgroup_hierarchy_idr");
     return;
   }
   unsigned long a2 = get_addr("cgroup_mutex");
   if ( !a2 )
   {
-    printf("cannot find cgroup_mutex\n");
+    rcf("dump_groups", "cgroup_mutex");
     return;
   }
   unsigned long params[3] = { a1 + delta, a2 + delta, 0 };
@@ -2596,13 +2606,13 @@ void dump_uprobes(sa64 delta)
   unsigned long a1 = get_addr("uprobes_tree");
   if ( !a1 )
   {
-    printf("cannot find uprobes_tree\n");
+    rcf("dump_uprobes", "uprobes_tree");
     return;
   }
   unsigned long a2 = get_addr("uprobes_treelock");
   if ( !a2 )
   {
-    printf("cannot find uprobes_treelock\n");
+    rcf("dump_uprobes", "uprobes_treelock");
     return;
   }
   unsigned long params[3] = { a1 + delta, a2 + delta, 0 };
@@ -2823,12 +2833,12 @@ void dump_ulps(a64 nca, a64 plock, sa64 delta)
 {
   if ( !nca )
   {
-    printf("cannot find tcp_ulp_list\n");
+    rcf("dump_ulps", "tcp_ulp_list");
     return;
   }
   if ( !plock )
   {
-    printf("cannot find tcp_ulp_list_lock\n");
+    rcf("dump_ulps", "tcp_ulp_list_lock");
     return;
   }
   dump_data2arg<one_tcp_ulp_ops>(nca, plock, delta, IOCTL_GET_ULP_OPS, "tcp_ulp_list", "IOCTL_GET_ULP_OPS", "tcp_ulp_ops",
@@ -2855,12 +2865,12 @@ void dump_pernet_ops(a64 nca, a64 plock, sa64 delta)
 {
   if ( !nca )
   {
-    printf("cannot find pernet_list\n");
+    rcf("dump_pernet_ops", "pernet_list");
     return;
   }
   if ( !plock )
   {
-    printf("cannot find pernet_ops_rwsem\n");
+    rcf("dump_pernet_ops", "pernet_ops_rwsem");
     return;
   }
   dump_data2arg<one_pernet_ops>(nca, plock, delta, IOCTL_GET_PERNET_OPS, "pernet_ops", "IOCTL_GET_PERNET_OPS", "pernet_ops",
@@ -2947,7 +2957,7 @@ void dump_genl(a64 addr, sa64 delta)
 {
   if ( !addr )
   {
-    printf("cannot find genl_fam_idr\n");
+    rcf("dump_genl", "genl_fam_idr");
     return;
   }
   unsigned long args[2] = { addr + delta, 0 };
@@ -3176,12 +3186,12 @@ void dump_protos(a64 nca, a64 lock, sa64 delta)
 {
   if ( !nca )
   {
-    printf("cannot find proto_list\n");
+    rcf("dump_protos", "proto_list");
     return;
   }
   if ( !lock )
   {
-    printf("cannot find proto_list_mutex\n");
+    rcf("dump_protos", "proto_list_mutex");
     return;
   }
   unsigned long args[3] = { nca + delta, lock + delta, 0 };
@@ -3963,7 +3973,7 @@ void dump_nets(sa64 delta)
         dump_net_chains(nca, nc[0], delta);
     }
   } else
-    printf("cannot find netdev_chain");
+    rcf("netdev_chain");
   // proto list
   nca = get_addr("proto_list");
   auto plock = get_addr("proto_list_mutex");
@@ -3979,22 +3989,22 @@ void dump_nets(sa64 delta)
   // link ops
   nca = get_addr("link_ops");
   if ( !nca )
-    printf("cannot find link_ops");
+    rcf("link_ops");
   else
     dump_link_ops(nca, delta);
   // rtnl_af_ops
   nca = get_addr("rtnl_af_ops");
   if ( !nca )
-    printf("cannot find rtnl_af_ops");
+    rcf("rtnl_af_ops");
   else
     dump_rtnl_af_ops(nca, delta);
   // protosw
   nca = get_addr("inetsw");
   plock = get_addr("inetsw_lock");
   if ( !nca )
-    printf("cannot find inetsw\n");
+    rcf("inetsw");
   else if ( !plock )
-    printf("cannot find inetsw_lock\n");
+    rcf("inetsw_lock");
   else
     dump_protosw(nca, plock, delta, "inetsw");
   nca = get_addr("inetsw6");
@@ -4298,13 +4308,13 @@ void dump_kprobes(sa64 delta)
   unsigned long a1 = get_addr("kprobe_table");
   if ( !a1 )
   {
-    printf("cannot find kprobe_table\n");
+    rcf("dump_kprobes", "kprobe_table");
     return;
   }
   unsigned long a2 = get_addr("kprobe_mutex");
   if ( !a2 )
   {
-    printf("cannot find kprobe_mutex\n");
+    rcf("dump_kprobes", "kprobe_mutex");
     return;
   }
   dump_data1arg<one_bl_kprobe>(a2, delta, IOCTL_KPROBES_BLACKLIST, nullptr, "IOCTL_KPROBES_BLACKLIST", "kprobes blacklist",
@@ -4873,7 +4883,7 @@ void dump_ktimers(a64 off, a64 poff, sa64 delta)
 {
   if ( !poff )
   {
-    printf("cannot find __per_cpu_offset\n");
+    rcf("dump_ktimers", "__per_cpu_offset");
     return;
   }
   int cpu_num = get_nprocs();
@@ -6110,14 +6120,14 @@ end:
        {
          a64 addr = get_addr("mon_ops");
          if ( !addr )
-           printf("cannot find mon_ops\n");
+           rcf("mon_ops");
 #ifndef _MSC_VER
          else
            dump_usb_mon(addr, delta);
 #endif /* !_MSC_VER */
          addr = get_addr("generic_efivars");
          if ( !addr )
-           printf("cannot find generic_efivars\n");
+           rcf("generic_efivars");
 #ifndef _MSC_VER
          else
            dump_efivars(addr, delta);
@@ -6171,9 +6181,9 @@ end:
          auto ev_start = get_addr("__start_ftrace_events");
          auto ev_stop  = get_addr("__stop_ftrace_events");
          if ( !ev_start )
-           printf("cannot find __start_ftrace_events\n");
+           rcf("__start_ftrace_events");
          else if ( !ev_stop )
-           printf("cannot find __stop_ftrace_events\n");
+           rcf("__stop_ftrace_events");
          else {
            printf("__start_ftrace_events: %p\n", (void *)ev_start);
            printf("__stop_ftrace_events: %p\n", (void *)ev_stop);
@@ -6300,7 +6310,7 @@ end:
              }
              a64 ntfy_addr = get_addr("fire_user_return_notifiers");
              if ( !ntfy_addr )
-               printf("cannot find fire_user_return_notifiers\n");
+               rcf("fire_user_return_notifiers");
              else {
                if ( x64->find_return_notifier_list(ntfy_addr) )
                {
@@ -6334,9 +6344,9 @@ end:
             auto entry = get_addr("bpf_iter_reg_target");
             auto mlock = get_addr("mutex_lock");
             if ( !entry )
-              printf("cannot find bpf_iter_reg_target\n");
+              rcf("bpf_iter_reg_target");
             else if ( !mlock )
-              printf("cannot find mutex_lock\n");
+              rcf("mutex_lock");
             else
               bpf_target = bd->process_bpf_target(entry, mlock);
             // dump bpf
@@ -6383,9 +6393,9 @@ end:
             auto entry = get_addr("trace_remove_event_call");
             auto free_evt = get_addr("free_event_filter");
             if ( !entry )
-              printf("cannot find trace_remove_event_call\n");
+              rcf("trace_remove_event_call");
             else if ( !free_evt )
-              printf("cannot find free_event_filter\n");
+              rcf("free_event_filter");
             else
               g_event_foff = bd->process_trace_remove_event_call(entry, free_evt);
           }
@@ -6397,7 +6407,7 @@ end:
             s_security_hook_heads = get_addr("security_hook_heads");
             if ( !s_security_hook_heads )
             {
-              printf("cannot find security_hook_heads\n");
+              rcf("security_hook_heads");
               opt_S = 0;
             } else {
               int res = 0;
