@@ -19,6 +19,7 @@ void usage(const char *prog)
   printf("Options:\n");
   printf("-d - show disasm\n");
   printf("-l - LSM hooks\n");
+  printf("-v - verbose mode\n");
   exit(6);
 }
 
@@ -30,22 +31,23 @@ void rcf(const char *name)
 int main(int argc, char **argv)
 {
   if ( argc < 2 ) usage(argv[0]);
-  int opt_l = 0;
+  int opt_l = 0, opt_v = 0;
   // process options
   while (1)
   {
-    auto c = getopt(argc, argv, "dl");
+    auto c = getopt(argc, argv, "dlv");
      if (c == -1)
       break;
     if ( c == 'd' ) g_opt_d = 1;
     else if ( c == 'l' ) opt_l = 1;
+    else if ( c == 'v' ) opt_v = 1;
     else usage(argv[0]);
   }
   if (optind == argc)
      usage(argv[0]);
   Elf64_Addr text_start = 0;
   Elf_Xword text_size = 0;
-  section *text_section = NULL, *data_section = NULL, *bss_section = NULL;
+  section *text_section = NULL, *data_section = NULL, *bss_section = NULL, *ro = NULL;
   elfio reader;
   if ( !reader.load( argv[optind] ) )
   {
@@ -53,12 +55,14 @@ int main(int argc, char **argv)
      return 1;
   }
   int has_syms = 0;
+  int rel_idx = -1, rela_idx = -1;
   // iterate on sections
   Elf_Half n = reader.sections.size();
   for ( Elf_Half i = 0; i < n; ++i ) { // For all sections
      section* sec = reader.sections[i];
-     if ( SHT_SYMTAB == sec->get_type() ||
-          SHT_DYNSYM == sec->get_type() )
+     auto st = sec->get_type();
+     if ( SHT_SYMTAB == st ||
+          SHT_DYNSYM == st )
      {
        symbol_section_accessor symbols( reader, sec );
        if ( !read_syms(reader, symbols) )
@@ -77,7 +81,24 @@ int main(int argc, char **argv)
        data_section = sec;
        continue;
      }
-     if ( (sec->get_type() & SHT_NOBITS) && 
+     if ( sec->get_name() == ".rodata" )
+     {
+       ro = sec;
+       continue;
+     }
+     if ( st == SHT_RELA ) {
+       rela_idx = i;
+       if ( opt_v )
+         printf("rela %d %s\n", i, sec->get_name().c_str());
+       continue;
+     }
+     if ( st == SHT_REL ) {
+       rel_idx = i;
+       if ( opt_v )
+         printf("rel %d %s\n", i, sec->get_name().c_str());
+       continue;
+     }
+     if ( (st & SHT_NOBITS) && 
           (sec->get_name() == ".bss" )
         )
      {
