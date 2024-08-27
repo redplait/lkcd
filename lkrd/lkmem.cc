@@ -643,7 +643,7 @@ void apply_for_each(unsigned long *buf, F func)
 }
 
 template <typename T, typename F>
-void dump_data_noarg(sa64 delta, int code, const char *ioctl_name, const char *bname, F func)
+void dump_data_noarg(int code, const char *ioctl_name, const char *bname, F func)
 {
   unsigned long arg = 0;
   int err = ioctl(g_fd, code, (int *)&arg);
@@ -672,7 +672,7 @@ void dump_data_noarg(sa64 delta, int code, const char *ioctl_name, const char *b
 }
 
 template <typename T, typename F>
-void dump_data_ul1(unsigned long a1, sa64 delta, int code, const char *ioctl_name, const char *bname, F func)
+void dump_data_ul1(unsigned long a1, int code, const char *ioctl_name, const char *bname, F func)
 {
   unsigned long args[2] = { a1, 0 };
   int err = ioctl(g_fd, code, (int *)args);
@@ -734,7 +734,7 @@ void dump_data_ul2(unsigned long a1, unsigned long a2, sa64 delta, int code, con
 
 void dump_consoles(sa64 delta)
 {
-  dump_data_noarg<one_console>(delta, IOCTL_READ_CONSOLES, "IOCTL_READ_CONSOLES", "registered consoles",
+  dump_data_noarg<one_console>(IOCTL_READ_CONSOLES, "IOCTL_READ_CONSOLES", "registered consoles",
    [=](size_t idx, const one_console *curr) {
     printf("[%ld] %s at %p flags %X index %d\n", idx, curr->name, curr->addr, curr->flags, curr->index);
     if ( curr->write )
@@ -756,7 +756,7 @@ void dump_consoles(sa64 delta)
 
 void dump_binfmt(sa64 delta)
 {
-  dump_data_noarg<one_binfmt>(delta, IOCTL_BINFMT, "IOCTL_BINFMT", "binfmts",
+  dump_data_noarg<one_binfmt>(IOCTL_BINFMT, "IOCTL_BINFMT", "binfmts",
    [=](size_t idx, const one_binfmt *zp) {
     printf("[%ld] at ", idx);
     dump_unnamed_kptr((unsigned long)zp->addr, delta, true);
@@ -769,7 +769,7 @@ void dump_binfmt(sa64 delta)
 
 void dump_pools(sa64 delta)
 {
-  dump_data_noarg<one_zpool>(delta, IOCTL_GET_ZPOOL_DRV, "IOCTL_GET_ZPOOL_DRV", "zpool_drivers",
+  dump_data_noarg<one_zpool>(IOCTL_GET_ZPOOL_DRV, "IOCTL_GET_ZPOOL_DRV", "zpool_drivers",
    [=](size_t idx, const one_zpool *zp) {
     printf("[%ld] at ", idx);
     dump_unnamed_kptr((unsigned long)zp->addr, delta, true);
@@ -800,7 +800,7 @@ void dump_slabs(sa64 delta)
   unsigned int args_size = 2 * sizeof(unsigned long);
   char *name_buf = nullptr;
   size_t name_len = 0;
-  dump_data_noarg<one_slab>(delta, IOCTL_GET_SLABS, "IOCTL_GET_SLABS", "kmem_caches",
+  dump_data_noarg<one_slab>(IOCTL_GET_SLABS, "IOCTL_GET_SLABS", "kmem_caches",
    [&](size_t idx, const one_slab *sl) {
      printf("[%ld] at", idx);
      dump_unnamed_kptr((unsigned long)sl->addr, delta, true);
@@ -933,7 +933,7 @@ static const char *get_bpf_prog_type_name(int idx)
 
 void dump_verops(sa64 delta)
 {
-  dump_data_noarg<one_bpf_verops>(delta, IOCTL_BPF_VEROPS, "IOCTL_BPF_VEROPS", "bpf_verifier_ops",
+  dump_data_noarg<one_bpf_verops>(IOCTL_BPF_VEROPS, "IOCTL_BPF_VEROPS", "bpf_verifier_ops",
    [=](size_t idx, const one_bpf_verops *vp) {
     auto pt = get_bpf_prog_type_name(vp->idx);
     if ( *pt )
@@ -1961,7 +1961,7 @@ int read_dev_handlers(void *addr, unsigned long len, sa64 delta, std::map<void *
 
 void dump_avc_cbs(sa64 delta)
 {
-  dump_data_noarg<one_avc>(delta, IOCTL_AVC_CBS, "IOCTL_AVC_CBS", "avc callbacks",
+  dump_data_noarg<one_avc>(IOCTL_AVC_CBS, "IOCTL_AVC_CBS", "avc callbacks",
    [&](size_t idx, const one_avc *id) {
     printf(" [%ld] events %X at", idx, id->events);
     dump_unnamed_kptr(id->cb, delta);
@@ -1970,7 +1970,7 @@ void dump_avc_cbs(sa64 delta)
 
 void dump_sysrq_keys(sa64 delta)
 {
-  dump_data_noarg<one_sysrq_key>(delta, IOCTL_SYSRQ_KEYS, "IOCTL_SYSRQ_KEYS", "sysrq key handlers",
+  dump_data_noarg<one_sysrq_key>(IOCTL_SYSRQ_KEYS, "IOCTL_SYSRQ_KEYS", "sysrq key handlers",
    [&](size_t idx, const one_sysrq_key *id) {
     printf(" [%ld] mask %X at", id->idx, id->mask);
     dump_kptr2((unsigned long)id->addr, "addr", delta);
@@ -1983,7 +1983,7 @@ void dump_input_devs(sa64 delta, std::map<void *, std::string> &hmap)
   const unsigned long args_len = 3 * sizeof(unsigned long);
   char *name_buf = nullptr;
   size_t name_len = 0;
-  dump_data_noarg<one_input_dev>(delta, IOCTL_INPUT_DEVS, "IOCTL_INPUT_DEVS", "input devs",
+  dump_data_noarg<one_input_dev>(IOCTL_INPUT_DEVS, "IOCTL_INPUT_DEVS", "input devs",
    [&](size_t idx, const one_input_dev *id) {
     printf(" [%ld] input_dev at", idx);
     dump_kptr2((unsigned long)id->addr, "addr", delta);
@@ -2043,7 +2043,7 @@ void dump_input_handlers(sa64 delta, std::map<void *, std::string> &hmap)
   const unsigned long args_len = 2 * sizeof(unsigned long);
   char *name_buf = nullptr;
   size_t name_len = 0;
-  dump_data_noarg<one_input_handler>(delta, IOCTL_INPUT_HANDLERS, "IOCTL_INPUT_HANDLERS", "input handlers",
+  dump_data_noarg<one_input_handler>(IOCTL_INPUT_HANDLERS, "IOCTL_INPUT_HANDLERS", "input handlers",
    [&](size_t idx, const one_input_handler *curr) {
     printf(" [%ld] input_handler at", idx);
     dump_kptr2((unsigned long)curr->addr, "addr", delta);
@@ -3525,7 +3525,7 @@ void dump_xfrm_pt(sa64 delta)
 
 void dump_xfrm(sa64 delta)
 {
-  dump_data_ul1<s_xfrm_mgr>(1, delta, IOCTL_XFRM_GUTS, "IOCTL_XFRM_GUTS", "xfrm_mgrs",
+  dump_data_ul1<s_xfrm_mgr>(1, IOCTL_XFRM_GUTS, "IOCTL_XFRM_GUTS", "xfrm_mgrs",
    [delta](size_t idx, const s_xfrm_mgr *curr) {
      printf(" [%ld] xfrm_mgr at", idx);
      dump_unnamed_kptr((unsigned long)curr->addr, delta, true);
@@ -3563,7 +3563,7 @@ void dump_xfrm(sa64 delta)
   // protocols & tunnels
   dump_xfrm_pt(delta);
   // dump xfrm_state_afinfo
-  dump_data_ul1<s_xfrm_state_afinfo>(3, delta, IOCTL_XFRM_GUTS, "IOCTL_XFRM_GUTS", "xfrm_state_afinfos",
+  dump_data_ul1<s_xfrm_state_afinfo>(3, IOCTL_XFRM_GUTS, "IOCTL_XFRM_GUTS", "xfrm_state_afinfos",
    [delta](size_t idx, const s_xfrm_state_afinfo *curr) {
      printf(" [%ld] xfrm_state_afinfo proto %d at", idx, curr->proto);
      dump_unnamed_kptr((unsigned long)curr->addr, delta, true);
@@ -3978,6 +3978,27 @@ void dump_nets(sa64 delta)
   nca = get_addr("proto_list");
   auto plock = get_addr("proto_list_mutex");
   dump_protos(nca, plock, delta);
+  // tcp congestion
+  dump_data_noarg<one_tcp_cong>(IOCTL_TCP_CONG, "IOCTL_TCP_CONG", "tcp congestion" , 
+    [&](size_t idx, const one_tcp_cong *c) {
+      printf(" [%d] %s flags %X at", idx, c->name, c->flags);
+      dump_unnamed_kptr((unsigned long)c->addr, delta, true);
+      if ( c->init ) dump_kptr2(c->init, "  init", delta);
+      if ( c->release ) dump_kptr2(c->release, "  release", delta);
+      if ( c->ssthresh ) dump_kptr2(c->ssthresh, "  ssthresh", delta);
+      if ( c->cong_avoid ) dump_kptr2(c->cong_avoid, "  cong_avoid", delta);
+      if ( c->set_state ) dump_kptr2(c->set_state, "  set_state", delta);
+      if ( c->cwnd_event ) dump_kptr2(c->cwnd_event, "  cwnd_event", delta);
+      if ( c->in_ack_event ) dump_kptr2(c->in_ack_event, "  in_ack_event", delta);
+      if ( c->undo_cwnd ) dump_kptr2(c->undo_cwnd, "  undo_cwnd", delta);
+      if ( c->pkts_acked ) dump_kptr2(c->pkts_acked, "  pkts_acked", delta);
+      if ( c->tso_segs_goal ) dump_kptr2(c->tso_segs_goal, "  tso_segs_goal", delta);
+      if ( c->min_tso_segs ) dump_kptr2(c->min_tso_segs, "  min_tso_segs", delta);
+      if ( c->sndbuf_expand ) dump_kptr2(c->sndbuf_expand, "  sndbuf_expand", delta);
+      if ( c->cong_control ) dump_kptr2(c->cong_control, "  cong_control", delta);
+      if ( c->get_info ) dump_kptr2(c->get_info, "  get_info", delta);
+    }
+  );
   // ulp ops
   nca = get_addr("tcp_ulp_list"); 
   plock = get_addr("tcp_ulp_list_lock");
