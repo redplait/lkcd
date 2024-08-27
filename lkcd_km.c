@@ -166,6 +166,9 @@ static struct rw_semaphore *s_net = 0;
 static rwlock_t *s_dev_base_lock = 0;
 static struct sock_diag_handler **s_sock_diag_handlers = 0;
 static struct mutex *s_sock_diag_table_mutex = 0;
+// tcp congestion
+static struct list_head *s_tcp_cong_list = 0;
+static spinlock_t *s_tcp_cong_list_lock = 0;
 #ifdef CONFIG_NETFILTER
 static struct mutex *s_nf_hook_mutex = 0;
 static struct mutex *s_nf_log_mutex = 0;
@@ -5678,6 +5681,54 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
       break; /* IOCTL_GENL_SMALLOPS */
 #endif
 
+    case IOCTL_TCP_CONG:
+      if ( !s_tcp_cong_list || !s_tcp_cong_list_lock ) return -ENOCSI;
+      COPY_ARG
+      if ( !ptrbuf[0] ) {
+        // calc count
+        struct tcp_congestion_ops *ca;
+        spin_lock(s_tcp_cong_list_lock);
+        list_for_each_entry_rcu(ca, s_tcp_cong_list, list) count++;
+        spin_unlock(s_tcp_cong_list_lock);
+        goto copy_count;
+      } else {
+        struct tcp_congestion_ops *ca;
+        ALLOC_KBUF(struct one_tcp_cong, ptrbuf[0])
+        spin_lock(s_tcp_cong_list_lock);
+        list_for_each_entry_rcu(ca, s_tcp_cong_list, list)
+        {
+          if ( count >= ptrbuf[0] ) break;
+          curr->addr = ca;
+          strlcpy(curr->name, ca->name, TCP_CA_NAME_MAX);
+          curr->flags = ca->flags;
+          curr->init = (unsigned long)ca->init;
+          curr->release = (unsigned long)ca->release;
+          curr->ssthresh = (unsigned long)ca->ssthresh;
+          curr->cong_avoid = (unsigned long)ca->cong_avoid;
+          curr->set_state = (unsigned long)ca->set_state;
+          curr->cwnd_event = (unsigned long)ca->cwnd_event;
+          curr->in_ack_event = (unsigned long)ca->in_ack_event;
+          curr->undo_cwnd = (unsigned long)ca->undo_cwnd;
+          curr->pkts_acked = (unsigned long)ca->pkts_acked;
+          curr->get_info = (unsigned long)ca->get_info;
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4,9,0)
+          curr->sndbuf_expand = (unsigned long)ca->sndbuf_expand;
+          curr->cong_control = (unsigned long)ca->cong_control;
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4,17,0)
+          curr->min_tso_segs = (unsigned long)ca->min_tso_segs;
+#else
+          curr->tso_segs_goal = (unsigned long)ca->tso_segs_goal;
+#endif
+#endif
+          // for next iteration
+          count++; curr++;
+        }
+        spin_unlock(s_tcp_cong_list_lock);
+        kbuf_size = sizeof(unsigned long) + count * sizeof(struct one_tcp_cong);
+        goto copy_kbuf_count;
+      }
+     break; /* IOCTL_TCP_CONG */
+
     case IOCTL_GET_GENL_FAMILIES:
         COPY_ARGS(2)
         else {
@@ -8308,6 +8359,10 @@ init_module (void)
   REPORT(s_my_task_work_cancel, "task_work_cancel")
   s_task_work_add = (my_task_work_add)lkcd_lookup_name("task_work_add");
   REPORT(s_task_work_add, "task_work_add")
+  s_tcp_cong_list = (struct list_head *)lkcd_lookup_name("tcp_cong_list");
+  REPORT(s_tcp_cong_list, "tcp_cong_list")
+  s_tcp_cong_list_lock = (spinlock_t *)lkcd_lookup_name("tcp_cong_list_lock");
+  REPORT(s_tcp_cong_list_lock, "tcp_cong_list_lock")
 #ifdef CONFIG_NETFILTER
   s_nf_hook_mutex = (struct mutex *)lkcd_lookup_name("nf_hook_mutex");
   REPORT(s_nf_hook_mutex, "nf_hook_mutex")

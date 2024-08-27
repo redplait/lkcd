@@ -2102,4 +2102,31 @@ struct one_avc {
 // out params: N + N * one_avc
 #define IOCTL_AVC_CBS                       _IOR(IOCTL_NUM, 0x7c, int*)
 
+struct one_tcp_cong {
+  void *addr;
+  unsigned long flags;
+  char name[16];
+  unsigned long init,
+   release,
+   ssthresh,
+   cong_avoid,
+   set_state,
+   cwnd_event,
+   in_ack_event,
+   undo_cwnd,
+   pkts_acked,
+   tso_segs_goal, // since 4.9
+   min_tso_segs,  // since 4.17 instead tso_segs_goal
+   sndbuf_expand, // since 4.9
+   cong_control,  // since 4.9
+   get_info;
+};
+
+// read tcp congestions
+// in params:
+//  0 - count
+// out params: N + N * one_tcp_cong
+#define IOCTL_TCP_CONG                        _IOR(IOCTL_NUM, 0x7d, int*)
+
+
 #endif /* LKCD_SHARED_H */
