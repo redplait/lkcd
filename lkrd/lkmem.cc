@@ -5324,7 +5324,40 @@ static unsigned long try_find_caller(unsigned long addr)
   return 0;
 }
 
-static inline void _dump_pte_addr(unsigned long addr, sa64 delta)
+struct mem_summary {
+  size_t unk = 0;
+  std::map<unsigned long, size_t> execs;
+  typedef std::pair<unsigned long, size_t> tp;
+  int empty() const
+  {
+    return !unk && execs.empty();
+  }
+  void summary(sa64 delta)
+  {
+    if ( empty() ) return;
+    std::vector<tp> tmp;
+    tmp.reserve(execs.size());
+    for ( auto &c: execs ) tmp.push_back( { c.first, c.second } );
+    std::sort(tmp.begin(), tmp.end(), [](const auto &a, const auto &b) { return a.second > b.second; });
+    printf("Memory summary:\n");
+    if ( unk ) printf("Unknown: %d\n", unk);
+    for ( auto &t: tmp ) {
+       printf("%d %p", t.second, t.first);
+       size_t off = 0;
+       auto cname = lower_name_by_addr_with_off((a64)t.first - delta, &off);
+       if ( cname )
+        {
+          if ( off )
+            printf(" %s+%X", cname, off);
+          else
+            printf(" %s", cname);
+        }
+        printf("\n");
+    }   
+  }
+};
+
+static inline void _dump_pte_addr(unsigned long addr, sa64 delta, mem_summary &ms)
 {
   if ( is_purged(addr) )
     printf(" [purged]");
@@ -5333,8 +5366,11 @@ static inline void _dump_pte_addr(unsigned long addr, sa64 delta)
     {
       auto caller = try_find_caller(addr);
       if ( !caller )
-       printf(" UNK_MEM");
-      else {
+      {
+        printf(" UNK_MEM");
+        ms.unk += 1 << s_page_size;
+      } else {
+        ms.execs[caller] += 1 << s_page_size;
         size_t off = 0;
         auto cname = lower_name_by_addr_with_off((a64)caller - delta, &off);
         if ( cname )
@@ -5350,7 +5386,7 @@ static inline void _dump_pte_addr(unsigned long addr, sa64 delta)
   putc('\n', stdout);
 }
 
-void dump_next(unsigned long addr, void *prev_addr, int idx, sa64 delta)
+void dump_next(unsigned long addr, void *prev_addr, int idx, sa64 delta, mem_summary &ms)
 {
   vlevel_res *pgds = &vmem[idx - 1];
   unsigned long *ptr = (unsigned long *)pgds;
@@ -5375,7 +5411,7 @@ void dump_next(unsigned long addr, void *prev_addr, int idx, sa64 delta)
       margin(idx);
       unsigned long final_addr = addr | gen_mask(i, idx);
       printf("[%d] huge %s %p %lX addr %p", i, p_names[idx-1], pgds->items[i].ptr, pgds->items[i].value, (void *)final_addr);
-      _dump_pte_addr(final_addr, delta);
+      _dump_pte_addr(final_addr, delta, ms);
       continue;
     }
     if ( pgds->items[i].large ) {
@@ -5383,7 +5419,7 @@ void dump_next(unsigned long addr, void *prev_addr, int idx, sa64 delta)
       margin(idx);
       unsigned long final_addr = addr | gen_mask(i, idx);
       printf("[%d] large %s %p %lX addr %p", i, p_names[idx-1], pgds->items[i].ptr, pgds->items[i].value, (void *)final_addr);
-      _dump_pte_addr(final_addr, delta);
+      _dump_pte_addr(final_addr, delta, ms);
       continue;
     }
     if ( 5 == idx && pgds->items[i].nx ) continue;
@@ -5391,14 +5427,14 @@ void dump_next(unsigned long addr, void *prev_addr, int idx, sa64 delta)
     if ( idx != 5 )
     {
       printf("[%d] %s %p %lX addr %lX\n", i, p_names[idx-1], pgds->items[i].ptr, pgds->items[i].value, addr);
-      dump_next(addr | gen_mask(i, idx), pgds->items[i].ptr, 1 + idx, delta);
+      dump_next(addr | gen_mask(i, idx), pgds->items[i].ptr, 1 + idx, delta, ms);
     } else {
       // this is PTE without NX bit
       auto pte_val = gen_mask(i, idx);
       unsigned long final_addr = addr | pte_val;
       printf("[%d] %s %p %lX addr %lX final_addr %lX", i, p_names[idx-1], pgds->items[i].ptr, pgds->items[i].value, 
        addr, final_addr);
-      _dump_pte_addr(final_addr, delta);
+      _dump_pte_addr(final_addr, delta, ms);
     }
   }
 }
@@ -5499,6 +5535,7 @@ static void _scan_vmem(sa64 delta)
     printf("IOCTL_VMEM_SCAN PGD failed, errno %d (%s)\n", errno, strerror(errno));
     return;
   }
+  mem_summary ms;
   printf("next level %d initial %p\n", next, s_initial);
   for ( int i = 0; i < VITEMS_CNT; i++ )
   {
@@ -5507,8 +5544,9 @@ static void _scan_vmem(sa64 delta)
     auto next_mask = gen_mask(i, next - 1);
     printf("[%d] pgd %p %lX next %d mask %lX\n", i, pgds->items[i].ptr, pgds->items[i].value, next, next_mask);
     // dump next level
-    dump_next(s_initial | next_mask, pgds->items[i].ptr, next, delta);
+    dump_next(s_initial | next_mask, pgds->items[i].ptr, next, delta, ms);
   }
+  ms.summary(delta);
 }
 
 void scan_vmem(sa64 delta)
