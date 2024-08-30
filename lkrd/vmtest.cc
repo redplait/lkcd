@@ -18,6 +18,7 @@ void usage(const char *prog)
   printf("%s usage: [options] elf-file [symbols]\n", prog);
   printf("Options:\n");
   printf("-d - show disasm\n");
+  printf("-k - try extract field offsets for kmem_cache\n");
   printf("-l - LSM hooks\n");
   printf("-v - verbose mode\n");
   exit(6);
@@ -31,16 +32,17 @@ void rcf(const char *name)
 int main(int argc, char **argv)
 {
   if ( argc < 2 ) usage(argv[0]);
-  int opt_l = 0, opt_v = 0;
+  int opt_k = 0, opt_l = 0, opt_v = 0;
   // process options
   while (1)
   {
-    auto c = getopt(argc, argv, "dlv");
+    auto c = getopt(argc, argv, "dllv");
      if (c == -1)
       break;
     if ( c == 'd' ) g_opt_d = 1;
     else if ( c == 'l' ) opt_l = 1;
     else if ( c == 'v' ) opt_v = 1;
+    else if ( c == 'k' ) opt_k = 1;
     else usage(argv[0]);
   }
   if (optind == argc)
@@ -235,6 +237,16 @@ int main(int argc, char **argv)
           printf("%s: %p\n", sl.name.c_str(), (void *)sl.list);
         }
       }
+    }
+  }
+  if ( opt_k )
+  {
+    auto slu = get_addr("slab_unmergeable");
+    if ( !slu ) rcf("slab_unmergeable");
+    else {
+      int res = bd->find_kmem_cache_ctor(slu);
+      if ( res )
+        printf("kmem_cache->ctor %d\n", res);
     }
   }
   // cleanup
