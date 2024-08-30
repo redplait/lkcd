@@ -36,7 +36,7 @@ int main(int argc, char **argv)
   // process options
   while (1)
   {
-    auto c = getopt(argc, argv, "dllv");
+    auto c = getopt(argc, argv, "dklv");
      if (c == -1)
       break;
     if ( c == 'd' ) g_opt_d = 1;
@@ -246,7 +246,7 @@ int main(int argc, char **argv)
     else {
       int res = bd->find_kmem_cache_ctor(slu);
       if ( res )
-        printf("kmem_cache->ctor %d\n", res);
+        printf("kmem_cache->ctor %X\n", res);
     }
   }
   // cleanup

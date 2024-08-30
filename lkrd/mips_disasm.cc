@@ -1,5 +1,14 @@
 #include "mips_disasm.h"
 
+int mdis::handle(mips_regs2 &r)
+{
+  if ( inst.operation == mips::MIPS_MOVE )
+  {
+    return r.set(inst.operands[0].reg, inst.operands[1].reg);
+  }
+  return 0;
+}
+
 int mdis::handle(mips_regs &r)
 {
   if ( inst.operation == mips::MIPS_LUI )
@@ -97,6 +106,32 @@ a64 mips_disasm::process_bpf_target(a64 addr, a64 mlock)
 
 int mips_disasm::process_trace_remove_event_call(a64 addr, a64 free_event_filter)
 {
+  return 0;
+}
+
+int mips_disasm::find_kmem_cache_ctor(a64 addr)
+{
+  mdis md(m_bigend, mv);
+  if ( !setup(addr, &md) )
+    return 0;
+  int state = 0; // 1 after first and
+  mips_regs2 regs;
+  while( md.disasm() )
+  {
+    if ( md.handle(regs) ) continue;
+    if ( !state && md.inst.operation == mips::MIPS_AND ) {
+      state = 1;
+      continue;
+    }
+    if ( state && md.inst.operation == mips::MIPS_LW && md.inst.operands[0].operandClass == mips::OperandClass::REG &&
+      md.inst.operands[1].operandClass == mips::OperandClass::MEM_IMM )
+    {
+      auto reg = md.inst.operands[1].reg;
+      if ( reg == mips::REG_SP ) continue; // skip loading local var from stack frame
+      auto old = regs.check(reg);
+      if ( old == mips::REG_A0 ) return md.inst.operands[1].immediate;
+    }
+  }
   return 0;
 }
 

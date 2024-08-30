@@ -24,6 +24,25 @@ struct mips_regs {
   }
 };
 
+// to handle move reg, reg
+struct mips_regs2 {
+ char regs[mips::REG_RA];
+ mips_regs2() {
+   memset(regs, 01, mips::REG_RA);
+ }
+ int check(int idx) const
+ {
+   if ( idx >= mips::REG_RA ) return -1;
+   return regs[idx];
+ }
+ int set(int idx, int src)
+ {
+   if ( idx >= mips::REG_RA || src >= mips::REG_RA ) return 0;
+   regs[idx] = src;
+   return 1;
+ }
+};
+
 struct mdis {
  mdis(int m, mips::MipsVersion e): m_bigend(m), m_mv(e)
  {
@@ -84,6 +103,7 @@ struct mdis {
    return 0;
  }
  int handle(mips_regs &regs);
+ int handle(mips_regs2 &regs);
 };
 
 class mips_disasm: public dis_base
@@ -97,6 +117,7 @@ class mips_disasm: public dis_base
     }
     virtual int process(a64 addr, std::map<a64, a64> &, std::set<a64> &out_res);
     virtual int find_kfunc_set_tab_off(a64 addr);
+    virtual int find_kmem_cache_ctor(a64 addr);
     virtual int process_sl(lsm_hook &);
     virtual a64 process_bpf_target(a64 addr, a64 mlock);
     virtual int process_trace_remove_event_call(a64 addr, a64 free_event_filter);
