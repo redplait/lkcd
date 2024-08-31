@@ -191,6 +191,23 @@ a64 arm64_disasm::process_bpf_target(a64 addr, a64 mlock)
   return 0;
 }
 
+int arm64_disasm::find_kmem_cache_ctor(a64 addr)
+{
+  PBYTE psp = uconv(addr);
+  if ( !setup(psp) )
+    return 0;
+  int state = 0; // tst reg, reg, also can use uniq constant 0x1A90C00
+  for ( size_t i = 0; i < 30 ; i++ )
+  {
+    if ( !disasm() || is_ret() )
+      break;
+    if ( is_tst() ) { state++; continue; }
+    if ( state && is_ldr_off() )
+     return m_dis.operands[2].op_imm.bits;
+  }
+  return 0;
+}
+
 // second arg in x20
 int arm64_disasm::find_kmem_cache_next(a64 addr)
 {

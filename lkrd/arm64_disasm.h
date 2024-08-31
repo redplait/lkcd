@@ -136,6 +136,7 @@ class arm64_disasm: public dis_base
     virtual int process(a64 addr, std::map<a64, a64> &, std::set<a64> &out_res);
     virtual int find_kfunc_set_tab_off(a64 addr);
     virtual int find_kmem_cache_next(a64 addr);
+    virtual int find_kmem_cache_ctor(a64 addr);
     virtual int process_sl(lsm_hook &);
     virtual a64 process_bpf_target(a64 addr, a64 mlock);
     virtual int process_trace_remove_event_call(a64 addr, a64 free_event_filter);
@@ -408,6 +409,12 @@ class arm64_disasm: public dis_base
     inline int is_bl_reg() const
     {
       return (m_dis.instr_id == AD_INSTR_BLR && m_dis.num_operands == 1 && m_dis.operands[0].type == AD_OP_REG);
+    }
+    inline int is_tst() const
+    {
+      return (m_dis.instr_id == AD_INSTR_TST && m_dis.num_operands == 2) &&
+        m_dis.operands[0].type == AD_OP_REG &&
+        m_dis.operands[1].type == AD_OP_REG;
     }
     inline int is_sub_rri() const
     {
