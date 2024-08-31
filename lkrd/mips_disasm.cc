@@ -109,6 +109,43 @@ int mips_disasm::process_trace_remove_event_call(a64 addr, a64 free_event_filter
   return 0;
 }
 
+int mips_disasm::find_kmem_cache_name(a64 addr, a64 kfree_const)
+{
+  mdis md(m_bigend, mv);
+  if ( !setup(addr, &md) )
+    return 0;
+  int state = 0; // 1 after call kfree_const
+  mips_regs2 regs;
+  while( md.disasm() )
+  {
+    if ( md.handle(regs) ) continue;
+    a64 caddr = 0;
+    if ( !state && md.is_jal(caddr) )
+    {
+      if ( caddr == kfree_const )
+      {
+        state++;
+        continue;
+      }
+    }
+    if ( state )
+    {
+      // check lw reg, imm(a0 or copy)
+      if ( md.is_lw() )
+      {
+        auto reg = md.inst.operands[1].reg;
+        if ( reg == mips::REG_SP ) continue;
+        if ( reg == mips::REG_A0 ) return md.inst.operands[1].immediate;
+        auto old = regs.check(reg);
+        if ( old == mips::REG_A0 ) return md.inst.operands[1].immediate;
+      }
+      state++;
+      if ( state > 1 ) break;
+    }
+  }
+  return 0;
+}
+
 int mips_disasm::find_kmem_cache_ctor(a64 addr)
 {
   mdis md(m_bigend, mv);
@@ -123,8 +160,7 @@ int mips_disasm::find_kmem_cache_ctor(a64 addr)
       state = 1;
       continue;
     }
-    if ( state && md.inst.operation == mips::MIPS_LW && md.inst.operands[0].operandClass == mips::OperandClass::REG &&
-      md.inst.operands[1].operandClass == mips::OperandClass::MEM_IMM )
+    if ( state && md.is_lw() )
     {
       auto reg = md.inst.operands[1].reg;
       if ( reg == mips::REG_SP ) continue; // skip loading local var from stack frame

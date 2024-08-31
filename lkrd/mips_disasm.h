@@ -91,6 +91,12 @@ struct mdis {
    }
    return 0;
  }
+ int is_lw() const
+ {
+   return inst.operation == mips::MIPS_LW &&
+          inst.operands[0].operandClass == mips::OperandClass::REG &&
+          inst.operands[1].operandClass == mips::OperandClass::MEM_IMM;
+ }
  int is_lw(int reg, int &val) const
  {
    if ( inst.operation == mips::MIPS_LW && inst.operands[1].operandClass == mips::OperandClass::MEM_IMM &&
@@ -117,6 +123,7 @@ class mips_disasm: public dis_base
     }
     virtual int process(a64 addr, std::map<a64, a64> &, std::set<a64> &out_res);
     virtual int find_kfunc_set_tab_off(a64 addr);
+    virtual int find_kmem_cache_name(a64 addr, a64 kfree_const);
     virtual int find_kmem_cache_ctor(a64 addr);
     virtual int process_sl(lsm_hook &);
     virtual a64 process_bpf_target(a64 addr, a64 mlock);

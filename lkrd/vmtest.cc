@@ -248,6 +248,17 @@ int main(int argc, char **argv)
       if ( res )
         printf("kmem_cache->ctor %X\n", res);
     }
+    slu = get_addr("kfree_const");
+    if ( !slu ) rcf("kfree_const");
+    else {
+      auto release = get_addr("slab_kmem_cache_release");
+      if ( !release ) rcf("slab_kmem_cache_release");
+      else {
+        int res = bd->find_kmem_cache_name(release, slu);
+        if ( res )
+          printf("kmem_cache->name %X\n", res);
+      }
+    }
   }
   // cleanup
   if ( bd != NULL )
