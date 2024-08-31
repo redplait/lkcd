@@ -191,6 +191,24 @@ a64 arm64_disasm::process_bpf_target(a64 addr, a64 mlock)
   return 0;
 }
 
+// second arg in x20
+int arm64_disasm::find_kmem_cache_next(a64 addr)
+{
+  PBYTE psp = uconv(addr);
+  if ( !setup(psp) )
+    return 0;
+  for ( size_t i = 0; i < 30 ; i++ )
+  {
+    if ( !disasm() || is_ret() )
+      break;
+    if ( is_sub_rri() )
+    {
+      if ( AD_REG_X20 == get_reg(1) ) return m_dis.operands[2].op_imm.bits;
+    }
+  }
+  return 0;
+}
+
 int arm64_disasm::find_kfunc_set_tab_off(a64 addr)
 {
   PBYTE psp = uconv(addr);
