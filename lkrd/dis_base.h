@@ -68,19 +68,27 @@ class dis_base
     {
       return 0;
     }
-    // total madness - this stupid morons
-    // removed definition of kmem_cache in 6.0
-    // returned it in linux/slab_def.h since 6.2
-    // and removed again sice 6.7
+    // methods to extract fields offset for kmem_cache
+    // total madness - those stupid morons made slXb-def.h totally unincludable since 6.0
+    // and moved definition of kmem_cache in mm/slab.h in 6.8
     // I use 4 fields:
     // size - can be obtained with exported kmem_cache_size
     // ctor - can be extracted with disasm from slab_unmergeable
-    // name - ??
-    // list to iterate - ??
+    // name - from slab_kmem_cache_release as arg0 to call kfree_const
+    // list to iterate - from slab_show as negative offset from second argument
     virtual int find_kmem_cache_ctor(a64 addr)
     {
       return 0;
     }
+    virtual int find_kmem_cache_name(a64 addr, a64 kfree_const)
+    {
+      return 0;
+    }
+    virtual int find_kmem_cache_next(a64 addr)
+    {
+      return 0;
+    }
+    // LSM hooks
     int process_sl(std::vector<lsm_hook> &arr)
     {
       int res = 0;
