@@ -208,19 +208,23 @@ int arm64_disasm::find_kmem_cache_ctor(a64 addr)
   return 0;
 }
 
-// second arg in x20
+// second arg in x1
+// however we can have mov reg, x1
 int arm64_disasm::find_kmem_cache_next(a64 addr)
 {
   PBYTE psp = uconv(addr);
   if ( !setup(psp) )
     return 0;
+  int moved1 = 0;
   for ( size_t i = 0; i < 30 ; i++ )
   {
     if ( !disasm() || is_ret() )
       break;
+    if ( is_mov_rr() && get_reg(1) == AD_REG_X1 ) { moved1 = get_reg(0); continue; }
     if ( is_sub_rri() )
     {
-      if ( AD_REG_X20 == get_reg(1) ) return m_dis.operands[2].op_imm.bits;
+      auto r1 = get_reg(1);
+      if ( AD_REG_X1 == r1 || r1 == moved1 ) return m_dis.operands[2].op_imm.bits;
     }
   }
   return 0;
