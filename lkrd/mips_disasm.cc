@@ -109,6 +109,35 @@ int mips_disasm::process_trace_remove_event_call(a64 addr, a64 free_event_filter
   return 0;
 }
 
+int mips_disasm::find_kmem_cache_next(a64 addr)
+{
+  mdis md(m_bigend, mv);
+  if ( !setup(addr, &md) )
+    return 0;
+  int state = 0; // 1 after first call (hopefully _mcount)
+  mips_regs2 regs;
+  while( md.disasm() )
+  {
+    if ( md.handle(regs) ) continue;
+    a64 caddr = 0;
+    if ( md.is_jal(caddr) )
+    {
+      state++;
+      if ( state > 1 ) break;
+    }
+    int val = 0;
+    if ( state && md.is_addiu(val) && val < 0 )
+    {
+      auto reg = md.inst.operands[1].reg;
+      if ( reg == mips::REG_SP ) continue;
+      if ( reg == mips::REG_A1 ) return -val;
+      auto old = regs.check(reg);
+      if ( old == mips::REG_A1 ) return -val;
+    }
+  }
+  return 0;
+}
+
 int mips_disasm::find_kmem_cache_name(a64 addr, a64 kfree_const)
 {
   mdis md(m_bigend, mv);

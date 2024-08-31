@@ -259,6 +259,13 @@ int main(int argc, char **argv)
           printf("kmem_cache->name %X\n", res);
       }
     }
+    slu = get_addr("slab_show");
+    if ( !slu ) rcf("slab_show");
+    else {
+      int res = bd->find_kmem_cache_next(slu);
+      if ( res )
+        printf("kmem_cache->next %X\n", res);
+    }
   }
   // cleanup
   if ( bd != NULL )
