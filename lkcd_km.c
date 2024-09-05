@@ -1921,6 +1921,32 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
           mutex_unlock(s_module_mutex);
           kbuf_size = sizeof(unsigned long) + count * sizeof(struct one_module);
           goto copy_kbuf_count;
+        } else if ( 2 == ptrbuf[1] ) {
+          ALLOC_KBUF(struct one_module, ptrbuf[0])
+          mutex_lock(s_module_mutex);
+          list_for_each_entry(mod, s_modules, list)
+          {
+            if ( mod->state != MODULE_STATE_LIVE ) continue;
+            if ( count >= ptrbuf[0] ) break;
+            // ripped from module/procfs.c function m_show
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6,4,0)
+            curr->base = mod->mem[MOD_TEXT].base;
+            curr->size = mod->mem[MOD_TEXT].size;
+#elif LINUX_VERSION_CODE < KERNEL_VERSION(4,5,0)
+            curr->base = mod->module_core;
+            curr->size = mod->core_text_size;
+#else
+            curr->base = mod->core_layout.base;
+            curr->size = mod->core_layout.text_size;
+#endif
+            strlcpy(curr->name, mod->name, sizeof(curr->name));
+            // for next module
+            count++;
+            curr++;
+          }
+          mutex_unlock(s_module_mutex);
+          kbuf_size = sizeof(unsigned long) + count * sizeof(struct one_module);
+          goto copy_kbuf_count;
         } else {
           ALLOC_KBUF(struct one_module1, ptrbuf[0])
           mutex_lock(s_module_mutex);

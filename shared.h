@@ -1656,7 +1656,7 @@ struct one_module1
 // wrapper to read /proc/modules from non-root
 // in params:
 //  0 - size
-//  1 - type, 0 - one_module, 1 - one_module1
+//  1 - type, 0 - one_module, 1 - one_module1, 2 - obe_module but for MOD_TEXT only
 // out params:
 //  N + N * one_module or one_module1
 #define IOCTL_READ_MODULES                 _IOR(IOCTL_NUM, 0x5F, int*)
