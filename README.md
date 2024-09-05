@@ -20,6 +20,7 @@ Small pet project to find and dump some linux kernel guts like
 * cgroups (-g options)
 * registered consoles (-C options)
 * input_devs & their handlers (-S option) (see http://redplait.blogspot.com/2024/05/linux-input-handles.html)
+* executable pages in kernel (-M option) (see https://redplait.blogspot.com/2024/09/hidden-executable-pages-in-linux-kernel.html)
  
 etc etc
 
