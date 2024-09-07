@@ -172,7 +172,7 @@ int init_kmods(int fd)
   return s_mod_stg.read_from_driver(fd);
 }
 
-int init_kmods_ex(int fd)
+int init_kmod_ex(int fd)
 {
   return s_mod_stg_ex.read_from_driver2(fd);
 }
