@@ -399,7 +399,7 @@ int dump_pte_addr(unsigned long l)
    printf(" kernel");
    return 1;
   }
-  const char *mname = find_kmod(l);
+  const char *mname = find_kmod_ex(l);
   if ( mname ) {
     printf(" %s", mname);
     return 2;
@@ -5603,7 +5603,7 @@ void scan_vmem(sa64 delta)
         one_vmap_area *curr = (one_vmap_area *)(buf + 1);
         for ( unsigned long i = 0; i < buf[0]; ++i, ++curr )
         {
-          auto im = find_kmod(curr->start);
+          auto im = find_kmod_ex(curr->start);
           if ( im ) continue; // skip modules
           if ( g_opt_v )
             printf("%lx - %lx caller %lX\n", curr->start, curr->start + curr->size, curr->caller);
@@ -5973,7 +5973,13 @@ int main(int argc, char **argv)
      if ( -1 != g_fd && opt_C )
        dump_consoles(delta);
      if ( -1 != g_fd && opt_M )
-       scan_vmem(delta);
+     {
+       if ( init_kmod_ex(g_fd) ) {
+        printf("cannot read executable pages for modules\n");
+       } else {
+        scan_vmem(delta);
+       }
+     }
      // -m
      if ( -1 != g_fd && opt_m )
      {
