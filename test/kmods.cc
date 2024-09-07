@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <unistd.h>
-#include <list>
+#include <vector>
+#include <algorithm>
 #include <fstream>
 #include <cstring>
 #include <sys/ioctl.h>
@@ -26,20 +27,24 @@ class mods_storage
     const char *find(unsigned long addr);
   protected:
     void fill(unsigned long *buf);
-    std::list<one_mod> m_list;
+    std::vector<one_mod> m_list;
+    static auto constexpr cloj = [](const one_mod &a, const one_mod &b) { return a.start < b.start; };
 };
 
 static mods_storage s_mod_stg, s_mod_stg_ex;
 
 const char *mods_storage::find(unsigned long addr)
 {
-  for ( auto &c: m_list )
-  {
-    if ( (addr >= c.start) &&
-         (addr < (c.start + c.len) )
+  one_mod tmp;
+  tmp.start = addr;
+  auto w = std::upper_bound( m_list.begin(), m_list.end(), tmp, cloj);
+  if ( w == m_list.begin() )
+    return NULL;
+  w--;
+  if ( (addr >= w->start) &&
+         (addr < (w->start + w->len) )
        )
-     return c.name.c_str();
-  }
+     return w->name.c_str();
   return NULL;
 }
 
@@ -49,17 +54,17 @@ void mods_storage::fill(unsigned long *buf)
 #ifdef DEBUG
   printf("%ld modules\n", buf[0]);
 #endif
+  m_list.resize(buf[0]);
   for ( unsigned long cnt = 0; cnt < buf[0]; cnt++, mod++ )
   {
-    one_mod tmp;
-    tmp.name = mod->name;
-    tmp.start = (unsigned long)mod->base;
-    tmp.len = mod->size;
+    m_list[cnt].name = mod->name;
+    m_list[cnt].start = (unsigned long)mod->base;
+    m_list[cnt].len = mod->size;
 #ifdef DEBUG
-    printf("%s %lX %lX\n", tmp.name.c_str(), tmp.start, tmp.len);
+    printf("%s %lX %lX\n", m_list[cnt].name.c_str(), m_list[cnt].start, m_list[cnt].len);
 #endif
-    m_list.push_back(tmp);
   }
+  std::sort( m_list.begin(), m_list.end(), cloj);
 }
 
 int mods_storage::read_from_driver(int fd)
@@ -151,6 +156,7 @@ int mods_storage::read_mods()
      continue;
     m_list.push_back(tmp);
   }
+  std::sort( m_list.begin(), m_list.end(), cloj);
   return 0;
 }
 
