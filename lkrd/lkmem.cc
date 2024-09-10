@@ -5357,7 +5357,14 @@ struct mem_summary {
   }
 };
 
-static inline void _dump_pte_addr(unsigned long addr, sa64 delta, mem_summary &ms)
+static a64 kprobe_addr = 0;
+static int is_kprobe(a64 addr)
+{
+  if ( !kprobe_addr ) return 0;
+  return addr == kprobe_addr;
+}
+
+static inline void _dump_pte_addr(unsigned long addr, sa64 delta, mem_summary &ms, int &_is_kprobe)
 {
   if ( is_purged(addr) )
     printf(" [purged]");
@@ -5372,13 +5379,17 @@ static inline void _dump_pte_addr(unsigned long addr, sa64 delta, mem_summary &m
       } else {
         ms.execs[caller] += 1 << s_page_size;
         size_t off = 0;
-        auto cname = lower_name_by_addr_with_off((a64)caller - delta, &off);
+        a64 alloc_addr = 0;
+        auto cname = lower_name_by_addr_with_off2((a64)caller - delta, &off, &alloc_addr);
         if ( cname )
         {
+    // printf("alloc_addr %p ", alloc_addr);
+          _is_kprobe = is_kprobe(alloc_addr);
           if ( off )
             printf(" alloced by %s+%X", cname, off);
           else
             printf(" alloced by %s", cname);
+          if ( _is_kprobe ) printf(" KPROBE");
         } else
          printf(" unnamed caddr %lX", caller);
       }
@@ -5404,6 +5415,7 @@ void dump_next(unsigned long addr, void *prev_addr, int idx, sa64 delta, mem_sum
   }
   for ( int i = 0; i < VITEMS_CNT; i++ )
   {
+    int is_krpobe = 0;
     if ( pgds->items[i].bad ) continue;
     if ( !pgds->items[i].present ) continue;
     if ( pgds->items[i].huge ) {
@@ -5411,7 +5423,7 @@ void dump_next(unsigned long addr, void *prev_addr, int idx, sa64 delta, mem_sum
       margin(idx);
       unsigned long final_addr = addr | gen_mask(i, idx);
       printf("[%d] huge %s %p %lX addr %p", i, p_names[idx-1], pgds->items[i].ptr, pgds->items[i].value, (void *)final_addr);
-      _dump_pte_addr(final_addr, delta, ms);
+      _dump_pte_addr(final_addr, delta, ms, is_krpobe);
       continue;
     }
     if ( pgds->items[i].large ) {
@@ -5419,7 +5431,7 @@ void dump_next(unsigned long addr, void *prev_addr, int idx, sa64 delta, mem_sum
       margin(idx);
       unsigned long final_addr = addr | gen_mask(i, idx);
       printf("[%d] large %s %p %lX addr %p", i, p_names[idx-1], pgds->items[i].ptr, pgds->items[i].value, (void *)final_addr);
-      _dump_pte_addr(final_addr, delta, ms);
+      _dump_pte_addr(final_addr, delta, ms, is_krpobe);
       continue;
     }
     if ( 5 == idx && pgds->items[i].nx ) continue;
@@ -5434,13 +5446,16 @@ void dump_next(unsigned long addr, void *prev_addr, int idx, sa64 delta, mem_sum
       unsigned long final_addr = addr | pte_val;
       printf("[%d] %s %p %lX addr %lX final_addr %lX", i, p_names[idx-1], pgds->items[i].ptr, pgds->items[i].value, 
        addr, final_addr);
-      _dump_pte_addr(final_addr, delta, ms);
+      _dump_pte_addr(final_addr, delta, ms, is_krpobe);
     }
   }
 }
 
 static void _scan_vmem(sa64 delta)
 {
+  // TODO: this symbol is very arch specific
+  kprobe_addr = get_addr("arch_ftrace_update_trampoline");
+  if ( !kprobe_addr ) rcf("arch_ftrace_update_trampoline");
   int err;
   extern unsigned long g_kstart;
   unsigned long targs[16];
