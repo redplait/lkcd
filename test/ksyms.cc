@@ -60,7 +60,7 @@ class ksym_holder
 #endif /* HAS_ELFIO */
     const char *name_by_addr(a64);
     const char *lower_name_by_addr(a64);
-    const char *lower_name_by_addr_with_off(a64, size_t *);
+    const char *lower_name_by_addr_with_off(a64, size_t *, a64 *sym_addr);
     a64 get_addr(const char *name)
     {
       auto c = m_names.find(name);
@@ -137,7 +137,7 @@ const char *ksym_holder::lower_name_by_addr(a64 addr)
   return found->sym->name.c_str();
 }
 
-const char *ksym_holder::lower_name_by_addr_with_off(a64 addr, size_t *off)
+const char *ksym_holder::lower_name_by_addr_with_off(a64 addr, size_t *off, a64 *sym_addr)
 {
   if ( NULL == m_addresses )
     return NULL;
@@ -149,12 +149,14 @@ const char *ksym_holder::lower_name_by_addr_with_off(a64 addr, size_t *off)
   if ( found->addr == addr )
   {
     *off = 0;
+    *sym_addr = addr;
     return found->sym->name.c_str();
   }
   if ( found == m_addresses )
     return NULL;
   found--;
   *off = addr - found->addr;
+  *sym_addr = found->addr;
   return found->sym->name.c_str();
 }
 
@@ -448,7 +450,13 @@ const char *lower_name_by_addr(a64 addr)
 
 const char *lower_name_by_addr_with_off(a64 addr, size_t *off)
 {
-  return s_ksyms.lower_name_by_addr_with_off(addr, off);
+  a64 unused = 0;
+  return s_ksyms.lower_name_by_addr_with_off(addr, off, &unused);
+}
+
+const char *lower_name_by_addr_with_off2(a64 addr, size_t *off, a64 *sym_addr)
+{
+  return s_ksyms.lower_name_by_addr_with_off(addr, off, sym_addr);
 }
 
 struct addr_sym *get_in_range(a64 start, a64 end, size_t *count)

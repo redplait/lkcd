@@ -29,6 +29,7 @@ int read_syms(const ELFIO::elfio& reader, ELFIO::symbol_section_accessor &);
 const char *name_by_addr(a64);
 const char *lower_name_by_addr(a64);
 const char *lower_name_by_addr_with_off(a64, size_t *);
+const char *lower_name_by_addr_with_off2(a64, size_t *, a64 *sym_addr);
 a64 get_addr(const char *);
 struct addr_sym *get_in_range(a64 start, a64 end, size_t *count);
 struct addr_sym *start_with(const char *prefix, a64 start, a64 end, size_t *count);
