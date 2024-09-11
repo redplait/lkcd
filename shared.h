@@ -2128,5 +2128,10 @@ struct one_tcp_cong {
 // out params: N + N * one_tcp_cong
 #define IOCTL_TCP_CONG                        _IOR(IOCTL_NUM, 0x7d, int*)
 
+// read vmalloced memory - like IOCTL_READ_PTR but with size
+// in params:
+//  0 - addr
+//  1 - size
+#define IOCTL_READ_VMEM                       _IOR(IOCTL_NUM, 0x7e, int*)
 
 #endif /* LKCD_SHARED_H */

@@ -1792,6 +1792,21 @@ static long lkcd_ioctl(struct file *file, unsigned int ioctl_num, unsigned long 
 
   switch(ioctl_num)
   {
+    case IOCTL_READ_VMEM:
+       COPY_ARGS(2)
+#ifdef __x86_64__
+       if ( s_lookup_address ) {
+         unsigned int unused = 0;
+         pte_t *pte = s_lookup_address(ptrbuf[0], &unused);
+         if ( !pte ) return -EFAULT;
+         if ( pte_none(*pte) || !pte_present(*pte) ) return -EFAULT;
+       } else
+#endif
+       if ( !virt_addr_valid((void *)ptrbuf[0]) &&
+         (s_vmalloc_or_module_addr && !s_vmalloc_or_module_addr((const void *)ptrbuf[0])) ) return -EFAULT;
+       if ( copy_to_user((void*)ioctl_param, (void*)ptrbuf[0], ptrbuf[1]) > 0 )
+         return -EFAULT;
+      break; /* IOCTL_READ_VMEM */
     case IOCTL_READ_PTR:
        COPY_ARG
 #ifdef __x86_64__
