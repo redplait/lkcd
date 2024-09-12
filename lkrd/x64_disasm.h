@@ -127,9 +127,10 @@ class x64_jit_disasm
    }
    void disasm_kprobe(sa64 delta)
    {
-     int curr_len;
-     while (curr_len = ud_disassemble(&ud_obj))
+     int curr_len, end = 0;
+     while (!end && (curr_len = ud_disassemble(&ud_obj)))
      {
+       end = ud_obj.mnemonic == UD_Iret || ud_obj.mnemonic == UD_Iretf || ud_obj.mnemonic == UD_Iint3;
        printf("%016lx ", ud_insn_off(&ud_obj));
        const char* hex1 = ud_insn_hex(&ud_obj);
        const char *name = NULL;
@@ -160,7 +161,6 @@ class x64_jit_disasm
          printf("%-17s %s ; %s\n", hex1, ud_insn_asm(&ud_obj), name);
        else
          printf("%-17s %s\n", hex1, ud_insn_asm(&ud_obj));
-       if ( ud_obj.mnemonic == UD_Iret || ud_obj.mnemonic == UD_Iretf ) break;
      }
    }
    void disasm(sa64 delta, std::map<void *, std::string> &map_names, std::list<const char *> *holes)

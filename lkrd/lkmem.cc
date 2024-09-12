@@ -32,8 +32,9 @@
 #include "ujit.h"
 #endif
 
-int g_opt_v = 0;
-int g_opt_h = 0;
+int g_opt_v = 0,
+    g_opt_d = 0,
+    g_opt_h = 0;
 int g_dump_bpf_ops = 0;
 int g_event_foff = 0;
 std::set<unsigned long> g_kpe, g_kpd; // enable-disable kprobe, key is just address
@@ -5364,6 +5365,23 @@ static int is_kprobe(a64 addr)
   return addr == kprobe_addr;
 }
 
+void disasm_kprobe(unsigned long addr, sa64 delta)
+{
+  // warning! size is very arch-specific
+  char body[400];
+  unsigned long *arg = (unsigned long *)body;
+  arg[0] = addr;
+  arg[1] = sizeof(body);
+  int err = ioctl(g_fd, IOCTL_READ_VMEM, (int *)arg);
+  if ( err )
+  {
+    printf("IOCTL_READ_VMEM(%p) failed, errno %d (%s)\n", addr, errno, strerror(errno));
+    return;
+  }
+  x64_jit_disasm kd(addr, body, sizeof(body));
+  kd.disasm_kprobe(delta);
+}
+
 static inline void _dump_pte_addr(unsigned long addr, sa64 delta, mem_summary &ms, int &_is_kprobe)
 {
   if ( is_purged(addr) )
@@ -5383,7 +5401,6 @@ static inline void _dump_pte_addr(unsigned long addr, sa64 delta, mem_summary &m
         auto cname = lower_name_by_addr_with_off2((a64)caller - delta, &off, &alloc_addr);
         if ( cname )
         {
-    // printf("alloc_addr %p ", alloc_addr);
           _is_kprobe = is_kprobe(alloc_addr);
           if ( off )
             printf(" alloced by %s+%X", cname, off);
@@ -5415,7 +5432,7 @@ void dump_next(unsigned long addr, void *prev_addr, int idx, sa64 delta, mem_sum
   }
   for ( int i = 0; i < VITEMS_CNT; i++ )
   {
-    int is_krpobe = 0;
+    int is_kprobe = 0;
     if ( pgds->items[i].bad ) continue;
     if ( !pgds->items[i].present ) continue;
     if ( pgds->items[i].huge ) {
@@ -5423,7 +5440,8 @@ void dump_next(unsigned long addr, void *prev_addr, int idx, sa64 delta, mem_sum
       margin(idx);
       unsigned long final_addr = addr | gen_mask(i, idx);
       printf("[%d] huge %s %p %lX addr %p", i, p_names[idx-1], pgds->items[i].ptr, pgds->items[i].value, (void *)final_addr);
-      _dump_pte_addr(final_addr, delta, ms, is_krpobe);
+      _dump_pte_addr(final_addr, delta, ms, is_kprobe);
+      // I hope kprobe cannot be in huge pages
       continue;
     }
     if ( pgds->items[i].large ) {
@@ -5431,7 +5449,8 @@ void dump_next(unsigned long addr, void *prev_addr, int idx, sa64 delta, mem_sum
       margin(idx);
       unsigned long final_addr = addr | gen_mask(i, idx);
       printf("[%d] large %s %p %lX addr %p", i, p_names[idx-1], pgds->items[i].ptr, pgds->items[i].value, (void *)final_addr);
-      _dump_pte_addr(final_addr, delta, ms, is_krpobe);
+      _dump_pte_addr(final_addr, delta, ms, is_kprobe);
+      // I hope kprobe cannot be in large pages
       continue;
     }
     if ( 5 == idx && pgds->items[i].nx ) continue;
@@ -5446,7 +5465,9 @@ void dump_next(unsigned long addr, void *prev_addr, int idx, sa64 delta, mem_sum
       unsigned long final_addr = addr | pte_val;
       printf("[%d] %s %p %lX addr %lX final_addr %lX", i, p_names[idx-1], pgds->items[i].ptr, pgds->items[i].value, 
        addr, final_addr);
-      _dump_pte_addr(final_addr, delta, ms, is_krpobe);
+      _dump_pte_addr(final_addr, delta, ms, is_kprobe);
+      if ( is_kprobe && g_opt_d )
+        disasm_kprobe(final_addr, delta);
     }
   }
 }
@@ -5726,7 +5747,6 @@ int main(int argc, char **argv)
    // read options
    int opt_f = 0, opt_F = 0,
        opt_g = 0,
-       opt_d = 0,
        opt_c = 0, opt_C = 0,
        opt_k = 0, opt_K = 0,
        opt_m = 0, opt_M = 0,
@@ -5822,7 +5842,7 @@ int main(int argc, char **argv)
           g_opt_v = 1;
          break;
         case 'd':
-          opt_d = 1;
+          g_opt_d = 1;
          break;
         case 'C':
           opt_C = 1; need_driver = 1;
@@ -6366,7 +6386,7 @@ end:
           dump_verops(delta);
           dump_struct_ops(delta);
        }
-       if ( opt_d )
+       if ( g_opt_d )
        {
           dis_base *bd = NULL;
           if ( reader.get_machine() == 183 )
@@ -6615,7 +6635,7 @@ end:
             }
           } // opt_c
 #endif /* !_MSC_VER */
-       } // opt_d
+       } // g_opt_d
        break;
      }
    }
