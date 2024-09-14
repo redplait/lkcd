@@ -218,6 +218,28 @@ int x64_disasm::find_kmem_cache_name(a64 addr, a64 kfree_const)
   return 0;
 }
 
+int x64_disasm::get_neg_off(int idx) const
+{
+  switch(ud_obj.operand[idx].offset)
+  {
+    case 8: return -ud_obj.operand[1].lval.sbyte;
+    case 16: return -ud_obj.operand[1].lval.sword;
+    case 32: return -ud_obj.operand[1].lval.sdword;
+  }
+  return 0;
+}
+
+int x64_disasm::is_neg_off(int idx) const
+{
+  switch(ud_obj.operand[idx].offset)
+  {
+    case 8: return ud_obj.operand[1].lval.sbyte < 0;
+    case 16: return ud_obj.operand[1].lval.sword < 0;
+    case 32: return ud_obj.operand[1].lval.sdword < 0;
+  }
+  return 0;
+}
+
 int x64_disasm::find_kmem_cache_next(a64 addr)
 {
   if ( !set(addr) )
@@ -229,8 +251,8 @@ int x64_disasm::find_kmem_cache_next(a64 addr)
     if ( is_end() )
       break;
     // check lea rxx, [rsi-xx], rsi - second arg
-    if ( is_rmem(UD_Ilea) && ud_obj.operand[1].base == UD_R_RSI )
-      return 0x100 - ud_obj.operand[1].lval.sdword;
+    if ( is_rmem(UD_Ilea) && ud_obj.operand[1].base == UD_R_RSI && is_neg_off(1) )
+      return get_neg_off(1);
   }
   return 0;
 }

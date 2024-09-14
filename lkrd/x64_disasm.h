@@ -263,6 +263,8 @@ class x64_disasm: public dis_base
     int is_mem(ud_mnemonic_code, int idx) const;
     int is_rmem(ud_mnemonic_code) const;
     int is_mrip(ud_mnemonic_code) const;
+    int is_neg_off(int idx) const;
+    int get_neg_off(int idx) const;
     int is_end() const;
     int is_jmp() const;
     int is_jxx_jimm() const;
