@@ -241,11 +241,13 @@ class x64_disasm: public dis_base
       return c->second;
     }
     virtual ~x64_disasm() = default;
-    virtual int find_return_notifier_list(a64 addr);
-    virtual int process(a64 addr, std::map<a64, a64> &, std::set<a64> &out_res);
-    virtual int process_sl(lsm_hook &);
-    virtual a64 process_bpf_target(a64 addr, a64 mlock);
-    virtual int process_trace_remove_event_call(a64 addr, a64 free_event_filter);
+    virtual int find_return_notifier_list(a64 addr) override;
+    virtual int process(a64 addr, std::map<a64, a64> &, std::set<a64> &out_res) override;
+    virtual int process_sl(lsm_hook &) override;
+    virtual a64 process_bpf_target(a64 addr, a64 mlock) override;
+    virtual int process_trace_remove_event_call(a64 addr, a64 free_event_filter) override;
+    virtual int find_kmem_cache_ctor(a64 addr, int &flag_off) override;
+    virtual int find_kmem_cache_name(a64 addr, a64 kfree_const) override;
   protected:
     int set(a64 addr)
     {
@@ -257,11 +259,13 @@ class x64_disasm: public dis_base
       ud_set_pc(&ud_obj, (uint64_t)addr);
       return 1;
     }
+    int is_mem(ud_mnemonic_code, int idx) const;
     int is_rmem(ud_mnemonic_code) const;
     int is_mrip(ud_mnemonic_code) const;
     int is_end() const;
     int is_jmp() const;
     int is_jxx_jimm() const;
+    int is_cjimm(a64 &) const;
     int reg32to64(ud_type from, ud_type &res) const;
     ud_type expand_reg(int idx) const;
     // will be filled with sequence of set_indirect_thunk methods

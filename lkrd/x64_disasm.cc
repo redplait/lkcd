@@ -65,6 +65,17 @@ int x64_disasm::is_jmp() const
   return 0;
 }
 
+int x64_disasm::is_cjimm(a64 &addr) const
+{
+  if ( (ud_obj.mnemonic == UD_Icall) &&
+       (ud_obj.operand[0].type == UD_OP_JIMM) )
+  {
+    addr = ud_obj.pc + ud_obj.operand[0].lval.sdword;
+    return 1;
+  }
+  return 0;
+}
+
 int x64_disasm::is_jxx_jimm() const
 {
   if ( !is_jmp() )
@@ -134,12 +145,10 @@ a64 x64_disasm::process_bpf_target(a64 addr, a64 mlock)
       break;
     if ( is_end() )
       break;
+    a64 caddr;
     // check for call mutex_lock
-    if ( !state && (ud_obj.mnemonic == UD_Icall) &&
-         (ud_obj.operand[0].type == UD_OP_JIMM)
-       )
+    if ( !state && is_cjimm(caddr) )
     {
-      a64 caddr = ud_obj.pc + ud_obj.operand[0].lval.sdword;
       if ( caddr == mlock )
         state = 1;
       continue;
@@ -159,6 +168,13 @@ a64 x64_disasm::process_bpf_target(a64 addr, a64 mlock)
   return 0;
 }
 
+int x64_disasm::is_mem(ud_mnemonic_code c, int idx) const
+{
+  return (ud_obj.mnemonic == c) &&
+         (ud_obj.operand[idx].type == UD_OP_MEM)
+  ;
+}
+
 int x64_disasm::is_rmem(ud_mnemonic_code c) const
 {
   return (ud_obj.mnemonic == c) &&
@@ -173,6 +189,57 @@ int x64_disasm::is_mrip(ud_mnemonic_code c) const
          (ud_obj.operand[1].type == UD_OP_MEM) && 
          (ud_obj.operand[1].base == UD_R_RIP)
   ;
+}
+
+int x64_disasm::find_kmem_cache_name(a64 addr, a64 kfree_const)
+{
+  if ( !set(addr) )
+    return 0;
+  used_regs<int> regs;
+  for ( ; ;  )
+  {
+    if ( !ud_disassemble(&ud_obj) )
+      break;
+    if ( is_end() )
+      break;
+    if ( is_rmem(UD_Imov) )
+    {
+      regs.add(ud_obj.operand[0].base, ud_obj.operand[1].lval.sdword);
+      continue;
+    }
+    a64 caddr;
+    if ( is_cjimm(caddr) && caddr == kfree_const )
+    {
+      int res = 0;
+      regs.asgn(UD_R_RDI, res);
+      return res;
+    }
+  }
+  return 0;
+}
+
+int x64_disasm::find_kmem_cache_ctor(a64 addr, int &flag_off)
+{
+  flag_off = 0;
+  if ( !set(addr) )
+    return 0;
+  int state = 0;
+  for ( ; ;  )
+  {
+    if ( !ud_disassemble(&ud_obj) )
+      break;
+    if ( is_end() )
+      break;
+    if ( !state && is_mem(UD_Itest, 0) )
+    {
+      state = 1;
+      flag_off = ud_obj.operand[0].lval.sdword;
+      continue;
+    }
+    if ( state && is_mem(UD_Icmp, 0) )
+      return ud_obj.operand[0].lval.sdword;
+  }
+  return 0;
 }
 
 int x64_disasm::process_sl(lsm_hook &sl)
@@ -406,7 +473,7 @@ int x64_disasm::process(a64 addr, std::map<a64, a64> &skip, std::set<a64> &out_r
                res++;
              }
            }
-         }         
+         }
          // check call jimm
          if ( (ud_obj.mnemonic == UD_Icall) &&
               (ud_obj.operand[0].type == UD_OP_JIMM)
