@@ -244,9 +244,12 @@ int main(int argc, char **argv)
     auto slu = get_addr("slab_unmergeable");
     if ( !slu ) rcf("slab_unmergeable");
     else {
-      int res = bd->find_kmem_cache_ctor(slu);
-      if ( res )
+      int flag_off = 0;
+      int res = bd->find_kmem_cache_ctor(slu, flag_off);
+      if ( res ) {
+        if ( flag_off ) printf("kmem_cache->flag %X\n", flag_off);
         printf("kmem_cache->ctor %X\n", res);
+      }
     }
     slu = get_addr("kfree_const");
     if ( !slu ) rcf("kfree_const");

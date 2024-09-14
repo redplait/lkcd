@@ -76,8 +76,9 @@ class dis_base
     // ctor - can be extracted with disasm from slab_unmergeable
     // name - from slab_kmem_cache_release as arg0 to call kfree_const
     // list to iterate - from slab_show as negative offset from second argument
-    virtual int find_kmem_cache_ctor(a64 addr)
+    virtual int find_kmem_cache_ctor(a64 addr, int &flag_off)
     {
+      flag_off = 0;
       return 0;
     }
     virtual int find_kmem_cache_name(a64 addr, a64 kfree_const)

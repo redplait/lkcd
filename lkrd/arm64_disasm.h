@@ -134,13 +134,13 @@ class arm64_disasm: public dis_base
     {
     }
     virtual int process(a64 addr, std::map<a64, a64> &, std::set<a64> &out_res);
-    virtual int find_kfunc_set_tab_off(a64 addr);
-    virtual int find_kmem_cache_next(a64 addr);
-    virtual int find_kmem_cache_name(a64 addr, a64 kfree_const);
-    virtual int find_kmem_cache_ctor(a64 addr);
-    virtual int process_sl(lsm_hook &);
-    virtual a64 process_bpf_target(a64 addr, a64 mlock);
-    virtual int process_trace_remove_event_call(a64 addr, a64 free_event_filter);
+    virtual int find_kfunc_set_tab_off(a64 addr) override;
+    virtual int find_kmem_cache_next(a64 addr) override;
+    virtual int find_kmem_cache_name(a64 addr, a64 kfree_const) override;
+    virtual int find_kmem_cache_ctor(a64 addr, int &flag_off) override;
+    virtual int process_sl(lsm_hook &) override;
+    virtual a64 process_bpf_target(a64 addr, a64 mlock) override;
+    virtual int process_trace_remove_event_call(a64 addr, a64 free_event_filter) override;
     void add_noreturn(a64 addr)
     {
       m_noreturn.insert(addr);
