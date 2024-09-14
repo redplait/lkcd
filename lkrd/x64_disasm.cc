@@ -218,6 +218,23 @@ int x64_disasm::find_kmem_cache_name(a64 addr, a64 kfree_const)
   return 0;
 }
 
+int x64_disasm::find_kmem_cache_next(a64 addr)
+{
+  if ( !set(addr) )
+    return 0;
+  for ( ; ;  )
+  {
+    if ( !ud_disassemble(&ud_obj) )
+      break;
+    if ( is_end() )
+      break;
+    // check lea rxx, [rsi-xx], rsi - second arg
+    if ( is_rmem(UD_Ilea) && ud_obj.operand[1].base == UD_R_RSI )
+      return 0x100 - ud_obj.operand[1].lval.sdword;
+  }
+  return 0;
+}
+
 int x64_disasm::find_kmem_cache_ctor(a64 addr, int &flag_off)
 {
   flag_off = 0;

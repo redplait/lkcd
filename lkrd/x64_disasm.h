@@ -246,6 +246,7 @@ class x64_disasm: public dis_base
     virtual int process_sl(lsm_hook &) override;
     virtual a64 process_bpf_target(a64 addr, a64 mlock) override;
     virtual int process_trace_remove_event_call(a64 addr, a64 free_event_filter) override;
+    virtual int find_kmem_cache_next(a64 addr) override;
     virtual int find_kmem_cache_ctor(a64 addr, int &flag_off) override;
     virtual int find_kmem_cache_name(a64 addr, a64 kfree_const) override;
   protected:
