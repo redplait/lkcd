@@ -415,7 +415,8 @@ class arm64_disasm: public dis_base
     }
     inline int is_br_reg() const
     {
-      return (m_dis.instr_id == AD_INSTR_BR && m_dis.num_operands == 1 && m_dis.operands[0].type == AD_OP_REG);
+      return is_braa() ||
+       (m_dis.instr_id == AD_INSTR_BR && m_dis.num_operands == 1 && m_dis.operands[0].type == AD_OP_REG);
     }
     inline int is_bl_reg() const
     {
