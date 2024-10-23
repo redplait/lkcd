@@ -1,4 +1,4 @@
-#include <map>
+#include <unordered_map>
 #include <fstream>
 #include <cstring>
 #include <stdio.h>
@@ -13,7 +13,7 @@ class mountinfo
     int read(std::string &);
     const char *get_mnt(int id) const;
   protected:
-    std::map<int, std::string> m_map;
+    std::unordered_map<int, std::string> m_map;
 };
 
 const char *mountinfo::get_mnt(int id) const

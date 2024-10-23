@@ -148,6 +148,16 @@ class arm64_disasm: public dis_base
     virtual ~arm64_disasm() = default;
   protected:
     int disasm();
+    // Branch to Register, with pointer authentication
+    // details https://developer.arm.com/documentation/dui0801/l/A64-General-Instructions/BRAA--BRAAZ--BRAB--BRABZ--A64-?lang=en
+    inline int is_braa() const
+    {
+      return (m_dis.instr_id == AD_INSTR_BRAA) ||
+       (m_dis.instr_id == AD_INSTR_BRAAZ) ||
+       (m_dis.instr_id == AD_INSTR_BRAB) ||
+       (m_dis.instr_id == AD_INSTR_BRABZ)
+      ;
+    }
     template <typename T>
     int check_jmps_stateless(T &graph)
     {
