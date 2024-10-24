@@ -397,7 +397,7 @@ class arm64_disasm: public dis_base
       if ( is_ldraa() )
       {
         used_regs.zero(get_reg(0));
-        used_regs.zero(get_reg(1));
+//        used_regs.zero(get_reg(1));
         return 1;
       }
       return 0;
