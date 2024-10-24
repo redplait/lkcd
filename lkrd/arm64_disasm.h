@@ -382,14 +382,14 @@ class arm64_disasm: public dis_base
     }
     inline int is_ldr_off() const
     {
-      return ( (m_dis.instr_id == AD_INSTR_LDRAA || m_dis.instr_id == AD_INSTR_LDR)
-               && m_dis.num_operands == 3 && m_dis.operands[0].type == AD_OP_REG && m_dis.operands[1].type == AD_OP_REG 
+      return ( (m_dis.instr_id == AD_INSTR_LDRAA || m_dis.instr_id == AD_INSTR_LDRAB || m_dis.instr_id == AD_INSTR_LDR)
+               && m_dis.num_operands == 3 && m_dis.operands[0].type == AD_OP_REG && m_dis.operands[1].type == AD_OP_REG
              );
     }
     inline int is_ldraa() const
     {
-      return ( (m_dis.instr_id == AD_INSTR_LDRAA || m_dis.instr_id == AD_INSTR_LDR)
-               && m_dis.num_operands == 2 && m_dis.operands[0].type == AD_OP_REG && m_dis.operands[1].type == AD_OP_REG 
+      return ( (m_dis.instr_id == AD_INSTR_LDRAA || m_dis.instr_id == AD_INSTR_LDRAB || m_dis.instr_id == AD_INSTR_LDR)
+               && m_dis.num_operands == 2 && m_dis.operands[0].type == AD_OP_REG && m_dis.operands[1].type == AD_OP_REG
              );
     }
     inline int is_ldraa(regs_pad &used_regs) const
