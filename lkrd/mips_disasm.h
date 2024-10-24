@@ -28,7 +28,7 @@ struct mips_regs {
 struct mips_regs2 {
  char regs[mips::REG_RA];
  mips_regs2() {
-   memset(regs, 01, mips::REG_RA);
+   memset(regs, -1, mips::REG_RA);
  }
  int check(int idx) const
  {
