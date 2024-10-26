@@ -11,15 +11,22 @@ struct mips_regs {
   std::bitset<mips::REG_RA> pres;
   int64_t get(int idx) const
   {
-    if ( idx >= mips::REG_RA ) return 0;
+    if ( idx < 0 || idx >= mips::REG_RA ) return 0;
     if ( !pres[idx] ) return 0;
     return regs[idx];
   }
   int set(int idx, int64_t v)
   {
-    if ( idx >= mips::REG_RA ) return 0;
+    if ( idx < 0 || idx >= mips::REG_RA ) return 0;
     pres[idx] = 1;
     regs[idx] = v;
+    return 1;
+  }
+ int clear(int idx)
+  {
+    if ( idx >= mips::REG_RA || idx < 0 ) return 0;
+    pres[idx] = 0;
+    regs[idx] = 0;
     return 1;
   }
 };
@@ -92,9 +99,24 @@ struct mdis {
    }
    return 0;
  }
+ int is_lbX() const
+ {
+   return (inst.operation == mips::MIPS_LBU || inst.operation == mips::MIPS_LB ||
+      inst.operation == mips::MIPS_LH || inst.operation == mips::MIPS_LHU ||
+      inst.operation == mips::MIPS_LW || inst.operation == mips::MIPS_LL || inst.operation == mips::MIPS_LLD) &&
+    inst.operands[0].operandClass == mips::OperandClass::REG &&
+    inst.operands[1].operandClass == mips::OperandClass::MEM_IMM;
+ }
+ int is_stX() const
+ {
+  return (inst.operation == mips::MIPS_SB || inst.operation == mips::MIPS_SH ||
+       inst.operation == mips::MIPS_SW || inst.operation == mips::MIPS_SD) &&
+    inst.operands[0].operandClass == mips::OperandClass::REG &&
+    inst.operands[1].operandClass == mips::OperandClass::MEM_IMM;
+ }
  int is_lw() const
  {
-   return inst.operation == mips::MIPS_LW &&
+   return (inst.operation == mips::MIPS_LW || inst.operation == mips::MIPS_LBU) &&
           inst.operands[0].operandClass == mips::OperandClass::REG &&
           inst.operands[1].operandClass == mips::OperandClass::MEM_IMM;
  }
@@ -173,6 +195,71 @@ struct mdis {
       if ( inst.operands[1].operandClass == mips::LABEL )
         return inst.operands[1].immediate;
       break;
+   }
+   return 0;
+ }
+ int is_dst() const
+ {
+using namespace mips;
+   // https://www.cs.cmu.edu/afs/cs/academic/class/15740-f97/public/doc/mips-isa.pdf
+   switch(inst.operation) {
+     case MIPS_ABS_D:
+     case MIPS_ABS_PS:
+     case MIPS_ABS_S:
+     case MIPS_DADD:
+     case MIPS_DADDI:
+     case MIPS_DADDIU:
+     case MIPS_DADDU:
+     case MIPS_ADD:
+     case MIPS_ADDU:
+     case MIPS_ADDIU:
+     case MIPS_SUB:
+     case MIPS_DSUB:
+     case MIPS_SUBU:
+     case MIPS_DSUBU:
+     case MIPS_MUL:
+     case MIPS_MULT:
+     case MIPS_MULTU:
+     case MIPS_DIV_D:
+     case MIPS_DIV_PS:
+     case MIPS_DIV_S:
+     case MIPS_MFHI:
+     case MIPS_MTHI:
+     case MIPS_MFLO:
+     case MIPS_MTLO:
+     case MIPS_NEG_D:
+     case MIPS_NEG_PS:
+     case MIPS_NEG_S:
+     case MIPS_NEG:
+     case MIPS_NEGU:
+     case MIPS_NOR:
+     case MIPS_NOT:
+     case MIPS_C_SEQ_D:
+     case MIPS_C_SEQ_PS:
+     case MIPS_C_SEQ_S:
+     case MIPS_C_SEQ:
+     case MIPS_SRA:
+     case MIPS_SRAV:
+     case MIPS_DSRA:
+     case MIPS_SLT:
+     case MIPS_SLTI:
+     case MIPS_SLTU:
+     case MIPS_SLTIU:
+     case MIPS_AND:
+     case MIPS_OR:
+     case MIPS_ANDI:
+     case MIPS_ORI:
+     case MIPS_XOR:
+     case MIPS_XORI:
+     case MIPS_SLL:
+     case MIPS_SLLV:
+     case MIPS_SRL:
+     case MIPS_SRLV:
+     case MIPS_DSRL:
+     case MIPS_DSLL:
+     case MIPS_MOVN:
+     case MIPS_MOVZ:
+      return 1;
    }
    return 0;
  }

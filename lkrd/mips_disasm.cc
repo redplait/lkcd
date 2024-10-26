@@ -11,7 +11,7 @@ int mdis::handle(mips_regs2 &r)
 
 int mdis::handle(mips_regs &r, int off)
 {
-  if ( inst.operation == mips::MIPS_LUI )
+  if ( inst.operation == mips::MIPS_LUI || inst.operation == mips::MIPS_LI )
   {
 // printf("handle(%s) %d %d, %d %d\n", mips::get_operation(inst.operation), inst.operands[0].operandClass, inst.operands[1].operandClass);
    if ( inst.operands[0].operandClass == mips::OperandClass::REG && inst.operands[1].operandClass == mips::OperandClass::IMM )
@@ -19,8 +19,7 @@ int mdis::handle(mips_regs &r, int off)
     return r.set(inst.operands[0].reg, inst.operands[1].immediate << 16);
    }
   }
-  if ( inst.operation == mips::MIPS_LW && inst.operands[0].operandClass == mips::OperandClass::REG &&
-    inst.operands[1].operandClass == mips::OperandClass::MEM_IMM )
+  if ( is_lw() )
   {
     auto old = r.get(inst.operands[1].reg);
 // printf("lw(%d) old %lX\n", inst.operands[1].reg, old);
@@ -31,6 +30,8 @@ int mdis::handle(mips_regs &r, int off)
       old = (int)inst.operands[1].immediate;
     return r.set(inst.operands[0].reg, old);
   }
+  if ( inst.operands[0].operandClass == mips::OperandClass::REG && is_dst() )
+     r.clear(inst.operands[0].reg);
   return 0;
 }
 
@@ -188,14 +189,14 @@ int mips_disasm::find_kmem_cache_ctor(a64 addr, int &flag_off)
   mips_regs offs;
   while( md.disasm() )
   {
-    if ( md.handle(regs) ) continue;
-    if ( !state && md.handle(offs, 1) ) continue;
     if ( !state && md.inst.operation == mips::MIPS_AND ) {
       auto reg = md.inst.operands[0].reg;
       flag_off = (int)offs.get(reg);
       state = 1;
       continue;
     }
+    if ( md.handle(regs) ) continue;
+    if ( !state && md.handle(offs, 1) ) continue;
     if ( state && md.is_lw() )
     {
       auto reg = md.inst.operands[1].reg;
