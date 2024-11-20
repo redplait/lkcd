@@ -685,11 +685,15 @@ static void fill_superblock_marks(struct super_block *sb, void *arg)
         unsigned long index = args->curr[0];
         args->data[index].mark_addr = (void *)mark;
         args->data[index].mask = mark->mask;
-#if LINUX_VERSION_CODE < KERNEL_VERSION(6,0,0)        
-        args->data[index].ignored_mask = mark->ignored_mask;
+#if LINUX_VERSION_CODE < KERNEL_VERSION(6,0,0)
+// you can't guess when those stupid morons chanhed ignored_mask to ignore_mask
+// in ubuntu 5.15.125 it called ignore_mask
+// on official site: https://elixir.bootlin.com/linux/v5.15.125/source/include/linux/fsnotify_backend.h#L400
+// kill kill kill
+        args->data[index].ignored_mask = mark->ignore_mask;
 #else
         args->data[index].ignored_mask = mark->ignore_mask;
-#endif        
+#endif
         args->data[index].flags = mark->flags;
         if ( mark->group )
         {
@@ -736,8 +740,9 @@ static void fill_mount_marks(struct super_block *sb, void *arg)
         unsigned long index = args->curr[0];
         args->data[index].mark_addr = (void *)mark;
         args->data[index].mask = mark->mask;
-#if LINUX_VERSION_CODE < KERNEL_VERSION(6,0,0)        
-        args->data[index].ignored_mask = mark->ignored_mask;
+#if LINUX_VERSION_CODE < KERNEL_VERSION(6,0,0)
+// kill kill kill
+        args->data[index].ignored_mask = mark->ignore_mask;
 #else
         args->data[index].ignored_mask = mark->ignore_mask;
 #endif        
@@ -781,11 +786,12 @@ static void fill_inode_marks(struct super_block *sb, void *arg)
         unsigned long index = args->curr[0];
         args->data[index].mark_addr = (void *)mark;
         args->data[index].mask = mark->mask;
-#if LINUX_VERSION_CODE < KERNEL_VERSION(6,0,0)        
-        args->data[index].ignored_mask = mark->ignored_mask;
+#if LINUX_VERSION_CODE < KERNEL_VERSION(6,0,0)
+// kill kill kill
+        args->data[index].ignored_mask = mark->ignore_mask;
 #else
         args->data[index].ignored_mask = mark->ignore_mask;
-#endif        
+#endif
         args->data[index].flags = mark->flags;
         if ( mark->group )
         {
